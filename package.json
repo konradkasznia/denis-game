@@ -1,0 +1,17 @@
+{
+  "name": "denis-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Gra rytmiczna z artystą Denisem i jego piosenkami (prototyp / vertical slice)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/integration.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
