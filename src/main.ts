@@ -34,7 +34,11 @@ window.addEventListener("resize", resize);
 resize();
 
 const game = new Game();
-initInput(canvas, (e) => game.onTap(e));
+initInput(canvas, {
+  laneAt: (x) => game.laneAtX(x),
+  onPress: (lane, x, y) => game.onPress(lane, x, y),
+  onRelease: (lane) => game.onRelease(lane),
+});
 
 if (import.meta.env.DEV) (window as any).__game = game;
 

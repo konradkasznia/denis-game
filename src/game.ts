@@ -2,8 +2,7 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { LANES, loadSong, type SongDef } from "./chart.ts";
-import type { TapEvent } from "./input.ts";
+import { LANES, loadSong, type Note, type SongDef } from "./chart.ts";
 import {
   ACC_WEIGHT,
   classify,
@@ -25,9 +24,24 @@ const HIT_LINE_Y = 1090;
 const SPAWN_Y = -130;
 const APPROACH = 1.3; // s: czas przelotu nuty od góry do linii
 const NOTE_H = 32;
+const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
+const HOLD_BONUS = 180;
 
 const LANE_COLORS = ["#ff9f43", "#ff6b3d", "#ffd24c", "#ff5e7e"];
 const LANE_LABELS = ["D", "F", "J", "K"];
+
+const JUDGE_LABEL: Record<Judgement, string> = {
+  perfect: "PERFECT",
+  great: "SUPER",
+  good: "OK",
+  miss: "PUDŁO",
+};
+const JUDGE_COLOR: Record<Judgement, string> = {
+  perfect: "#ffe27a",
+  great: "#8affc1",
+  good: "#8ab6ff",
+  miss: "#ff6b7d",
+};
 
 interface Popup {
   txt: string;
@@ -78,8 +92,13 @@ export class Game {
   private combo = 0;
   private maxCombo = 0;
   private counts: Record<Judgement, number> = { perfect: 0, great: 0, good: 0, miss: 0 };
+  private holdsDone = 0;
+  private holdsBroken = 0;
   private accSum = 0;
   private judgedCount = 0;
+
+  /** nuta trzymana aktualnie przytrzymywana w danym torze */
+  private held: (Note | null)[] = [null, null, null, null];
 
   private popups: Popup[] = [];
   private laneFlash = [0, 0, 0, 0];
@@ -100,18 +119,17 @@ export class Game {
 
   // ---- pętla ----------------------------------------------------------
 
-  update(_dt: number, nowMs: number) {
+  update(_dt: number, _nowMs: number) {
     if (this.scene === "play") {
       this.songTime = this.audio.getSongTime();
       this.checkMisses();
+      this.resolveHeldHolds();
       if (this.songTime > this.song.duration + 0.6 && this.allJudged()) {
         this.finish();
       }
     }
     this.displayScore = lerp(this.displayScore, this.score, 0.18);
-    // sprężynowanie wciśniętych torów
     for (let i = 0; i < LANES; i++) this.lanePress[i] = lerp(this.lanePress[i], 0, 0.2);
-    void nowMs;
   }
 
   render(ctx: CanvasRenderingContext2D) {
@@ -134,32 +152,36 @@ export class Game {
 
   // ---- wejście -------------------------------------------------------
 
-  onTap(e: TapEvent) {
-    if (this.scene === "menu") {
-      this.handleMenuTap(e);
-    } else if (this.scene === "play") {
-      let lane = e.lane;
-      if (lane < 0 && e.x >= 0) lane = clamp(Math.floor((e.x - MARGIN) / LANE_W), 0, LANES - 1);
-      if (lane >= 0) {
-        this.lanePress[lane] = 1;
-        this.judge(lane);
-      }
-    } else if (this.scene === "results") {
-      this.handleResultsTap(e);
+  /** Który tor odpowiada współrzędnej x (tylko podczas gry). */
+  laneAtX(x: number): number {
+    if (this.scene !== "play") return -1;
+    return clamp(Math.floor((x - MARGIN) / LANE_W), 0, LANES - 1);
+  }
+
+  onPress(lane: number, x: number, y: number) {
+    if (this.scene === "menu") return this.handleMenuTap(x, y);
+    if (this.scene === "results") return this.handleResultsTap(x, y);
+    if (this.scene === "play") {
+      if (lane < 0 && x < 0) return; // np. spacja podczas gry
+      if (lane < 0) lane = this.laneAtX(x);
+      if (lane >= 0) this.pressLane(lane);
     }
   }
 
-  private handleMenuTap(e: TapEvent) {
-    // strefy kalibracji
-    if (e.x >= 0) {
-      const y = 1024;
-      if (e.y > y - 55 && e.y < y + 55) {
-        if (e.x > VW / 2 - 210 && e.x < VW / 2 - 90) {
+  onRelease(lane: number) {
+    if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
+  }
+
+  private handleMenuTap(x: number, y: number) {
+    if (x >= 0) {
+      const cy = 1024;
+      if (y > cy - 55 && y < cy + 55) {
+        if (x > VW / 2 - 210 && x < VW / 2 - 90) {
           this.settings.offsetMs = clamp(this.settings.offsetMs - 5, -120, 120);
           saveSettings(this.settings);
           return;
         }
-        if (e.x > VW / 2 + 90 && e.x < VW / 2 + 210) {
+        if (x > VW / 2 + 90 && x < VW / 2 + 210) {
           this.settings.offsetMs = clamp(this.settings.offsetMs + 5, -120, 120);
           saveSettings(this.settings);
           return;
@@ -169,15 +191,11 @@ export class Game {
     void this.startPlay();
   }
 
-  private handleResultsTap(e: TapEvent) {
-    // dwa przyciski na dole
+  private handleResultsTap(x: number, y: number) {
     const by = 1120;
-    if (e.x < 0 || (e.y > by - 60 && e.y < by + 60)) {
-      if (e.x < 0 || e.x < VW / 2) {
-        void this.startPlay(); // jeszcze raz
-      } else {
-        this.scene = "menu";
-      }
+    if (x < 0 || (y > by - 60 && y < by + 60)) {
+      if (x < 0 || x < VW / 2) void this.startPlay();
+      else this.scene = "menu";
     }
   }
 
@@ -191,8 +209,11 @@ export class Game {
     this.combo = 0;
     this.maxCombo = 0;
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0 };
+    this.holdsDone = 0;
+    this.holdsBroken = 0;
     this.accSum = 0;
     this.judgedCount = 0;
+    this.held = [null, null, null, null];
     this.popups = [];
     this.resultsSavedBest = false;
     this.newBest = false;
@@ -223,15 +244,69 @@ export class Game {
     return this.settings.offsetMs / 1000;
   }
 
-  private judge(lane: number) {
-    const t = this.songTime;
-    const picked = pickNote(this.song.notes, lane, t, this.offsetSec());
+  private pressLane(lane: number) {
+    this.lanePress[lane] = 1;
+    const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
     if (!picked) return;
     const { note, absDt } = picked;
-    note.judged = true;
+    const j = classify(absDt) ?? "good";
     note.hit = true;
-    (note as any).judgedAt = t;
-    this.apply(classify(absDt) ?? "good", lane);
+    note.headJ = j;
+    note.judgedAt = this.songTime;
+    if (note.dur > 0) {
+      note.holding = true;
+      this.held[lane] = note;
+      this.apply(j, lane); // ocena głowy: punkty + combo
+    } else {
+      note.judged = true;
+      this.apply(j, lane);
+    }
+  }
+
+  private releaseLane(lane: number) {
+    const note = this.held[lane];
+    if (!note) return;
+    this.held[lane] = null;
+    note.holding = false;
+    note.judged = true;
+    note.judgedAt = this.songTime;
+    const end = note.time + note.dur + this.offsetSec();
+    this.completeHold(note, lane, this.songTime >= end - HOLD_RELEASE_TOL);
+  }
+
+  /** Nuty trzymane utrzymane do samego końca (gracz nie puścił palca). */
+  private resolveHeldHolds() {
+    for (let lane = 0; lane < LANES; lane++) {
+      const note = this.held[lane];
+      if (!note) continue;
+      const end = note.time + note.dur + this.offsetSec();
+      if (this.songTime >= end + HOLD_RELEASE_TOL) {
+        this.held[lane] = null;
+        note.holding = false;
+        note.judged = true;
+        note.judgedAt = this.songTime;
+        this.completeHold(note, lane, true);
+      }
+    }
+  }
+
+  private completeHold(note: Note, lane: number, success: boolean) {
+    void note;
+    if (success) {
+      this.holdsDone++;
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      this.comboPopAt = this.songTime;
+      this.score += Math.round(HOLD_BONUS * comboMultiplier(this.combo));
+      this.laneFlash[lane] = this.songTime;
+      this.denisPopAt = this.songTime;
+      this.pushPopup("TRZYMANE", "#8affc1", lane);
+    } else {
+      this.holdsBroken++;
+      this.combo = 0;
+      this.denisMissAt = this.songTime;
+      this.pushPopup("ZERWANE", "#ff6b7d", lane);
+    }
   }
 
   private checkMisses() {
@@ -240,7 +315,8 @@ export class Game {
       if (isMissed(n, this.songTime, off)) {
         n.judged = true;
         n.hit = false;
-        (n as any).judgedAt = n.time + 0.145;
+        n.headJ = "miss";
+        n.judgedAt = n.time + 0.145;
         this.apply("miss", n.lane);
       }
     }
@@ -262,25 +338,11 @@ export class Game {
       this.laneFlash[lane] = this.songTime;
       if (j !== "good") this.denisPopAt = this.songTime;
     }
+    this.pushPopup(JUDGE_LABEL[j], JUDGE_COLOR[j], lane);
+  }
 
-    const labels: Record<Judgement, string> = {
-      perfect: "PERFECT",
-      great: "SUPER",
-      good: "OK",
-      miss: "PUDŁO",
-    };
-    const colors: Record<Judgement, string> = {
-      perfect: "#ffe27a",
-      great: "#8affc1",
-      good: "#8ab6ff",
-      miss: "#ff6b7d",
-    };
-    this.popups.push({
-      txt: labels[j],
-      color: colors[j],
-      at: this.songTime,
-      x: MARGIN + lane * LANE_W + LANE_W / 2,
-    });
+  private pushPopup(txt: string, color: string, lane: number) {
+    this.popups.push({ txt, color, at: this.songTime, x: MARGIN + lane * LANE_W + LANE_W / 2 });
     if (this.popups.length > 12) this.popups.shift();
   }
 
@@ -290,6 +352,11 @@ export class Game {
 
   private accuracy() {
     return this.judgedCount ? this.accSum / this.judgedCount : 1;
+  }
+
+  private yFor(t: number): number {
+    const prog = (this.songTime - (t - APPROACH)) / APPROACH;
+    return SPAWN_Y + prog * (HIT_LINE_Y - SPAWN_Y);
   }
 
   // ---- rysowanie: wspólne tło ------------------------------------
@@ -313,7 +380,6 @@ export class Game {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, VW, VH);
 
-    // pulsujące światła sceniczne
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     const lights: [number, number][] = [
@@ -359,7 +425,6 @@ export class Game {
     const pulse = this.beatPulse();
     this.drawStage(ctx, 0.15, pulse);
 
-    // tytuł
     text(ctx, "DENIS", VW / 2, 150, {
       size: 104,
       weight: "800",
@@ -368,13 +433,8 @@ export class Game {
       glowBlur: 32,
       letterSpacing: "8px",
     });
-    text(ctx, "GRA RYTMICZNA", VW / 2, 232, {
-      size: 30,
-      color: "#ffce8a",
-      letterSpacing: "10px",
-    });
+    text(ctx, "GRA RYTMICZNA", VW / 2, 232, { size: 30, color: "#ffce8a", letterSpacing: "10px" });
 
-    // karta utworu
     const cardY = 560;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.5)";
@@ -398,7 +458,6 @@ export class Game {
       color: "#ffce8a",
     });
 
-    // przycisk graj (pulsujący)
     const bs = 1 + pulse * 0.04;
     ctx.save();
     ctx.translate(VW / 2, 850);
@@ -414,20 +473,22 @@ export class Game {
     ctx.restore();
     text(ctx, "GRAJ", VW / 2, 850, { size: 44, weight: "800", color: "#1a0d12" });
 
-    // kalibracja
     const cy = 1024;
-    text(ctx, `Kalibracja dźwięku: ${this.settings.offsetMs > 0 ? "+" : ""}${this.settings.offsetMs} ms`, VW / 2, cy - 66, {
-      size: 20,
-      color: "#b9a999",
-    });
+    text(
+      ctx,
+      `Kalibracja dźwięku: ${this.settings.offsetMs > 0 ? "+" : ""}${this.settings.offsetMs} ms`,
+      VW / 2,
+      cy - 66,
+      { size: 20, color: "#b9a999" },
+    );
     this.pill(ctx, VW / 2 - 150, cy, "−");
     this.pill(ctx, VW / 2 + 150, cy, "+");
 
-    text(ctx, "Stukaj w tor, gdy nuta dojdzie do linii.  Klawisze: D F J K", VW / 2, 1150, {
-      size: 20,
+    text(ctx, "Stukaj w tor przy linii. Długie nuty przytrzymaj — czasem dwie naraz.", VW / 2, 1150, {
+      size: 19,
       color: "#9a8c7e",
     });
-    text(ctx, "prototyp · podkład tymczasowy", VW / 2, 1210, {
+    text(ctx, "klawisze: D F J K  ·  prototyp, podkład tymczasowy", VW / 2, 1206, {
       size: 17,
       color: "#6b6055",
     });
@@ -449,9 +510,12 @@ export class Game {
   private drawPlay(ctx: CanvasRenderingContext2D) {
     const pulse = this.beatPulse();
     const missGlow = clamp(1 - (this.songTime - this.denisMissAt) / 0.3, 0, 1);
-    this.drawStage(ctx, 0.28 + missGlow * 0.15, pulse + (this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0));
+    this.drawStage(
+      ctx,
+      0.28 + missGlow * 0.15,
+      pulse + (this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0),
+    );
 
-    // ciemniejszy pas pod pole gry
     const fld = ctx.createLinearGradient(0, HIT_LINE_Y - 620, 0, VH);
     fld.addColorStop(0, "rgba(6,4,12,0)");
     fld.addColorStop(0.35, "rgba(6,4,12,0.55)");
@@ -459,7 +523,6 @@ export class Game {
     ctx.fillStyle = fld;
     ctx.fillRect(0, HIT_LINE_Y - 620, VW, VH - (HIT_LINE_Y - 620));
 
-    // tory
     for (let i = 0; i < LANES; i++) {
       const x = MARGIN + i * LANE_W;
       ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.05)";
@@ -472,7 +535,6 @@ export class Game {
       ctx.stroke();
     }
 
-    // linia trafienia
     ctx.save();
     ctx.strokeStyle = "rgba(255,220,170,0.85)";
     ctx.lineWidth = 3;
@@ -484,18 +546,46 @@ export class Game {
     ctx.stroke();
     ctx.restore();
 
+    // ogony nut trzymanych (rysowane pod głowami)
+    for (const n of this.song.notes) {
+      if (n.dur <= 0) continue;
+      const tailEndT = n.time + n.dur;
+      if (n.time - this.songTime > APPROACH) continue;
+      if (!n.holding && this.songTime > tailEndT + 0.35) continue;
+      if (n.judged && !n.holding && this.songTime - n.judgedAt > 0.22) continue;
+
+      const cx = MARGIN + n.lane * LANE_W + LANE_W / 2;
+      const tw = (LANE_W - 26) * 0.6;
+      const botY = n.holding ? HIT_LINE_Y : Math.min(this.yFor(n.time), HIT_LINE_Y);
+      const topY = Math.max(this.yFor(tailEndT), -40);
+      const tailAlpha =
+        n.judged && !n.holding ? clamp(1 - (this.songTime - n.judgedAt) / 0.22, 0, 1) : 1;
+
+      ctx.save();
+      ctx.globalAlpha = tailAlpha * (n.holding ? 0.55 : 0.32);
+      ctx.fillStyle = LANE_COLORS[n.lane];
+      if (n.holding) {
+        ctx.shadowColor = LANE_COLORS[n.lane];
+        ctx.shadowBlur = 22;
+      }
+      roundRect(ctx, cx - tw / 2, topY, tw, Math.max(botY - topY, 0), 12);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // receptory
     for (let i = 0; i < LANES; i++) {
       const cx = MARGIN + i * LANE_W + LANE_W / 2;
       const flash = clamp(1 - (this.songTime - this.laneFlash[i]) / 0.18, 0, 1);
       const press = this.lanePress[i];
-      const rad = 46 + flash * 14 + press * 6;
+      const holding = !!this.held[i];
+      const rad = 46 + flash * 14 + press * 6 + (holding ? 8 : 0);
       ctx.save();
-      ctx.globalAlpha = 0.35 + flash * 0.5 + press * 0.2;
+      ctx.globalAlpha = 0.35 + flash * 0.5 + press * 0.2 + (holding ? 0.3 : 0);
       ctx.strokeStyle = LANE_COLORS[i];
-      ctx.lineWidth = 4;
+      ctx.lineWidth = holding ? 6 : 4;
       ctx.shadowColor = LANE_COLORS[i];
-      ctx.shadowBlur = 12 + flash * 26;
+      ctx.shadowBlur = 12 + flash * 26 + (holding ? 20 : 0);
       ctx.beginPath();
       ctx.arc(cx, HIT_LINE_Y, rad, 0, Math.PI * 2);
       ctx.stroke();
@@ -515,27 +605,28 @@ export class Game {
       });
     }
 
-    // nuty
-    const off = this.offsetSec();
+    // głowy nut
     for (const n of this.song.notes) {
-      const rel = n.time - this.songTime;
-      if (rel > APPROACH || rel < -0.4) continue;
-      const prog = (this.songTime - (n.time - APPROACH)) / APPROACH;
-      let y = SPAWN_Y + prog * (HIT_LINE_Y - SPAWN_Y);
-      const cx = MARGIN + n.lane * LANE_W + LANE_W / 2;
+      const headRel = n.time - this.songTime;
+      if (headRel > APPROACH) continue;
+
+      let y = n.holding ? HIT_LINE_Y : this.yFor(n.time);
       let alpha = 1;
       if (n.judged) {
-        const jt = this.songTime - ((n as any).judgedAt ?? n.time);
-        if (jt > 0.25) continue;
+        const jt = this.songTime - n.judgedAt;
+        if (jt > 0.28) continue;
         if (n.hit) {
-          alpha = 1 - jt / 0.25;
-          y = HIT_LINE_Y - jt * 120;
+          alpha = 1 - jt / 0.28;
+          y = n.holding ? HIT_LINE_Y : this.yFor(n.time);
         } else {
           alpha = 0.5 - jt;
-          y += jt * 260;
+          y = this.yFor(n.time) + jt * 240;
         }
+      } else if (headRel < -0.4 && !n.holding) {
+        continue;
       }
-      void off;
+
+      const cx = MARGIN + n.lane * LANE_W + LANE_W / 2;
       const w = LANE_W - 26;
       ctx.save();
       ctx.globalAlpha = clamp(alpha, 0, 1);
@@ -545,13 +636,12 @@ export class Game {
       grd.addColorStop(1, n.judged && !n.hit ? "#7a2a34" : LANE_COLORS[n.lane]);
       ctx.fillStyle = grd;
       ctx.shadowColor = LANE_COLORS[n.lane];
-      ctx.shadowBlur = 16;
+      ctx.shadowBlur = n.dur > 0 ? 22 : 16;
       roundRect(ctx, cx - w / 2, y - NOTE_H / 2, w, NOTE_H, 10);
       ctx.fill();
       ctx.restore();
     }
 
-    // popupy oceny
     for (const p of this.popups) {
       const life = (this.songTime - p.at) / 0.5;
       if (life >= 1 || life < 0) continue;
@@ -569,7 +659,6 @@ export class Game {
 
     this.drawHud(ctx);
 
-    // odliczanie do pierwszej nuty
     const firstNote = this.song.notes[0]?.time ?? 3;
     if (this.songTime < firstNote - 0.15) {
       const n = Math.ceil(firstNote - 0.15 - this.songTime);
@@ -597,7 +686,6 @@ export class Game {
   }
 
   private drawHud(ctx: CanvasRenderingContext2D) {
-    // pasek postępu
     const p = clamp(this.songTime / this.song.duration, 0, 1);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     ctx.fillRect(0, 0, VW, 6);
@@ -607,7 +695,6 @@ export class Game {
     ctx.fillStyle = pg;
     ctx.fillRect(0, 0, VW * p, 6);
 
-    // wynik
     text(ctx, Math.round(this.displayScore).toLocaleString("pl-PL"), VW - MARGIN, 54, {
       size: 44,
       weight: "800",
@@ -616,14 +703,12 @@ export class Game {
       glow: "#ffb457",
       glowBlur: 10,
     });
-    // celność
     text(ctx, `${(this.accuracy() * 100).toFixed(1)}%`, MARGIN, 54, {
       size: 28,
       align: "left",
       color: "#c9b7a6",
     });
 
-    // combo
     if (this.combo >= 2) {
       const pop = clamp(1 - (this.songTime - this.comboPopAt) / 0.18, 0, 1);
       const s = 1 + pop * 0.25;
@@ -648,51 +733,51 @@ export class Game {
     this.drawStage(ctx, 0.55, this.beatPulse() * 0.4);
 
     const acc = this.accuracy();
-    const fc = this.counts.miss === 0 && this.judgedCount > 0;
+    const fc = this.counts.miss === 0 && this.holdsBroken === 0 && this.judgedCount > 0;
     const grade =
       acc >= 0.95 ? "S" : acc >= 0.9 ? "A" : acc >= 0.8 ? "B" : acc >= 0.65 ? "C" : "D";
     const gradeColor =
       grade === "S" ? "#ffe27a" : grade === "A" ? "#8affc1" : grade === "B" ? "#8ab6ff" : "#ff9f43";
 
     text(ctx, "WYNIK", VW / 2, 120, { size: 30, color: "#ffce8a", letterSpacing: "12px" });
-
-    text(ctx, grade, VW / 2, 300, {
-      size: 200,
+    text(ctx, grade, VW / 2, 292, {
+      size: 190,
       weight: "800",
       color: gradeColor,
       glow: gradeColor,
       glowBlur: 40,
     });
-    if (fc) text(ctx, "PEŁNE COMBO", VW / 2, 420, { size: 26, color: "#8affc1", letterSpacing: "6px" });
+    if (fc)
+      text(ctx, "PEŁNE COMBO", VW / 2, 410, { size: 26, color: "#8affc1", letterSpacing: "6px" });
     if (this.newBest)
-      text(ctx, "★ NOWY REKORD ★", VW / 2, 456, { size: 24, color: "#ffe27a", letterSpacing: "4px" });
+      text(ctx, "★ NOWY REKORD ★", VW / 2, 446, { size: 24, color: "#ffe27a", letterSpacing: "4px" });
 
-    text(ctx, this.score.toLocaleString("pl-PL"), VW / 2, 540, {
+    text(ctx, this.score.toLocaleString("pl-PL"), VW / 2, 530, {
       size: 72,
       weight: "800",
       color: "#fff7ec",
       glow: "#ffb457",
       glowBlur: 16,
     });
-    text(ctx, `celność ${(acc * 100).toFixed(2)}%   ·   max combo ${this.maxCombo}`, VW / 2, 600, {
+    text(ctx, `celność ${(acc * 100).toFixed(2)}%   ·   max combo ${this.maxCombo}`, VW / 2, 588, {
       size: 24,
       color: "#c9b7a6",
     });
 
-    // rozbicie
     const rows: [string, number, string][] = [
       ["PERFECT", this.counts.perfect, "#ffe27a"],
       ["SUPER", this.counts.great, "#8affc1"],
       ["OK", this.counts.good, "#8ab6ff"],
       ["PUDŁO", this.counts.miss, "#ff6b7d"],
+      ["TRZYMANE", this.holdsDone, "#8affc1"],
+      ["ZERWANE", this.holdsBroken, "#ff6b7d"],
     ];
     rows.forEach((r, i) => {
-      const y = 700 + i * 62;
-      text(ctx, r[0], VW / 2 - 60, y, { size: 28, align: "right", color: r[2] });
-      text(ctx, String(r[1]), VW / 2 + 60, y, { size: 28, align: "left", color: "#fff" });
+      const y = 662 + i * 56;
+      text(ctx, r[0], VW / 2 - 60, y, { size: 26, align: "right", color: r[2] });
+      text(ctx, String(r[1]), VW / 2 + 60, y, { size: 26, align: "left", color: "#fff" });
     });
 
-    // przyciski
     const by = 1120;
     const bw = VW / 2 - MARGIN - 12;
     ctx.fillStyle = "rgba(255,255,255,0.1)";

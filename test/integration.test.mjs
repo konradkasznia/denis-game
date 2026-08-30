@@ -1,10 +1,9 @@
 // Test integracyjny: pełny przebieg rozgrywki na zaślepkach (bez canvasu/audio).
-// Uruchamia prawdziwą pętlę update()/render() klasy Game przez ~63 s wirtualnego
-// czasu przy 60 fps i sprawdza, że mechanika liczy się poprawnie.
+// Uruchamia prawdziwą pętlę update()/render() klasy Game przez wirtualny czas
+// przy 60 fps i sprawdza mechanikę — w tym nuty trzymane i akordy.
 //
 //   node --experimental-strip-types test/integration.test.mjs
 
-// --- uniwersalna zaślepka (dowolny .method() / .prop = x nie wybucha) ---
 function chain() {
   const f = function () {
     return f;
@@ -80,23 +79,36 @@ const ok = (c, m) => {
 
 const ctx = chain();
 
-async function playthrough(strategy) {
+async function playthrough(mode) {
   const g = new Game();
-  await new Promise((r) => setTimeout(r, 5)); // wczytanie obrazka → menu
+  await new Promise((r) => setTimeout(r, 5));
   await g.startPlay();
   const ac = g.audio.ctx;
-
   const dt = 1 / 60;
   let frame = 0;
-  const maxFrames = 60 * 90;
-  while (g.scene !== "results" && frame < maxFrames) {
+
+  while (g.scene !== "results" && frame < 60 * 100) {
     ac._t += dt;
     g.update(dt, frame * 16.67);
-    if (strategy === "perfect") {
-      const st = g.songTime;
+    const st = g.songTime;
+
+    if (mode !== "idle") {
+      // wciśnij głowy nut w idealnym momencie
       for (const n of g.song.notes) {
-        if (!n.judged && st >= n.time && st - n.time < dt) {
-          g.onTap({ x: -1, y: -1, lane: n.lane });
+        if (!n.judged && !n.holding && st >= n.time && st - n.time < dt) {
+          g.onPress(n.lane, -1, -1);
+        }
+      }
+      // puść nuty trzymane
+      for (let lane = 0; lane < 4; lane++) {
+        const h = g.held[lane];
+        if (!h) continue;
+        const end = h.time + h.dur;
+        if (mode === "hold-perfect" && st >= end && st < end + dt * 3) {
+          g.onRelease(lane); // puszczenie równo na końcu
+        }
+        if (mode === "hold-break" && st >= h.time + h.dur * 0.4) {
+          g.onRelease(lane); // puszczenie stanowczo za wcześnie
         }
       }
     }
@@ -106,23 +118,41 @@ async function playthrough(strategy) {
   return g;
 }
 
-console.log("· przebieg idealny:");
-const perfect = await playthrough("perfect");
+const holdCount = new Game().song.notes.filter((n) => n.dur > 0).length;
+console.log(`(nut trzymanych w utworze: ${holdCount})\n`);
+
+console.log("· przebieg idealny (głowy + poprawne puszczanie trzymań):");
+const perfect = await playthrough("hold-perfect");
 ok(perfect.scene === "results", "kończy się ekranem wyniku");
 ok(perfect.counts.miss === 0, `zero pudeł (${perfect.counts.miss})`);
-ok(perfect.counts.perfect > 100, `dużo PERFECT (${perfect.counts.perfect})`);
+ok(perfect.holdsDone === holdCount, `wszystkie trzymania utrzymane (${perfect.holdsDone}/${holdCount})`);
+ok(perfect.holdsBroken === 0, `zero zerwanych trzymań (${perfect.holdsBroken})`);
 ok(perfect.judgedCount === perfect.song.notes.length, "wszystkie nuty ocenione");
-ok(perfect.score > 40000, `wysoki wynik (${perfect.score})`);
-ok(perfect.maxCombo === perfect.song.notes.length, `pełne combo (${perfect.maxCombo})`);
+ok(perfect.combo === perfect.maxCombo, "combo nieprzerwane do końca");
 ok(perfect.accuracy() > 0.99, `celność ~100% (${(perfect.accuracy() * 100).toFixed(1)}%)`);
+ok(perfect.score > 40000, `wysoki wynik (${perfect.score})`);
 ok(Number(localStorage.getItem("denis.best")) === perfect.score, "rekord zapisany");
 
-console.log("· przebieg bierny (nic nie klikamy):");
+console.log("\n· trzymania puszczane za wcześnie:");
+const brk = await playthrough("hold-break");
+ok(brk.scene === "results", "kończy się ekranem wyniku");
+ok(brk.holdsBroken === holdCount, `wszystkie trzymania zerwane (${brk.holdsBroken}/${holdCount})`);
+ok(brk.holdsDone === 0, "zero utrzymanych");
+ok(brk.counts.perfect > 0, "głowy trzymań i tak liczone jako trafienia");
+ok(brk.score < perfect.score, "wynik niższy niż przy idealnym przebiegu");
+
+console.log("\n· przebieg bierny (nic nie klikamy):");
 const idle = await playthrough("idle");
 ok(idle.scene === "results", "kończy się ekranem wyniku");
 ok(idle.counts.miss === idle.song.notes.length, `same pudła (${idle.counts.miss})`);
 ok(idle.score === 0, "wynik 0");
 ok(idle.combo === 0, "combo 0");
+
+// auto-domknięcie: trzymamy głowy, ale nigdy nie puszczamy palca
+console.log("\n· trzymania bez puszczenia palca (auto-domknięcie na końcu):");
+const noRelease = await playthrough("heads-only");
+ok(noRelease.holdsDone === holdCount, `trzymania domknięte automatycznie (${noRelease.holdsDone}/${holdCount})`);
+ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
 process.exit(fail === 0 ? 0 : 1);

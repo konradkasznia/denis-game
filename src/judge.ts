@@ -59,7 +59,7 @@ export function pickNote(
   return best ? { note: best, absDt: bestAbs } : null;
 }
 
-/** Czy nieoceniona nuta powinna już zostać uznana za pudło. */
+/** Czy nieoceniona nuta powinna już zostać uznana za pudło (głowa minęła okno). */
 export function isMissed(note: Note, songTime: number, offsetSec: number): boolean {
-  return !note.judged && songTime - note.time - offsetSec > W_GOOD;
+  return !note.judged && !note.holding && songTime - note.time - offsetSec > W_GOOD;
 }
