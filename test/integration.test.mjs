@@ -165,20 +165,44 @@ ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 console.log("\n· render wszystkich ekranów:");
 const gr = new Game();
 await new Promise((r) => setTimeout(r, 5));
-for (const sc of ["loading", "menu", "songs", "results", "play"]) {
+for (const sc of ["loading", "auth", "nick", "menu", "songs", "boards", "board", "results", "play"]) {
   gr.scene = sc;
   gr.render(ctx);
 }
-ok(true, "menu / songs / results / play / loading renderują się bez błędu");
+ok(true, "wszystkie ekrany renderują się bez błędu");
+
+// rejestracja → nick
+console.log("\n· rejestracja / ranking:");
+localStorage.removeItem("denis.account");
+const ga = new Game();
+await new Promise((r) => setTimeout(r, 5));
+ok(ga.scene === "auth", "bez konta start na ekranie rejestracji");
+ga.onPress(-1, 360, 620); // ZALOGUJ
+ok(ga.scene === "nick", "po zalogowaniu ekran 'Twój nick'");
+
+// ranking: wynik trafia do tablicy, liczy się miejsce
+const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");
+localStorage.removeItem("denis.board.to-ty");
+const rank = submitScore("to-ty", 250000);
+ok(rank >= 1, `wynik ma miejsce w rankingu (#${rank})`);
+ok(myEntry("to-ty")?.score === 250000, "moj wynik w tablicy");
+ok(topN("to-ty", 10).length === 10, "tablica ma top 10");
+ok(gapToTop("to-ty", 10) >= 0, "policzony dystans do top 10");
+const rank2 = submitScore("to-ty", 1500000);
+ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 
 // nawigacja menu → songs → menu i oznaczanie „poznanych"
 const gn = new Game();
 await new Promise((r) => setTimeout(r, 5));
 gn.scene = "menu";
-gn.onPress(-1, 360, 748); // Poznane Utwory
+gn.onPress(-1, 255, 742); // Poznane Utwory (lewy chip)
 ok(gn.scene === "songs", "klik w Poznane Utwory otwiera kolekcje");
 gn.onPress(-1, 60, 66); // wroc
 ok(gn.scene === "menu", "przycisk Wroc wraca do menu");
+gn.onPress(-1, 465, 742); // Tablice wyników (prawy chip)
+ok(gn.scene === "boards", "klik w Tablice wyników otwiera ranking");
+gn.onPress(-1, 60, 66);
+ok(gn.scene === "menu", "wroc z tablic do menu");
 ok(new Game().discoveredCount() >= 1, "zagrany utwor jest oznaczony jako poznany");
 
 // kolejność rund + "Kolejna runda" po zaliczeniu

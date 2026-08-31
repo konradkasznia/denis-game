@@ -2,8 +2,10 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
+import { hasAccount, needsNick, nick as accountNick, saveAccount, setNick } from "./account.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
+import { gapToTop, myEntry, submitScore, topN } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, hapticsAvailable, setHapticsEnabled } from "./haptics.ts";
@@ -18,7 +20,16 @@ import {
 import { VH, VW } from "./viewport.ts";
 import { clamp, lerp, roundRect, shade, text, wrapText } from "./ui.ts";
 
-type Scene = "loading" | "menu" | "songs" | "play" | "results";
+type Scene =
+  | "loading"
+  | "auth"
+  | "nick"
+  | "menu"
+  | "songs"
+  | "boards"
+  | "board"
+  | "play"
+  | "results";
 
 interface Rect {
   x: number;
@@ -52,11 +63,22 @@ const PASS_RATING = 0.7;
 
 // --- strefy dotyku menu / kolekcji ---
 const MENU_START: Rect = { x: VW / 2 - 200, y: 548, w: 400, h: 112 };
-const MENU_SONGS: Rect = { x: VW / 2 - 200, y: 700, w: 400, h: 96 };
-const MENU_MINUS: Rect = { x: VW / 2 - 194, y: 884, w: 88, h: 88 };
-const MENU_PLUS: Rect = { x: VW / 2 + 106, y: 884, w: 88, h: 88 };
-const MENU_VIBRO: Rect = { x: VW / 2 - 200, y: 990, w: 400, h: 60 };
-const SONGS_BACK: Rect = { x: 16, y: 36, w: 160, h: 62 };
+const MENU_SONGS: Rect = { x: VW / 2 - 200, y: 692, w: 194, h: 100 };
+const MENU_BOARDS: Rect = { x: VW / 2 + 6, y: 692, w: 194, h: 100 };
+const MENU_MINUS: Rect = { x: VW / 2 - 194, y: 876, w: 84, h: 84 };
+const MENU_PLUS: Rect = { x: VW / 2 + 110, y: 876, w: 84, h: 84 };
+const MENU_VIBRO: Rect = { x: VW / 2 - 200, y: 978, w: 400, h: 58 };
+const SONGS_BACK: Rect = { x: 16, y: 36, w: 170, h: 62 };
+
+// rejestracja / logowanie (zamarkowane)
+const AUTH_LOGIN: Rect = { x: VW / 2 - 260, y: 588, w: 520, h: 92 };
+const AUTH_FORGOT: Rect = { x: VW / 2 - 260, y: 700, w: 250, h: 42 };
+const AUTH_CREATE: Rect = { x: VW / 2 + 10, y: 700, w: 250, h: 42 };
+const AUTH_SOCIAL: Rect = { x: VW / 2 - 260, y: 820, w: 520, h: 86 };
+const AUTH_MARKETING: Rect = { x: VW / 2 - 260, y: 930, w: 520, h: 60 };
+// nick
+const NICK_FIELD: Rect = { x: VW / 2 - 260, y: 452, w: 520, h: 90 };
+const NICK_SAVE: Rect = { x: VW / 2 - 260, y: 576, w: 520, h: 92 };
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: VW / 2 - 180, y: 556, w: 360, h: 100 };
 const PZ_RESTART: Rect = { x: VW / 2 - 180, y: 676, w: 360, h: 82 };
@@ -172,19 +194,32 @@ export class Game {
   private shake = 0;
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
+  private authMarketing = false;
+  private boardSongId = DEFAULT_TRACK;
+  private resultRank = 0;
   private resultsSavedBest = false;
   private newBest = false;
 
   constructor() {
     this.bg.onload = () => {
       this.bgReady = true;
-      if (this.scene === "loading") this.scene = "menu";
+      if (this.scene === "loading") this.gotoStart();
+    };
+    this.bg.onerror = () => {
+      if (this.scene === "loading") this.gotoStart();
     };
     this.bg.src = "assets/denis/denis-stage.png";
     setHapticsEnabled(this.settings.haptics);
     this.audio.setSfxEnabled(this.settings.sfx);
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
+  }
+
+  /** Pierwszy ekran po wczytaniu: rejestracja → nick → menu. */
+  private gotoStart() {
+    if (!hasAccount()) this.scene = "auth";
+    else if (needsNick()) this.scene = "nick";
+    else this.scene = "menu";
   }
 
   private async preloadChart() {
@@ -259,11 +294,23 @@ export class Game {
       case "loading":
         this.drawLoading(ctx);
         break;
+      case "auth":
+        this.drawAuth(ctx);
+        break;
+      case "nick":
+        this.drawNick(ctx);
+        break;
       case "menu":
         this.drawMenu(ctx);
         break;
       case "songs":
         this.drawSongs(ctx);
+        break;
+      case "boards":
+        this.drawBoards(ctx);
+        break;
+      case "board":
+        this.drawBoard(ctx);
         break;
       case "play":
         this.drawPlay(ctx);
@@ -312,8 +359,15 @@ export class Game {
 
   onPress(lane: number, x: number, y: number) {
     if (this.preparing) return this.cancelPrepare();
+    if (this.scene === "auth") return this.handleAuthTap(x, y);
+    if (this.scene === "nick") return this.handleNickTap(x, y);
     if (this.scene === "menu") return this.handleMenuTap(x, y);
     if (this.scene === "songs") return this.handleSongsTap(x, y);
+    if (this.scene === "boards") return this.handleBoardsTap(x, y);
+    if (this.scene === "board") {
+      if (x < 0 || inRect(SONGS_BACK, x, y)) this.scene = "boards";
+      return;
+    }
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
       if (this.awaitingStart) return this.beginSong();
@@ -332,6 +386,59 @@ export class Game {
     if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
   }
 
+  private handleAuthTap(x: number, y: number) {
+    if (x >= 0 && inRect(AUTH_MARKETING, x, y)) {
+      this.authMarketing = !this.authMarketing;
+      return;
+    }
+    let method = "email";
+    if (x >= 0 && inRect(AUTH_SOCIAL, x, y)) method = this.applePlatform() ? "apple" : "google";
+    else if (x >= 0 && inRect(AUTH_FORGOT, x, y)) return; // zamarkowane
+    else if (x >= 0 && !inRect(AUTH_LOGIN, x, y) && !inRect(AUTH_CREATE, x, y)) return;
+    // ZALOGUJ / ZAŁÓŻ KONTO / social → „zalogowano" (zamarkowane)
+    saveAccount({ nick: "", marketing: this.authMarketing, method });
+    this.scene = "nick";
+  }
+
+  private applePlatform() {
+    try {
+      return /iP(hone|ad|od)|Mac/i.test(navigator.userAgent);
+    } catch {
+      return true;
+    }
+  }
+
+  private promptNick() {
+    let n: string | null = null;
+    try {
+      n = window.prompt?.("Twój nick:", accountNick() === "Ty" ? "" : accountNick()) ?? null;
+    } catch {
+      n = null;
+    }
+    if (n && n.trim()) {
+      setNick(n);
+      this.scene = "menu";
+    }
+  }
+
+  private handleNickTap(x: number, y: number) {
+    if (x < 0 || inRect(NICK_FIELD, x, y) || inRect(NICK_SAVE, x, y)) this.promptNick();
+  }
+
+  private handleBoardsTap(x: number, y: number) {
+    if (x < 0 || inRect(SONGS_BACK, x, y)) {
+      this.scene = "menu";
+      return;
+    }
+    for (const { meta, card } of this.songsLayout()) {
+      if (inRect(card, x, y)) {
+        this.boardSongId = meta.id;
+        this.scene = "board";
+        return;
+      }
+    }
+  }
+
   private handleMenuTap(x: number, y: number) {
     if (x < 0) {
       this.trackId = DEFAULT_TRACK;
@@ -343,6 +450,10 @@ export class Game {
     }
     if (inRect(MENU_SONGS, x, y)) {
       this.scene = "songs";
+      return;
+    }
+    if (inRect(MENU_BOARDS, x, y)) {
+      this.scene = "boards";
       return;
     }
     if (inRect(MENU_MINUS, x, y)) {
@@ -582,6 +693,7 @@ export class Game {
           /* ignore */
         }
       }
+      this.resultRank = submitScore(this.trackId, this.score);
     }
     this.scene = "results";
   }
@@ -884,6 +996,267 @@ export class Game {
     text(ctx, "wczytywanie…", VW / 2, VH / 2, { size: 34, color: "#ffce8a" });
   }
 
+  // ---- ekran: rejestracja / logowanie (zamarkowane) -------------
+
+  private field(ctx: CanvasRenderingContext2D, r: Rect, label: string, value: string) {
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.stroke();
+    text(ctx, label, r.x + 20, r.y + 22, { size: 13, align: "left", color: "#8a7c6e", weight: "700" });
+    text(ctx, value, r.x + 20, r.y + r.h - 24, {
+      size: 20,
+      align: "left",
+      color: value ? "#fff" : "#5c5248",
+    });
+  }
+
+  private drawAuth(ctx: CanvasRenderingContext2D) {
+    this.drawStage(ctx, 0.5, this.beatPulse() * 0.25);
+
+    text(ctx, "DENIS", VW / 2, 150, {
+      size: 90,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 28,
+      letterSpacing: "6px",
+    });
+    text(ctx, "ZAŁÓŻ KONTO / ZALOGUJ SIĘ", VW / 2, 232, {
+      size: 20,
+      color: "#ffce8a",
+      letterSpacing: "4px",
+    });
+
+    this.field(ctx, { x: VW / 2 - 260, y: 300, w: 520, h: 76 }, "E-MAIL", "twoj@email.pl");
+    this.field(ctx, { x: VW / 2 - 260, y: 392, w: 520, h: 76 }, "HASŁO", "••••••••");
+
+    // ZALOGUJ
+    const g = ctx.createLinearGradient(AUTH_LOGIN.x, 0, AUTH_LOGIN.x + AUTH_LOGIN.w, 0);
+    g.addColorStop(0, "#ff9f43");
+    g.addColorStop(1, "#ff5e7e");
+    ctx.fillStyle = g;
+    roundRect(ctx, AUTH_LOGIN.x, AUTH_LOGIN.y, AUTH_LOGIN.w, AUTH_LOGIN.h, AUTH_LOGIN.h / 2);
+    ctx.fill();
+    text(ctx, "ZALOGUJ", VW / 2, AUTH_LOGIN.y + AUTH_LOGIN.h / 2, {
+      size: 30,
+      weight: "800",
+      color: "#1a0d12",
+    });
+
+    text(ctx, "Zapomniałem hasła", AUTH_FORGOT.x + AUTH_FORGOT.w / 2, AUTH_FORGOT.y + 20, {
+      size: 17,
+      color: "#c9b7a6",
+    });
+    text(ctx, "Załóż konto", AUTH_CREATE.x + AUTH_CREATE.w / 2, AUTH_CREATE.y + 20, {
+      size: 17,
+      color: "#ffce8a",
+      weight: "700",
+    });
+
+    text(ctx, "lub zaloguj przez:", VW / 2, 792, { size: 15, color: "#8a7c6e" });
+    ctx.fillStyle = "rgba(255,255,255,0.1)";
+    roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
+    ctx.stroke();
+    text(
+      ctx,
+      this.applePlatform() ? " App Store / Apple ID" : "▶ Google Play",
+      VW / 2,
+      AUTH_SOCIAL.y + AUTH_SOCIAL.h / 2,
+      { size: 22, weight: "700", color: "#fff7ec" },
+    );
+
+    // zgoda marketingowa
+    const cs = 26;
+    const cx0 = AUTH_MARKETING.x + 4;
+    const cy0 = AUTH_MARKETING.y + AUTH_MARKETING.h / 2 - cs / 2;
+    ctx.fillStyle = this.authMarketing ? "#ff9f43" : "rgba(255,255,255,0.1)";
+    roundRect(ctx, cx0, cy0, cs, cs, 6);
+    ctx.fill();
+    if (this.authMarketing) {
+      ctx.strokeStyle = "#1a0d12";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx0 + 5, cy0 + 13);
+      ctx.lineTo(cx0 + 11, cy0 + 19);
+      ctx.lineTo(cx0 + 21, cy0 + 6);
+      ctx.stroke();
+    }
+    text(
+      ctx,
+      "Chcę dostawać informacje o nowościach i promocjach (e-mail)",
+      cx0 + cs + 14,
+      AUTH_MARKETING.y + AUTH_MARKETING.h / 2,
+      { size: 14, align: "left", color: "#b9a999" },
+    );
+
+    text(ctx, "wersja demo — logowanie jeszcze niepodłączone", VW / 2, VH - 40, {
+      size: 14,
+      color: "#6b6055",
+    });
+  }
+
+  private drawNick(ctx: CanvasRenderingContext2D) {
+    this.drawStage(ctx, 0.55, this.beatPulse() * 0.25);
+    text(ctx, "TWÓJ NICK", VW / 2, 300, {
+      size: 44,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 20,
+      letterSpacing: "4px",
+    });
+    text(ctx, "pod tą nazwą trafisz do tablic wyników", VW / 2, 356, {
+      size: 17,
+      color: "#c9b7a6",
+    });
+
+    const n = accountNick();
+    this.field(ctx, NICK_FIELD, "NICK", n === "Ty" ? "" : n);
+    text(ctx, "stuknij, aby wpisać", NICK_FIELD.x + NICK_FIELD.w - 20, NICK_FIELD.y + 26, {
+      size: 12,
+      align: "right",
+      color: "#6b6055",
+    });
+
+    const g = ctx.createLinearGradient(NICK_SAVE.x, 0, NICK_SAVE.x + NICK_SAVE.w, 0);
+    g.addColorStop(0, "#ff9f43");
+    g.addColorStop(1, "#ff5e7e");
+    ctx.fillStyle = g;
+    roundRect(ctx, NICK_SAVE.x, NICK_SAVE.y, NICK_SAVE.w, NICK_SAVE.h, NICK_SAVE.h / 2);
+    ctx.fill();
+    text(ctx, n && n !== "Ty" ? "ZAPISZ I GRAJ" : "WPISZ NICK", VW / 2, NICK_SAVE.y + NICK_SAVE.h / 2, {
+      size: 26,
+      weight: "800",
+      color: "#1a0d12",
+    });
+  }
+
+  // ---- ekran: tablice wyników --------------------------------
+
+  private drawBoards(ctx: CanvasRenderingContext2D) {
+    this.drawStage(ctx, 0.58, this.beatPulse() * 0.25);
+    text(ctx, "‹ WRÓĆ", SONGS_BACK.x + 14, SONGS_BACK.y + 34, {
+      size: 24,
+      align: "left",
+      color: "#ffce8a",
+      weight: "700",
+    });
+    text(ctx, "TABLICE WYNIKÓW", VW / 2, 110, {
+      size: 38,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 18,
+      letterSpacing: "2px",
+    });
+    text(ctx, "wybierz piosenkę", VW / 2, 152, { size: 18, color: "#c9b7a6" });
+
+    for (const { meta, card } of this.songsLayout()) {
+      ctx.fillStyle = "rgba(18,14,24,0.78)";
+      roundRect(ctx, card.x, card.y, card.w, card.h, 20);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,180,90,0.3)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, card.x, card.y, card.w, card.h, 20);
+      ctx.stroke();
+
+      const cx = card.x + card.w / 2;
+      text(ctx, meta.title, cx, card.y + 60, { size: 26, weight: "700", color: "#fff" });
+      const me = myEntry(meta.id);
+      if (me) {
+        text(ctx, `Twój wynik: ${me.score.toLocaleString("pl-PL")}`, cx, card.y + 150, {
+          size: 18,
+          color: "#ffce8a",
+        });
+        text(ctx, `miejsce ${me.rank}`, cx, card.y + 182, { size: 16, color: "#9a8c7e" });
+      } else {
+        text(ctx, "brak wyniku", cx, card.y + 160, { size: 17, color: "#6b6055" });
+      }
+      text(ctx, "zobacz tablicę ›", cx, card.y + card.h - 34, { size: 15, color: "#8a7c6e" });
+    }
+  }
+
+  private drawBoard(ctx: CanvasRenderingContext2D) {
+    this.drawStage(ctx, 0.62, this.beatPulse() * 0.2);
+    const meta = SONGS.find((s) => s.id === this.boardSongId);
+    text(ctx, "‹ WRÓĆ", SONGS_BACK.x + 14, SONGS_BACK.y + 34, {
+      size: 24,
+      align: "left",
+      color: "#ffce8a",
+      weight: "700",
+    });
+    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 100, {
+      size: 34,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 16,
+    });
+    text(ctx, "TABLICA WYNIKÓW", VW / 2, 140, { size: 15, color: "#8a7c6e", letterSpacing: "6px" });
+
+    const rows = topN(this.boardSongId, 10);
+    const rowH = 62;
+    let y = 200;
+    const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }) => {
+      if (r.me) {
+        ctx.fillStyle = "rgba(255,159,67,0.18)";
+        roundRect(ctx, MARGIN - 6, y - rowH / 2 + 4, VW - (MARGIN - 6) * 2, rowH - 8, 12);
+        ctx.fill();
+      }
+      const col = r.me ? "#ffce8a" : "#fff";
+      const medal = r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
+      text(ctx, `${r.rank}`, MARGIN + 14, y, { size: 24, align: "left", weight: "800", color: medal });
+      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 78, y, {
+        size: 22,
+        align: "left",
+        color: col,
+      });
+      text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, y, {
+        size: 22,
+        align: "right",
+        weight: "700",
+        color: col,
+      });
+      y += rowH;
+    };
+    rows.forEach(drawRow);
+
+    const me = myEntry(this.boardSongId);
+    if (!me) {
+      text(ctx, "Zagraj tę rundę, żeby trafić do tablicy", VW / 2, y + 60, {
+        size: 18,
+        color: "#9a8c7e",
+      });
+      return;
+    }
+    if (me.rank > 10) {
+      y += 12;
+      text(ctx, "· · ·", VW / 2, y, { size: 26, color: "#6b6055" });
+      y += 54;
+      drawRow(me);
+      const gap = gapToTop(this.boardSongId, 10);
+      text(ctx, `do TOP 10 brakuje Ci ${gap.toLocaleString("pl-PL")} pkt`, VW / 2, y + 20, {
+        size: 18,
+        weight: "700",
+        color: "#ff8a97",
+      });
+    } else {
+      text(ctx, "Jesteś w TOP 10! 🔥", VW / 2, y + 40, {
+        size: 20,
+        weight: "800",
+        color: "#8affc1",
+      });
+    }
+  }
+
   // ---- ekran: menu --------------------------------------------
 
   private drawMenu(ctx: CanvasRenderingContext2D) {
@@ -942,23 +1315,19 @@ export class Game {
       color: "#1a0d12",
     });
 
-    // --- Poznane Utwory ---
-    ctx.strokeStyle = "rgba(255,180,90,0.55)";
-    ctx.lineWidth = 2;
-    ctx.fillStyle = "rgba(18,14,24,0.55)";
-    roundRect(ctx, MENU_SONGS.x, MENU_SONGS.y, MENU_SONGS.w, MENU_SONGS.h, MENU_SONGS.h / 2);
-    ctx.fill();
-    ctx.stroke();
-    text(ctx, "Poznane Utwory", VW / 2, MENU_SONGS.y + MENU_SONGS.h / 2 - 6, {
-      size: 32,
-      weight: "700",
-      color: "#ffce8a",
-    });
-    const disc = this.discoveredCount();
-    text(ctx, `odkryte: ${disc} / ${SONGS.length}`, VW / 2, MENU_SONGS.y + MENU_SONGS.h / 2 + 24, {
-      size: 16,
-      color: "#8a7c6e",
-    });
+    // --- Poznane Utwory / Tablice wyników ---
+    const chip = (r: Rect, l1: string, l2: string) => {
+      ctx.strokeStyle = "rgba(255,180,90,0.5)";
+      ctx.lineWidth = 2;
+      ctx.fillStyle = "rgba(18,14,24,0.6)";
+      roundRect(ctx, r.x, r.y, r.w, r.h, 18);
+      ctx.fill();
+      ctx.stroke();
+      text(ctx, l1, r.x + r.w / 2, r.y + r.h / 2 - 12, { size: 21, weight: "700", color: "#ffce8a" });
+      text(ctx, l2, r.x + r.w / 2, r.y + r.h / 2 + 18, { size: 14, color: "#8a7c6e" });
+    };
+    chip(MENU_SONGS, "Poznane Utwory", `${this.discoveredCount()} / ${SONGS.length}`);
+    chip(MENU_BOARDS, "Tablice wyników", "ranking");
 
     // --- kalibracja ---
     text(
@@ -1962,6 +2331,14 @@ export class Game {
       size: 20,
       color: "#c9b7a6",
     });
+    if (this.resultRank > 0) {
+      const gap = gapToTop(this.trackId, 10);
+      const msg =
+        this.resultRank <= 10
+          ? `miejsce ${this.resultRank} — TOP 10! 🔥`
+          : `miejsce ${this.resultRank} · do TOP 10: ${gap.toLocaleString("pl-PL")} pkt`;
+      text(ctx, msg, cx, cy + 176, { size: 17, color: "#ffce8a" });
+    }
 
     // --- werdykt + statystyki + przyciski (po animacji) ---
     if (!revealDone) {
