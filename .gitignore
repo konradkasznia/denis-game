@@ -10,3 +10,9 @@ figma-ekrany/
 
 .vercel
 .env*
+
+public/assets/char/*/raw/
+public/assets/char/*/_contact.png
+
+/Materiały robocze/
+deploy-log.txt

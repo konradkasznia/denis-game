@@ -937,8 +937,10 @@ export class Game {
 
   // ---- rysowanie: wspólne tło ------------------------------------
 
-  private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number) {
-    const img = this.songBg ?? (this.bgReady ? this.bg : null);
+  private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number, plain = false) {
+    // w grze z animowaną postacią i bez własnego tła: czysta ciemna scena
+    // (żeby nie było drugiego Denisa z domyślnego zdjęcia)
+    const img = this.songBg ?? (plain ? null : this.bgReady ? this.bg : null);
     if (img && img.width) {
       const iw = img.width;
       const ih = img.height;
@@ -947,7 +949,11 @@ export class Game {
       const h = ih * scale;
       ctx.drawImage(img, (VW - w) / 2, (VH - h) / 2 - 20, w, h);
     } else {
-      ctx.fillStyle = "#101018";
+      const bgg = ctx.createLinearGradient(0, 0, 0, VH);
+      bgg.addColorStop(0, "#1a1520");
+      bgg.addColorStop(0.5, "#12101a");
+      bgg.addColorStop(1, "#0a0810");
+      ctx.fillStyle = bgg;
       ctx.fillRect(0, 0, VW, VH);
     }
     const g = ctx.createLinearGradient(0, 0, 0, VH);
@@ -1547,8 +1553,10 @@ export class Game {
   private drawPlay(ctx: CanvasRenderingContext2D) {
     const pulse = this.beatPulse();
 
+    const plainStage = this.character.hasContent() && !this.songBg;
+
     if (this.awaitingStart) {
-      this.drawStage(ctx, 0.45, pulse);
+      this.drawStage(ctx, 0.45, pulse, plainStage);
       ctx.fillStyle = "rgba(4,4,10,0.58)";
       ctx.fillRect(0, 0, VW, VH);
       text(ctx, this.song.title.toUpperCase(), VW / 2, 300, {
@@ -1605,7 +1613,12 @@ export class Game {
     const missGlow = clamp(1 - (this.songTime - this.denisMissAt) / 0.3, 0, 1);
     const popGlow = this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0;
     const heat = this.flowTier / MAX_FLOW_TIER;
-    this.drawStage(ctx, 0.34 + missGlow * 0.12 - heat * 0.06, pulse + popGlow + heat * 0.35);
+    this.drawStage(
+      ctx,
+      0.34 + missGlow * 0.12 - heat * 0.06,
+      pulse + popGlow + heat * 0.35,
+      plainStage,
+    );
 
     if (heat > 0.01 || missGlow > 0.02) {
       ctx.save();
