@@ -21,6 +21,14 @@ export interface SongMeta {
 // Kolejność = kolejność rund. „Kolejna runda" prowadzi do następnego playable.
 export const SONGS: SongMeta[] = [
   {
+    id: "pan-mlody",
+    title: "Pan Młody",
+    artist: "Denis",
+    accent: "#ff9f43",
+    spotifyUrl: "https://open.spotify.com/search/Denis%20Pan%20M%C5%82ody",
+    playable: true,
+  },
+  {
     id: "panna-mloda",
     title: "Panna Młoda",
     artist: "Denis",
@@ -42,14 +50,6 @@ export const SONGS: SongMeta[] = [
     artist: "Denis",
     accent: "#ffd24c",
     spotifyUrl: "https://open.spotify.com/search/Denis%20To%20Ty",
-    playable: true,
-  },
-  {
-    id: "pan-mlody",
-    title: "Pan Młody",
-    artist: "Denis",
-    accent: "#ff9f43",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Pan%20M%C5%82ody",
     playable: true,
   },
 ];

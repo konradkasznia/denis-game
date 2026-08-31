@@ -183,8 +183,9 @@ ok(new Game().discoveredCount() >= 1, "zagrany utwor jest oznaczony jako poznany
 
 // kolejność rund + "Kolejna runda" po zaliczeniu
 const { nextRound } = await import("../src/songs.ts");
-ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
-ok(nextRound("ksiaze-z-bajki") === "to-ty", "runda 2 -> runda 3");
+ok(nextRound("pan-mlody") === "panna-mloda", "runda 1 -> runda 2");
+ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 2 -> runda 3");
+ok(nextRound("to-ty") === null, "po ostatniej rundzie brak kolejnej");
 {
   const gp = new Game();
   gp.trackId = "panna-mloda";

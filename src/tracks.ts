@@ -8,7 +8,7 @@
 
 import { buildSynthSong, LANES, mkNote, type Note, type SongDef } from "./chart.ts";
 
-export const DEFAULT_TRACK = "panna-mloda";
+export const DEFAULT_TRACK = "pan-mlody";
 
 // Utwory bez własnego pliku audio — grane na syntezowanym podkładzie.
 // Gdy wpłynie mp3 danego utworu: dodajemy `public/charts/<id>.json`
