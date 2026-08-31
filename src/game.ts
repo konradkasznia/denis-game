@@ -4,15 +4,8 @@
 import { AudioEngine } from "./audio.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
-import {
-  ACC_WEIGHT,
-  classify,
-  comboMultiplier,
-  isMissed,
-  type Judgement,
-  pickNote,
-  SCORE,
-} from "./judge.ts";
+import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
+import { fire as haptic, hapticsAvailable, setHapticsEnabled } from "./haptics.ts";
 import { discoveredIds, markDiscovered, SONGS, type SongMeta } from "./songs.ts";
 import { VH, VW } from "./viewport.ts";
 import { clamp, lerp, roundRect, shade, text, wrapText } from "./ui.ts";
@@ -28,25 +21,35 @@ interface Rect {
 const inRect = (r: Rect, x: number, y: number) =>
   x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
-// --- układ pola gry ---
+// --- układ pola gry (perspektywa: tor zbiega do horyzontu) ---
 const MARGIN = 40;
-const LANE_W = (VW - MARGIN * 2) / LANES;
-const HIT_LINE_Y = 1090;
-const SPAWN_Y = -130;
-const APPROACH = 1.3; // s: czas przelotu nuty od góry do linii
-const NOTE_H = 32;
+const HORIZON_Y = 330; // punkt zbiegu torów
+const HIT_Y = 1118; // linia trafienia (puste kółka)
+const PAD_BOT = VH - 16; // dół „klawiszy" dotykowych
+const APPROACH = 1.4; // s: jak długo nuta jest widoczna zanim dojdzie do linii
+const LANE_GAP_HIT = 150; // odstęp środków torów przy linii trafienia
+const RECEPTOR_R = 52; // promień pustego kółka na linii
 const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
-const HOLD_BONUS = 180;
 
 const LANE_COLORS = ["#ff9f43", "#ff6b3d", "#ffd24c", "#ff5e7e"];
-const LANE_LABELS = ["D", "F", "J", "K"];
+
+// --- punktacja ---
+const BASE_SCORE: Record<Judgement, number> = { perfect: 300, great: 140, good: 55, miss: 0 };
+const FLOW_PER_TIER = 10; // co ile perfektów rośnie mnożnik
+const MAX_FLOW_TIER = 4; // mnożnik x1..x5
+// ocena rundy = wynik / "par" (solidny przebieg). Gwiazdka i-ta zapala się,
+// gdy ocena >= STAR_MARKS[i]. 3. gwiazdka = próg zaliczenia rundy.
+const STAR_MARKS = [0.22, 0.44, 0.7, 0.86, 0.97];
+const PASS_RATING = 0.7;
 
 // --- strefy dotyku menu / kolekcji ---
 const MENU_START: Rect = { x: VW / 2 - 200, y: 548, w: 400, h: 112 };
 const MENU_SONGS: Rect = { x: VW / 2 - 200, y: 700, w: 400, h: 96 };
 const MENU_MINUS: Rect = { x: VW / 2 - 194, y: 884, w: 88, h: 88 };
 const MENU_PLUS: Rect = { x: VW / 2 + 106, y: 884, w: 88, h: 88 };
+const MENU_VIBRO: Rect = { x: VW / 2 - 200, y: 990, w: 400, h: 60 };
 const SONGS_BACK: Rect = { x: 16, y: 36, w: 160, h: 62 };
+const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -70,16 +73,19 @@ interface Popup {
 
 interface Settings {
   offsetMs: number;
+  haptics: boolean;
+  sfx: boolean;
 }
 
 function loadSettings(): Settings {
+  const def: Settings = { offsetMs: 0, haptics: true, sfx: true };
   try {
     const raw = localStorage.getItem("denis.settings");
-    if (raw) return { offsetMs: 0, ...JSON.parse(raw) };
+    if (raw) return { ...def, ...JSON.parse(raw) };
   } catch {
     /* ignore */
   }
-  return { offsetMs: 0 };
+  return def;
 }
 
 function saveSettings(s: Settings) {
@@ -118,6 +124,12 @@ export class Game {
   private displayScore = 0;
   private combo = 0;
   private maxCombo = 0;
+  private flow = 0; // seria perfektów
+  private maxFlow = 0;
+  private flowTier = 0; // 0..MAX_FLOW_TIER -> mnożnik = tier + 1
+  private health = 0.5;
+  private parScore = 1; // wynik "solidnego przebiegu" — mianownik oceny
+  private resultsAt = 0; // performance.now() wejścia na ekran wyniku
   private counts: Record<Judgement, number> = { perfect: 0, great: 0, good: 0, miss: 0 };
   private holdsDone = 0;
   private holdsBroken = 0;
@@ -128,11 +140,19 @@ export class Game {
   private held: (Note | null)[] = [null, null, null, null];
 
   private popups: Popup[] = [];
+  private hitFx: { lane: number; at: number; kind: Judgement }[] = [];
   private laneFlash = [0, 0, 0, 0];
   private lanePress = [0, 0, 0, 0];
   private comboPopAt = -10;
   private denisPopAt = -10;
   private denisMissAt = -10;
+  private flowUpAt = -10;
+  private bannerTxt = "";
+  private bannerAt = -10;
+  private shake = 0;
+  private soundHintDismissed = false;
+  private resultStarSeen = 0;
+  private lastStarPopAt = 0;
   private resultsSavedBest = false;
   private newBest = false;
 
@@ -142,6 +162,8 @@ export class Game {
       if (this.scene === "loading") this.scene = "menu";
     };
     this.bg.src = "assets/denis/denis-stage.png";
+    setHapticsEnabled(this.settings.haptics);
+    this.audio.setSfxEnabled(this.settings.sfx);
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
   }
@@ -157,17 +179,29 @@ export class Game {
 
   // ---- pętla ----------------------------------------------------------
 
-  update(_dt: number, _nowMs: number) {
+  update(dt: number, _nowMs: number) {
     if (this.scene === "play" && !this.awaitingStart) {
       this.songTime = this.audio.getSongTime();
       this.checkMisses();
       this.resolveHeldHolds();
+      this.pulseHoldHaptics();
       if (this.songTime > this.song.duration + 0.6 && this.allJudged()) {
         this.finish();
       }
     }
     this.displayScore = lerp(this.displayScore, this.score, 0.18);
     for (let i = 0; i < LANES; i++) this.lanePress[i] = lerp(this.lanePress[i], 0, 0.2);
+    this.shake *= Math.pow(0.0025, dt); // szybki zanik trzęsienia (~0.85/klatkę)
+    if (this.shake < 0.15) this.shake = 0;
+  }
+
+  private lastHoldTick = 0;
+  private pulseHoldHaptics() {
+    if (!this.held.some((h) => h)) return;
+    if (this.songTime - this.lastHoldTick > 0.12) {
+      this.lastHoldTick = this.songTime;
+      haptic("holdTick");
+    }
   }
 
   render(ctx: CanvasRenderingContext2D) {
@@ -224,7 +258,7 @@ export class Game {
   /** Który tor odpowiada współrzędnej x (tylko podczas gry). */
   laneAtX(x: number): number {
     if (this.scene !== "play") return -1;
-    return clamp(Math.floor((x - MARGIN) / LANE_W), 0, LANES - 1);
+    return clamp(Math.floor(x / (VW / LANES)), 0, LANES - 1);
   }
 
   onPress(lane: number, x: number, y: number) {
@@ -234,6 +268,17 @@ export class Game {
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
       if (this.awaitingStart) return this.beginSong();
+      if (x >= 0 && inRect(PAUSE_RECT, x, y)) {
+        this.audio.stop();
+        this.scene = "menu";
+        return;
+      }
+      // podpowiedź o dźwięku: pierwszy tap w jej obszarze tylko ją zamyka
+      if (!this.soundHintDismissed && this.songTime <= 11 && x >= 0 && y > 280 && y < 430) {
+        this.soundHintDismissed = true;
+        return;
+      }
+      this.soundHintDismissed = true;
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
       if (lane < 0) lane = this.laneAtX(x);
       if (lane >= 0) this.pressLane(lane);
@@ -267,6 +312,13 @@ export class Game {
       saveSettings(this.settings);
       return;
     }
+    if (inRect(MENU_VIBRO, x, y)) {
+      this.settings.haptics = !this.settings.haptics;
+      setHapticsEnabled(this.settings.haptics);
+      saveSettings(this.settings);
+      if (this.settings.haptics) haptic("perfect");
+      return;
+    }
   }
 
   private handleSongsTap(x: number, y: number) {
@@ -293,7 +345,12 @@ export class Game {
   }
 
   private handleResultsTap(x: number, y: number) {
-    const by = 1120;
+    // pierwsze stuknięcie w trakcie animacji licznika — pomiń animację
+    if (performance.now() - this.resultsAt < 2200) {
+      this.resultsAt = performance.now() - 2200;
+      return;
+    }
+    const by = 1150;
     if (x < 0 || (y > by - 60 && y < by + 60)) {
       if (x < 0 || x < VW / 2) void this.startPlay();
       else this.scene = "menu";
@@ -340,6 +397,11 @@ export class Game {
     this.displayScore = 0;
     this.combo = 0;
     this.maxCombo = 0;
+    this.flow = 0;
+    this.maxFlow = 0;
+    this.flowTier = 0;
+    this.health = 0.5;
+    this.parScore = this.computeParScore();
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0 };
     this.holdsDone = 0;
     this.holdsBroken = 0;
@@ -347,6 +409,13 @@ export class Game {
     this.judgedCount = 0;
     this.held = [null, null, null, null];
     this.popups = [];
+    this.hitFx = [];
+    this.shake = 0;
+    this.bannerAt = -10;
+    this.flowUpAt = -10;
+    this.soundHintDismissed = false;
+    this.lastHoldTick = 0;
+    this.resultStarSeen = 0;
     this.resultsSavedBest = false;
     this.newBest = false;
     this.songTime = 0;
@@ -354,6 +423,26 @@ export class Game {
     this.awaitingStart = true; // start dopiero od świeżego dotyku (iOS audio)
     markDiscovered(this.song.id);
     this.preparing = false;
+  }
+
+  /** „Par" — punkty za solidny przebieg (same SUPER, mnożnik do x3). Ocena
+   *  rundy = wynik / par, więc bardzo czysty przebieg przebija 100%. */
+  private computeParScore(): number {
+    let s = 0;
+    let combo = 0;
+    for (const n of this.song.notes) {
+      combo++;
+      const mult = Math.min(3, 1 + Math.floor(combo / 40));
+      const kick = 1 + Math.min(combo, 120) * 0.004;
+      s += Math.round(BASE_SCORE.great * mult * kick);
+      if (n.dur > 0) s += Math.round(180 * mult * (1 + n.dur));
+    }
+    return Math.max(1, s);
+  }
+
+  /** Ocena rundy 0..~1.3 (gauge klamruje do 1). */
+  private rating(): number {
+    return this.score / this.parScore;
   }
 
   /** Uruchamia utwór z bieżącego gestu użytkownika (odblokowuje audio na iOS). */
@@ -378,6 +467,7 @@ export class Game {
 
   private finish() {
     this.audio.stop();
+    this.resultsAt = performance.now();
     if (!this.resultsSavedBest) {
       this.resultsSavedBest = true;
       if (this.score > bestScore()) {
@@ -444,21 +534,36 @@ export class Game {
     }
   }
 
+  private multiplier() {
+    return this.flowTier + 1;
+  }
+
   private completeHold(note: Note, lane: number, success: boolean) {
-    void note;
     if (success) {
       this.holdsDone++;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       this.comboPopAt = this.songTime;
-      this.score += Math.round(HOLD_BONUS * comboMultiplier(this.combo));
+      this.health = clamp(this.health + 0.03, 0, 1);
+      const bonus = Math.round(220 * this.multiplier() * (1 + note.dur));
+      this.score += bonus;
       this.laneFlash[lane] = this.songTime;
       this.denisPopAt = this.songTime;
-      this.pushPopup("TRZYMANE", "#8affc1", lane);
+      this.hitFx.push({ lane, at: this.songTime, kind: "perfect" });
+      this.shake = Math.max(this.shake, 5);
+      this.audio.sfx("flow");
+      haptic("hold");
+      this.pushPopup("TRZYMANE!", "#8affc1", lane);
     } else {
       this.holdsBroken++;
       this.combo = 0;
+      this.flow = 0;
+      this.flowTier = 0;
+      this.health = clamp(this.health - 0.05, 0, 1);
       this.denisMissAt = this.songTime;
+      this.shake = Math.max(this.shake, 8);
+      this.audio.sfx("miss");
+      haptic("miss");
       this.pushPopup("ZERWANE", "#ff6b7d", lane);
     }
   }
@@ -480,24 +585,97 @@ export class Game {
     this.counts[j]++;
     this.judgedCount++;
     this.accSum += ACC_WEIGHT[j];
+    const t = this.songTime;
 
     if (j === "miss") {
       this.combo = 0;
-      this.denisMissAt = this.songTime;
-    } else {
-      this.combo++;
-      this.maxCombo = Math.max(this.maxCombo, this.combo);
-      this.comboPopAt = this.songTime;
-      this.score += Math.round(SCORE[j] * comboMultiplier(this.combo));
-      this.laneFlash[lane] = this.songTime;
-      if (j !== "good") this.denisPopAt = this.songTime;
+      this.flow = 0;
+      if (this.flowTier > 0) this.flowTier = Math.max(0, this.flowTier - 1);
+      this.health = clamp(this.health - 0.07, 0, 1);
+      this.denisMissAt = t;
+      this.shake = Math.max(this.shake, 9);
+      this.audio.sfx("miss");
+      haptic("miss");
+      this.pushPopup(JUDGE_LABEL.miss, JUDGE_COLOR.miss, lane);
+      return;
     }
+
+    // trafienie
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.comboPopAt = t;
+    this.laneFlash[lane] = t;
+    this.hitFx.push({ lane, at: t, kind: j });
+    if (this.hitFx.length > 20) this.hitFx.shift();
+
+    if (j === "perfect") {
+      this.flow++;
+      this.maxFlow = Math.max(this.maxFlow, this.flow);
+      this.health = clamp(this.health + 0.02, 0, 1);
+      this.denisPopAt = t;
+    } else if (j === "great") {
+      this.health = clamp(this.health + 0.012, 0, 1);
+    } else {
+      this.flow = 0; // "OK" przerywa serię perfektów
+      this.health = clamp(this.health + 0.004, 0, 1);
+    }
+
+    // mnożnik z serii perfektów
+    const prevTier = this.flowTier;
+    this.flowTier = Math.min(MAX_FLOW_TIER, Math.floor(this.flow / FLOW_PER_TIER));
+    const mult = this.multiplier();
+
+    const kick = 1 + Math.min(this.combo, 120) * 0.004; // do +48% przy combo 120
+    this.score += Math.round(BASE_SCORE[j] * mult * kick);
+
+    if (j === "perfect") {
+      this.audio.sfx("perfect");
+      haptic("perfect");
+    } else {
+      this.audio.sfx(j);
+      haptic("tick");
+    }
+
+    // wejście na wyższy mnożnik — mocna wibracja całego telefonu
+    if (this.flowTier > prevTier) {
+      this.flowUpAt = t;
+      this.shake = Math.max(this.shake, 12);
+      this.audio.sfx("flow");
+      haptic("flowUp");
+      this.pushBanner(`MNOŻNIK ×${mult}`);
+    }
+    // próg combo co 10
+    if (this.combo >= 10 && this.combo % 10 === 0) {
+      this.shake = Math.max(this.shake, 6);
+      this.audio.sfx("combo");
+      haptic("combo");
+      this.pushBanner(`COMBO ×${this.combo}`);
+    }
+
     this.pushPopup(JUDGE_LABEL[j], JUDGE_COLOR[j], lane);
   }
 
+  private pushBanner(txt: string) {
+    this.bannerTxt = txt;
+    this.bannerAt = this.songTime;
+  }
+
   private pushPopup(txt: string, color: string, lane: number) {
-    this.popups.push({ txt, color, at: this.songTime, x: MARGIN + lane * LANE_W + LANE_W / 2 });
+    this.popups.push({ txt, color, at: this.songTime, x: this.hitX(lane) });
     if (this.popups.length > 12) this.popups.shift();
+  }
+
+  /** Ile gwiazdek (0..5, ułamkowo) dla danej oceny. */
+  private starsFor(r: number): number {
+    const m = [0, ...STAR_MARKS];
+    for (let i = 1; i <= 5; i++) {
+      if (r < m[i]) return i - 1 + (r - m[i - 1]) / (m[i] - m[i - 1]);
+    }
+    return 5;
+  }
+
+  private starFill(): number {
+    return this.starsFor(clamp(this.rating(), 0, 1));
   }
 
   private allJudged() {
@@ -508,9 +686,36 @@ export class Game {
     return this.judgedCount ? this.accSum / this.judgedCount : 1;
   }
 
-  private yFor(t: number): number {
-    const prog = (this.songTime - (t - APPROACH)) / APPROACH;
-    return SPAWN_Y + prog * (HIT_LINE_Y - SPAWN_Y);
+  // ---- projekcja perspektywiczna toru ---------------------------
+  //
+  // `e` (0..~1.4): 0 = horyzont (daleko), 1 = linia trafienia, >1 = strefa
+  // klawiszy pod linią. Wszystko jest liniowe względem `e`, więc krawędzie
+  // torów to proste; wrażenie 3D daje easing czasu w `eForTime`.
+
+  private eForTime(t: number): number {
+    const rel = (t - this.songTime) / APPROACH; // 1 = świeżo, 0 = na linii
+    const travel = 1 - rel; // 0 daleko, 1 na linii
+    if (travel <= 0) return Math.pow(Math.max(travel, -0.4), 2) * Math.sign(travel) * 0.6;
+    if (travel >= 1) return 1 + (travel - 1) * 1.6;
+    return Math.pow(travel, 2.1);
+  }
+
+  private yForE(e: number): number {
+    return HORIZON_Y + e * (HIT_Y - HORIZON_Y);
+  }
+
+  /** środek toru `lane` na linii trafienia */
+  private hitX(lane: number): number {
+    return VW / 2 + (lane - (LANES - 1) / 2) * LANE_GAP_HIT;
+  }
+
+  private laneXAtE(lane: number, e: number): number {
+    return lerp(VW / 2, this.hitX(lane), e);
+  }
+
+  /** promień nuty / szerokość na danym `e` (perspektywa) */
+  private sizeAtE(e: number): number {
+    return lerp(0.13, 1, clamp(e, 0, 1.2));
   }
 
   // ---- rysowanie: wspólne tło ------------------------------------
@@ -654,22 +859,43 @@ export class Game {
       ctx,
       `Kalibracja dźwięku: ${this.settings.offsetMs > 0 ? "+" : ""}${this.settings.offsetMs} ms`,
       VW / 2,
-      MENU_MINUS.y - 26,
-      { size: 19, color: "#b9a999" },
+      MENU_MINUS.y - 24,
+      { size: 18, color: "#b9a999" },
     );
     this.pill(ctx, MENU_MINUS.x + 44, MENU_MINUS.y + 44, "−");
     this.pill(ctx, MENU_PLUS.x + 44, MENU_PLUS.y + 44, "+");
 
-    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1050, {
-      size: 20,
+    // --- przełącznik wibracji ---
+    const vibOk = hapticsAvailable();
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    roundRect(ctx, MENU_VIBRO.x, MENU_VIBRO.y, MENU_VIBRO.w, MENU_VIBRO.h, 14);
+    ctx.fill();
+    text(ctx, vibOk ? "Wibracje" : "Wibracje (brak na tym urządzeniu)", MENU_VIBRO.x + 20, MENU_VIBRO.y + MENU_VIBRO.h / 2, {
+      size: 18,
+      align: "left",
+      color: vibOk ? "#c9b7a6" : "#6b6055",
+    });
+    const on = this.settings.haptics && vibOk;
+    const tx = MENU_VIBRO.x + MENU_VIBRO.w - 76;
+    const ty = MENU_VIBRO.y + MENU_VIBRO.h / 2;
+    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.14)";
+    roundRect(ctx, tx, ty - 16, 56, 32, 16);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(on ? tx + 40 : tx + 16, ty, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1082, {
+      size: 19,
       color: "#ffce8a",
     });
-    text(ctx, "Stukaj w tor przy linii. Długie nuty przytrzymaj, czasem dwie naraz.", VW / 2, 1128, {
-      size: 18,
+    text(ctx, "Trafiaj kółka na linii. Długie nuty przytrzymaj — czasem dwie naraz.", VW / 2, 1132, {
+      size: 17,
       color: "#9a8c7e",
     });
-    text(ctx, "klawisze: D F J K  ·  prototyp, podkład tymczasowy", VW / 2, 1170, {
-      size: 16,
+    text(ctx, "klawisze: D F J K  ·  prototyp", VW / 2, 1166, {
+      size: 15,
       color: "#6b6055",
     });
   }
@@ -879,283 +1105,713 @@ export class Game {
       return;
     }
 
+    // ---- trzęsienie ekranu ----
+    const sh = this.shake;
+    const sx = sh ? (Math.random() - 0.5) * sh : 0;
+    const sy = sh ? (Math.random() - 0.5) * sh : 0;
+    ctx.save();
+    ctx.translate(sx, sy);
+
     const missGlow = clamp(1 - (this.songTime - this.denisMissAt) / 0.3, 0, 1);
-    this.drawStage(
-      ctx,
-      0.28 + missGlow * 0.15,
-      pulse + (this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0),
-    );
+    const popGlow = this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0;
+    const heat = this.flowTier / MAX_FLOW_TIER;
+    this.drawStage(ctx, 0.34 + missGlow * 0.12 - heat * 0.06, pulse + popGlow + heat * 0.35);
 
-    const fld = ctx.createLinearGradient(0, HIT_LINE_Y - 620, 0, VH);
-    fld.addColorStop(0, "rgba(6,4,12,0)");
-    fld.addColorStop(0.35, "rgba(6,4,12,0.55)");
-    fld.addColorStop(1, "rgba(6,4,12,0.8)");
-    ctx.fillStyle = fld;
-    ctx.fillRect(0, HIT_LINE_Y - 620, VW, VH - (HIT_LINE_Y - 620));
+    if (heat > 0.01 || missGlow > 0.02) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle =
+        missGlow > 0.05 ? `rgba(255,45,60,${missGlow * 0.14})` : `rgba(255,150,60,${heat * 0.05})`;
+      ctx.fillRect(0, 0, VW, VH);
+      ctx.restore();
+    }
 
-    for (let i = 0; i < LANES; i++) {
-      const x = MARGIN + i * LANE_W;
-      ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.05)";
-      ctx.fillRect(x, 0, LANE_W, VH);
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = 1;
+    this.drawPlayfield(ctx, pulse);
+    this.drawNotes(ctx);
+    this.drawJudgePopups(ctx);
+    this.drawHud(ctx);
+    this.drawCountdown(ctx);
+    this.drawSoundHint(ctx);
+
+    ctx.restore(); // koniec trzęsienia
+  }
+
+  // ---- pole gry (perspektywa) -----------------------------------
+
+  private drawPlayfield(ctx: CanvasRenderingContext2D, pulse: number) {
+    const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, VH);
+    grad.addColorStop(0, "rgba(6,3,10,0)");
+    grad.addColorStop(0.4, "rgba(6,3,10,0.5)");
+    grad.addColorStop(1, "rgba(6,3,10,0.86)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, HORIZON_Y, VW, VH - HORIZON_Y);
+
+    const eBot = 1 + (PAD_BOT - HIT_Y) / (HIT_Y - HORIZON_Y);
+    const stripHW = (e: number) => lerp(2, LANE_GAP_HIT * 0.46, e);
+
+    // tory
+    for (let l = 0; l < LANES; l++) {
+      const held = !!this.held[l];
+      const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
+      const cTop = this.laneXAtE(l, 0.03);
+      const cBotE = this.laneXAtE(l, eBot);
+      const yTop = this.yForE(0.03);
+      const yBot = this.yForE(eBot);
+      const hwT = stripHW(0.03);
+      const hwB = stripHW(eBot);
+
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, VH);
+      ctx.moveTo(cTop - hwT, yTop);
+      ctx.lineTo(cBotE - hwB, yBot);
+      ctx.lineTo(cBotE + hwB, yBot);
+      ctx.lineTo(cTop + hwT, yTop);
+      ctx.closePath();
+      const lg = ctx.createLinearGradient(0, HORIZON_Y, 0, PAD_BOT);
+      lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
+      lg.addColorStop(
+        1,
+        held ? "rgba(255,170,90,0.30)" : l % 2 ? "rgba(150,25,35,0.34)" : "rgba(120,20,30,0.40)",
+      );
+      ctx.fillStyle = lg;
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cTop - hwT, yTop);
+      ctx.lineTo(cBotE - hwB, yBot);
+      ctx.moveTo(cTop + hwT, yTop);
+      ctx.lineTo(cBotE + hwB, yBot);
       ctx.stroke();
     }
 
+    // linia trafienia
     ctx.save();
-    ctx.strokeStyle = "rgba(255,220,170,0.85)";
+    ctx.strokeStyle = "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
     ctx.shadowColor = "rgba(255,200,120,0.9)";
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 16 + pulse * 12;
     ctx.beginPath();
-    ctx.moveTo(MARGIN, HIT_LINE_Y);
-    ctx.lineTo(VW - MARGIN, HIT_LINE_Y);
+    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, HIT_Y);
+    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, HIT_Y);
     ctx.stroke();
     ctx.restore();
 
-    // ogony nut trzymanych (rysowane pod głowami)
-    for (const n of this.song.notes) {
-      if (n.dur <= 0) continue;
-      const tailEndT = n.time + n.dur;
-      if (n.time - this.songTime > APPROACH) continue;
-      if (!n.holding && this.songTime > tailEndT + 0.35) continue;
-      if (n.judged && !n.holding && this.songTime - n.judgedAt > 0.22) continue;
-
-      const cx = MARGIN + n.lane * LANE_W + LANE_W / 2;
-      const tw = (LANE_W - 26) * 0.6;
-      const botY = n.holding ? HIT_LINE_Y : Math.min(this.yFor(n.time), HIT_LINE_Y);
-      const topY = Math.max(this.yFor(tailEndT), -40);
-      const tailAlpha =
-        n.judged && !n.holding ? clamp(1 - (this.songTime - n.judgedAt) / 0.22, 0, 1) : 1;
-
+    // klawisze dotykowe pod linią
+    for (let l = 0; l < LANES; l++) {
+      const eT = 1.05;
+      const xT = this.laneXAtE(l, eT);
+      const xB = this.laneXAtE(l, eBot);
+      const wT = stripHW(eT) * 1.7;
+      const wB = stripHW(eBot) * 1.7;
+      const yT = this.yForE(eT);
+      const yB = this.yForE(eBot);
+      const lit = clamp(
+        this.lanePress[l] +
+          (this.held[l] ? 0.9 : 0) +
+          clamp(1 - (this.songTime - this.laneFlash[l]) / 0.14, 0, 1),
+        0,
+        1,
+      );
       ctx.save();
-      ctx.globalAlpha = tailAlpha * (n.holding ? 0.55 : 0.32);
-      ctx.fillStyle = LANE_COLORS[n.lane];
-      if (n.holding) {
-        ctx.shadowColor = LANE_COLORS[n.lane];
-        ctx.shadowBlur = 22;
-      }
-      roundRect(ctx, cx - tw / 2, topY, tw, Math.max(botY - topY, 0), 12);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // receptory
-    for (let i = 0; i < LANES; i++) {
-      const cx = MARGIN + i * LANE_W + LANE_W / 2;
-      const flash = clamp(1 - (this.songTime - this.laneFlash[i]) / 0.18, 0, 1);
-      const press = this.lanePress[i];
-      const holding = !!this.held[i];
-      const rad = 46 + flash * 14 + press * 6 + (holding ? 8 : 0);
-      ctx.save();
-      ctx.globalAlpha = 0.35 + flash * 0.5 + press * 0.2 + (holding ? 0.3 : 0);
-      ctx.strokeStyle = LANE_COLORS[i];
-      ctx.lineWidth = holding ? 6 : 4;
-      ctx.shadowColor = LANE_COLORS[i];
-      ctx.shadowBlur = 12 + flash * 26 + (holding ? 20 : 0);
       ctx.beginPath();
-      ctx.arc(cx, HIT_LINE_Y, rad, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-      if (flash > 0.01) {
-        ctx.save();
-        ctx.globalAlpha = flash * 0.4;
-        ctx.fillStyle = LANE_COLORS[i];
-        ctx.beginPath();
-        ctx.arc(cx, HIT_LINE_Y, rad, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+      ctx.moveTo(xT - wT, yT);
+      ctx.quadraticCurveTo(xT - wT, yT - 24, xT, yT - 24);
+      ctx.quadraticCurveTo(xT + wT, yT - 24, xT + wT, yT);
+      ctx.lineTo(xB + wB, yB);
+      ctx.lineTo(xB - wB, yB);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(255,255,255,${0.07 + lit * 0.8})`;
+      if (lit > 0.3) {
+        ctx.shadowColor = LANE_COLORS[l];
+        ctx.shadowBlur = lit * 26;
       }
-      text(ctx, LANE_LABELS[i], cx, HIT_LINE_Y + 96, {
-        size: 22,
-        color: "rgba(255,255,255,0.35)",
-      });
-    }
-
-    // głowy nut
-    for (const n of this.song.notes) {
-      const headRel = n.time - this.songTime;
-      if (headRel > APPROACH) continue;
-
-      let y = n.holding ? HIT_LINE_Y : this.yFor(n.time);
-      let alpha = 1;
-      if (n.judged) {
-        const jt = this.songTime - n.judgedAt;
-        if (jt > 0.28) continue;
-        if (n.hit) {
-          alpha = 1 - jt / 0.28;
-          y = n.holding ? HIT_LINE_Y : this.yFor(n.time);
-        } else {
-          alpha = 0.5 - jt;
-          y = this.yFor(n.time) + jt * 240;
-        }
-      } else if (headRel < -0.4 && !n.holding) {
-        continue;
-      }
-
-      const cx = MARGIN + n.lane * LANE_W + LANE_W / 2;
-      const w = LANE_W - 26;
-      ctx.save();
-      ctx.globalAlpha = clamp(alpha, 0, 1);
-      const grd = ctx.createLinearGradient(0, y - NOTE_H / 2, 0, y + NOTE_H / 2);
-      grd.addColorStop(0, "#ffffff");
-      grd.addColorStop(0.5, LANE_COLORS[n.lane]);
-      grd.addColorStop(1, n.judged && !n.hit ? "#7a2a34" : LANE_COLORS[n.lane]);
-      ctx.fillStyle = grd;
-      ctx.shadowColor = LANE_COLORS[n.lane];
-      ctx.shadowBlur = n.dur > 0 ? 22 : 16;
-      roundRect(ctx, cx - w / 2, y - NOTE_H / 2, w, NOTE_H, 10);
       ctx.fill();
       ctx.restore();
     }
 
-    for (const p of this.popups) {
-      const life = (this.songTime - p.at) / 0.5;
-      if (life >= 1 || life < 0) continue;
+    // puste kółka (receptory) — zawsze na miejscu
+    for (let l = 0; l < LANES; l++) {
+      const x = this.hitX(l);
+      const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
+      const held = !!this.held[l];
+      const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
       ctx.save();
-      ctx.globalAlpha = 1 - life;
-      text(ctx, p.txt, p.x, HIT_LINE_Y - 150 - life * 46, {
-        size: 30,
-        weight: "800",
-        color: p.color,
-        glow: p.color,
-        glowBlur: 14,
-      });
-      ctx.restore();
-    }
-
-    this.drawHud(ctx);
-
-    const firstNote = this.song.notes[0]?.time ?? 3;
-    if (this.songTime < firstNote - 0.15) {
-      const n = Math.ceil(firstNote - 0.15 - this.songTime);
-      if (n <= 3 && n >= 1) {
-        const f = 1 - (firstNote - 0.15 - this.songTime - (n - 1));
-        ctx.save();
-        ctx.globalAlpha = clamp(1 - f * 0.4, 0.2, 1);
-        text(ctx, String(n), VW / 2, VH / 2 - 40, {
-          size: 160 + f * 40,
-          weight: "800",
-          color: "#fff7ec",
-          glow: "#ffb457",
-          glowBlur: 40,
-        });
-        ctx.restore();
-      } else {
-        text(ctx, "GOTÓW?", VW / 2, VH / 2 - 40, {
-          size: 60,
-          weight: "800",
-          color: "#fff7ec",
-          glow: "#ffb457",
-        });
+      ctx.lineWidth = 5 + (held ? 3 : 0);
+      ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
+      ctx.shadowColor = LANE_COLORS[l];
+      ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
+      ctx.beginPath();
+      ctx.arc(x, HIT_Y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      if (flash > 0.01) {
+        ctx.globalAlpha = flash * 0.32;
+        ctx.fillStyle = "#fff";
+        ctx.fill();
       }
+      ctx.restore();
     }
   }
 
+  private drawNotes(ctx: CanvasRenderingContext2D) {
+    // ogony nut trzymanych
+    for (const n of this.song.notes) {
+      if (n.dur <= 0) continue;
+      const headE = n.holding ? 1 : this.eForTime(n.time);
+      const tailE = this.eForTime(n.time + n.dur);
+      if (headE < -0.15 && !n.holding) continue;
+      if (tailE > 1.15 && !n.holding) continue;
+      if (n.judged && !n.holding && this.songTime - n.judgedAt > 0.25) continue;
+
+      const eLo = Math.max(tailE, 0.02);
+      const eHi = n.holding ? 1 : Math.min(headE, 1.08);
+      if (eHi <= eLo) continue;
+
+      const steps = 7;
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const e = lerp(eLo, eHi, i / steps);
+        const x = this.laneXAtE(n.lane, e) - RECEPTOR_R * 0.5 * this.sizeAtE(e);
+        const y = this.yForE(e);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      for (let i = steps; i >= 0; i--) {
+        const e = lerp(eLo, eHi, i / steps);
+        ctx.lineTo(this.laneXAtE(n.lane, e) + RECEPTOR_R * 0.5 * this.sizeAtE(e), this.yForE(e));
+      }
+      ctx.closePath();
+      ctx.save();
+      ctx.globalAlpha = n.holding
+        ? 0.72
+        : n.judged
+          ? clamp(1 - (this.songTime - n.judgedAt) / 0.25, 0, 1) * 0.4
+          : 0.42;
+      ctx.fillStyle = LANE_COLORS[n.lane];
+      if (n.holding) {
+        ctx.shadowColor = LANE_COLORS[n.lane];
+        ctx.shadowBlur = 24;
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // głowy nut (bliższe rysujemy później → na wierzchu)
+    const order = [...this.song.notes].sort((a, b) => b.time - a.time);
+    for (const n of order) {
+      let e = n.holding ? 1 : this.eForTime(n.time);
+      if (!n.judged && (e > 1.2 || e < -0.2)) continue;
+      let alpha = 1;
+      if (n.judged) {
+        const jt = this.songTime - n.judgedAt;
+        if (jt > 0.3) continue;
+        if (n.hit) {
+          alpha = 1 - jt / 0.3;
+          e = n.holding ? 1 : Math.min(this.eForTime(n.time), 1);
+        } else {
+          alpha = clamp(0.6 - jt * 2, 0, 1);
+          e = this.eForTime(n.time) + jt * 0.7;
+        }
+      }
+      const ec = clamp(e, 0, 1.2);
+      const x = this.laneXAtE(n.lane, ec);
+      const y = this.yForE(ec);
+      const r = RECEPTOR_R * this.sizeAtE(e);
+      const col = LANE_COLORS[n.lane];
+      const a = clamp(alpha, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 14 + (n.dur > 0 ? 8 : 0);
+      const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+      g.addColorStop(0, "#ffffff");
+      g.addColorStop(0.55, col);
+      g.addColorStop(1, n.judged && !n.hit ? "#5a1e26" : shade(col, -40));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a * 0.85;
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // pierścienie trafień
+    for (const fx of this.hitFx) {
+      const life = (this.songTime - fx.at) / 0.32;
+      if (life < 0 || life >= 1) continue;
+      const x = this.hitX(fx.lane);
+      const r = RECEPTOR_R * (0.7 + life * 1.8);
+      ctx.save();
+      ctx.globalAlpha = (1 - life) * 0.8;
+      ctx.lineWidth = 5 * (1 - life) + 1;
+      ctx.strokeStyle = JUDGE_COLOR[fx.kind];
+      ctx.beginPath();
+      ctx.arc(x, HIT_Y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  private drawJudgePopups(ctx: CanvasRenderingContext2D) {
+    for (const p of this.popups) {
+      const life = (this.songTime - p.at) / 0.55;
+      if (life < 0 || life >= 1) continue;
+      ctx.save();
+      ctx.globalAlpha = 1 - life * life;
+      ctx.translate(p.x, HIT_Y - 92 - life * 44);
+      ctx.rotate(-0.05);
+      text(ctx, p.txt, 0, 0, {
+        size: 30 - life * 4,
+        weight: "800",
+        color: p.color,
+        glow: p.color,
+        glowBlur: 12,
+      });
+      ctx.restore();
+    }
+  }
+
+  private drawCountdown(ctx: CanvasRenderingContext2D) {
+    const first = this.song.notes[0]?.time ?? 3;
+    const rel = first - this.songTime;
+    if (rel <= 0.05 || rel > 3.2) return;
+    const n = Math.ceil(rel);
+    const f = n - rel;
+    ctx.save();
+    ctx.globalAlpha = clamp(1 - f, 0.15, 1);
+    text(ctx, String(n), VW / 2, VH / 2 - 60, {
+      size: 150 + f * 50,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 40,
+    });
+    ctx.restore();
+  }
+
+  private drawSoundHint(ctx: CanvasRenderingContext2D) {
+    // Web nie potrafi odczytać przełącznika ciszy iPhone — pokazujemy
+    // podpowiedź przez pierwsze sekundy gry (do zamknięcia stuknięciem).
+    if (this.soundHintDismissed) return;
+    if (this.songTime < 0 || this.songTime > 11) return;
+    const suspended = this.audio.state !== "running";
+    const y = 300;
+    ctx.save();
+    ctx.fillStyle = "rgba(8,6,12,0.82)";
+    roundRect(ctx, 40, y, VW - 80, suspended ? 118 : 92, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,90,0.5)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, 40, y, VW - 80, suspended ? 118 : 92, 16);
+    ctx.stroke();
+    text(ctx, suspended ? "🔇 Dźwięk zablokowany" : "Nie słychać muzyki?", VW / 2, y + 30, {
+      size: 22,
+      weight: "800",
+      color: "#ffce8a",
+    });
+    text(ctx, "iPhone: wyłącz przełącznik ciszy nad przyciskami głośności", VW / 2, y + 60, {
+      size: 16,
+      color: "#c9b7a6",
+    });
+    if (suspended)
+      text(ctx, "i stuknij ekran jeszcze raz", VW / 2, y + 86, { size: 16, color: "#c9b7a6" });
+    ctx.restore();
+  }
+
   private drawHud(ctx: CanvasRenderingContext2D) {
+    // tytuł + pasek postępu utworu
+    text(ctx, this.song.title.toUpperCase(), MARGIN, 44, {
+      size: 20,
+      align: "left",
+      weight: "800",
+      color: "#fff7ec",
+      letterSpacing: "1px",
+    });
     const p = clamp(this.songTime / this.song.duration, 0, 1);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
-    ctx.fillRect(0, 0, VW, 6);
+    ctx.fillRect(0, 0, VW, 5);
     const pg = ctx.createLinearGradient(0, 0, VW, 0);
     pg.addColorStop(0, "#ff9f43");
     pg.addColorStop(1, "#ff5e7e");
     ctx.fillStyle = pg;
-    ctx.fillRect(0, 0, VW * p, 6);
+    ctx.fillRect(0, 0, VW * p, 5);
 
-    text(ctx, Math.round(this.displayScore).toLocaleString("pl-PL"), VW - MARGIN, 54, {
-      size: 44,
+    // pauza
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.fillRect(PAUSE_RECT.x + 22, PAUSE_RECT.y + 12, 8, 38);
+    ctx.fillRect(PAUSE_RECT.x + 40, PAUSE_RECT.y + 12, 8, 38);
+
+    // wynik
+    const scoreStr = Math.round(this.displayScore).toString().padStart(6, "0");
+    text(ctx, scoreStr, VW / 2, 116, {
+      size: 52,
       weight: "800",
-      align: "right",
       color: "#fff7ec",
       glow: "#ffb457",
-      glowBlur: 10,
-    });
-    text(ctx, `${(this.accuracy() * 100).toFixed(1)}%`, MARGIN, 54, {
-      size: 28,
-      align: "left",
-      color: "#c9b7a6",
+      glowBlur: 12,
     });
 
-    if (this.combo >= 2) {
-      const pop = clamp(1 - (this.songTime - this.comboPopAt) / 0.18, 0, 1);
-      const s = 1 + pop * 0.25;
+    // gwiazdki
+    const fill = this.starFill();
+    for (let i = 0; i < 5; i++) this.drawStar(ctx, VW / 2 - 128 + i * 64, 182, 22, clamp(fill - i, 0, 1));
+
+    // pasek życia
+    const bw = 420;
+    const bx = VW / 2 - bw / 2;
+    const by = 220;
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    roundRect(ctx, bx - 3, by - 3, bw + 6, 20, 10);
+    ctx.fill();
+    const low = this.health < 0.25;
+    const hg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    hg.addColorStop(0, low ? "#ff5e5e" : "#43d67a");
+    hg.addColorStop(1, low ? "#ff9f43" : "#8affc1");
+    ctx.fillStyle = hg;
+    roundRect(ctx, bx, by, Math.max(6, bw * this.health), 14, 7);
+    ctx.fill();
+
+    // panele lewej strony
+    this.hudChip(ctx, 18, 700, "MNOŻNIK", `×${this.multiplier()}`, this.multiplier() > 1);
+    this.hudChip(ctx, 18, 818, "FLOW", String(this.flow), this.flow > 0);
+
+    // pionowy miernik flow (prawa strona)
+    this.drawFlowMeter(ctx);
+
+    // combo
+    if (this.combo >= 4) {
+      const pop = clamp(1 - (this.songTime - this.comboPopAt) / 0.16, 0, 1);
       ctx.save();
-      ctx.translate(VW / 2, 300);
-      ctx.scale(s, s);
+      ctx.translate(VW / 2, 328);
+      ctx.scale(1 + pop * 0.22, 1 + pop * 0.22);
       text(ctx, String(this.combo), 0, 0, {
-        size: 92,
+        size: 76,
         weight: "800",
         color: "#fff7ec",
         glow: "#ffd24c",
-        glowBlur: 24,
+        glowBlur: 22,
       });
-      text(ctx, "COMBO", 0, 66, { size: 22, color: "#ffce8a", letterSpacing: "6px" });
+      text(ctx, "COMBO", 0, 52, { size: 18, color: "#ffce8a", letterSpacing: "6px" });
+      ctx.restore();
+    }
+
+    // baner (kamień milowy)
+    const bl = (this.songTime - this.bannerAt) / 1.0;
+    if (bl >= 0 && bl < 1) {
+      const a = bl < 0.15 ? bl / 0.15 : bl > 0.72 ? (1 - bl) / 0.28 : 1;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "rgba(255,150,60,0.16)";
+      ctx.fillRect(0, 468, VW, 92);
+      text(ctx, this.bannerTxt, VW / 2, 514, {
+        size: 44,
+        weight: "800",
+        color: "#ffe27a",
+        glow: "#ff9f43",
+        glowBlur: 20,
+        letterSpacing: "2px",
+      });
       ctx.restore();
     }
   }
 
-  // ---- ekran: wynik -----------------------------------------
+  private hudChip(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    label: string,
+    value: string,
+    active: boolean,
+  ) {
+    const w = 128;
+    const h = 92;
+    ctx.fillStyle = "rgba(250,250,250,0.92)";
+    roundRect(ctx, x, y, w, h, 10);
+    ctx.fill();
+    text(ctx, label, x + w / 2, y + 22, { size: 15, weight: "800", color: "#1a0d12" });
+    text(ctx, value, x + w / 2, y + 60, {
+      size: 38,
+      weight: "800",
+      color: active ? "#e0521f" : "#1a0d12",
+    });
+  }
+
+  private drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: number) {
+    const path = () => {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rad = i % 2 === 0 ? r : r * 0.44;
+        const x = cx + Math.cos(ang) * rad;
+        const y = cy + Math.sin(ang) * rad;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    };
+    ctx.save();
+    path();
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    ctx.fill();
+    if (fill > 0) {
+      ctx.save();
+      path();
+      ctx.clip();
+      ctx.fillStyle = "#ffd24c";
+      ctx.shadowColor = "#ffd24c";
+      ctx.shadowBlur = 12;
+      ctx.fillRect(cx - r, cy - r, r * 2 * fill, r * 2);
+      ctx.restore();
+    }
+    path();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,210,120,0.6)";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawFlowMeter(ctx: CanvasRenderingContext2D) {
+    const x = VW - 42;
+    const top = 560;
+    const bot = 1060;
+    const w = 18;
+    const full = this.flowTier >= MAX_FLOW_TIER;
+    const prog = full ? 1 : (this.flow % FLOW_PER_TIER) / FLOW_PER_TIER;
+    const justUp = this.songTime - this.flowUpAt < 0.3;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    roundRect(ctx, x - w / 2, top, w, bot - top, w / 2);
+    ctx.fill();
+    const h = (bot - top) * prog;
+    const mg = ctx.createLinearGradient(0, bot, 0, top);
+    mg.addColorStop(0, "#ff6b3d");
+    mg.addColorStop(1, "#ffd24c");
+    ctx.fillStyle = mg;
+    if (full || justUp) {
+      ctx.shadowColor = "#ffd24c";
+      ctx.shadowBlur = 20;
+    }
+    roundRect(ctx, x - w / 2, bot - h, w, Math.max(h, 0), w / 2);
+    ctx.fill();
+    ctx.restore();
+
+    // płomień u dołu
+    ctx.save();
+    ctx.translate(x, bot + 26);
+    const s = 1 + (justUp ? 0.3 : 0) + Math.sin(this.songTime * 12) * 0.04;
+    ctx.scale(s, s);
+    ctx.fillStyle = full ? "#ffd24c" : "#ff8a3d";
+    ctx.shadowColor = "#ff8a3d";
+    ctx.shadowBlur = full ? 16 : 8;
+    ctx.beginPath();
+    ctx.moveTo(0, -16);
+    ctx.quadraticCurveTo(13, 0, 6, 13);
+    ctx.quadraticCurveTo(0, 21, -6, 13);
+    ctx.quadraticCurveTo(-13, 0, 0, -16);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- ekran: wynik (licznik + gwiazdki + werdykt) ---------------
 
   private drawResults(ctx: CanvasRenderingContext2D) {
-    this.drawStage(ctx, 0.55, this.beatPulse() * 0.4);
+    this.drawStage(ctx, 0.62, this.beatPulse() * 0.3);
 
-    const acc = this.accuracy();
-    const fc = this.counts.miss === 0 && this.holdsBroken === 0 && this.judgedCount > 0;
-    const grade =
-      acc >= 0.95 ? "S" : acc >= 0.9 ? "A" : acc >= 0.8 ? "B" : acc >= 0.65 ? "C" : "D";
-    const gradeColor =
-      grade === "S" ? "#ffe27a" : grade === "A" ? "#8affc1" : grade === "B" ? "#8ab6ff" : "#ff9f43";
+    const now = performance.now();
+    const reveal = clamp((now - this.resultsAt) / 1800, 0, 1);
+    const eased = 1 - Math.pow(1 - reveal, 3);
+    const finalR = this.rating();
+    const shown = clamp(finalR, 0, 1) * eased;
+    const shownStars = this.starsFor(shown);
+    const revealDone = reveal >= 1;
+    const passed = finalR >= PASS_RATING;
 
-    text(ctx, "WYNIK", VW / 2, 120, { size: 30, color: "#ffce8a", letterSpacing: "12px" });
-    text(ctx, grade, VW / 2, 292, {
-      size: 190,
+    text(ctx, this.song.title.toUpperCase(), VW / 2, 78, {
+      size: 22,
       weight: "800",
-      color: gradeColor,
-      glow: gradeColor,
-      glowBlur: 40,
+      color: "#fff7ec",
+      letterSpacing: "2px",
     });
-    if (fc)
-      text(ctx, "PEŁNE COMBO", VW / 2, 410, { size: 26, color: "#8affc1", letterSpacing: "6px" });
-    if (this.newBest)
-      text(ctx, "★ NOWY REKORD ★", VW / 2, 446, { size: 24, color: "#ffe27a", letterSpacing: "4px" });
+    text(ctx, "WYNIK RUNDY", VW / 2, 116, { size: 17, color: "#8a7c6e", letterSpacing: "8px" });
 
-    text(ctx, this.score.toLocaleString("pl-PL"), VW / 2, 530, {
-      size: 72,
+    // --- gwiazdki (wskakują w miarę wzrostu wskazówki) ---
+    const nowStars = Math.floor(shownStars + 0.0001);
+    if (nowStars > this.resultStarSeen && this.resultStarSeen < 5) {
+      this.resultStarSeen = nowStars;
+      this.lastStarPopAt = now;
+      this.audio.sfx(this.resultStarSeen >= 3 ? "flow" : "perfect");
+      haptic(this.resultStarSeen >= 3 ? "flowUp" : "combo");
+    }
+    for (let i = 0; i < 5; i++) {
+      const f = clamp(shownStars - i, 0, 1);
+      const isNew = i === this.resultStarSeen - 1;
+      const pop = isNew ? clamp(1 - (now - this.lastStarPopAt) / 320, 0, 1) : 0;
+      const r = 26 * (1 + pop * 0.5);
+      this.drawStar(ctx, VW / 2 - 132 + i * 66, 186, r, f);
+    }
+
+    // --- licznik (speedometer) ---
+    const cx = VW / 2;
+    const cy = 560;
+    const R = 208;
+    const A0 = Math.PI * 0.75;
+    const SWEEP = Math.PI * 1.5;
+    const ang = (r: number) => A0 + clamp(r, 0, 1) * SWEEP;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    // tło łuku
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.lineWidth = 24;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, A0, A0 + SWEEP);
+    ctx.stroke();
+    // wypełnienie
+    ctx.strokeStyle = shown >= PASS_RATING ? "#ffd24c" : "#ff7a3d";
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, A0, ang(shown));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // podziałka
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 2;
+    for (let k = 0; k <= 10; k++) {
+      const a = ang(k / 10);
+      const r1 = R - 16;
+      const r2 = R + (k % 5 === 0 ? 16 : 9);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+    }
+    // znacznik zaliczenia (70%)
+    const pa = ang(PASS_RATING);
+    ctx.strokeStyle = "#ff5e5e";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(pa) * (R - 20), cy + Math.sin(pa) * (R - 20));
+    ctx.lineTo(cx + Math.cos(pa) * (R + 22), cy + Math.sin(pa) * (R + 22));
+    ctx.stroke();
+    text(
+      ctx,
+      "70%",
+      cx + Math.cos(pa) * (R + 46),
+      cy + Math.sin(pa) * (R + 46),
+      { size: 16, weight: "800", color: "#ff8a8a" },
+    );
+    ctx.restore();
+
+    // wskazówka
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang(shown));
+    ctx.fillStyle = "#fff7ec";
+    ctx.shadowColor = "#ffb457";
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.moveTo(-14, 0);
+    ctx.lineTo(0, -10);
+    ctx.lineTo(R - 34, 0);
+    ctx.lineTo(0, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#1a0d12";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffce8a";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // odczyt środkowy
+    text(ctx, `${Math.round(shown * 100)}%`, cx, cy + 96, {
+      size: 60,
       weight: "800",
       color: "#fff7ec",
       glow: "#ffb457",
-      glowBlur: 16,
+      glowBlur: 14,
     });
-    text(ctx, `celność ${(acc * 100).toFixed(2)}%   ·   max combo ${this.maxCombo}`, VW / 2, 588, {
-      size: 24,
+    text(ctx, this.score.toLocaleString("pl-PL") + " pkt", cx, cy + 146, {
+      size: 20,
       color: "#c9b7a6",
     });
 
-    const rows: [string, number, string][] = [
+    // --- werdykt + statystyki + przyciski (po animacji) ---
+    if (!revealDone) {
+      text(ctx, "stuknij, aby pominąć", VW / 2, VH - 40, { size: 15, color: "#6b6055" });
+      return;
+    }
+
+    const fadeIn = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+
+    if (passed) {
+      text(ctx, "ZALICZONE!", VW / 2, 812, {
+        size: 46,
+        weight: "800",
+        color: "#8affc1",
+        glow: "#8affc1",
+        glowBlur: 20,
+        letterSpacing: "2px",
+      });
+      text(ctx, "runda zaliczona — świetna robota", VW / 2, 852, { size: 18, color: "#c9b7a6" });
+    } else {
+      text(ctx, "NIE TYM RAZEM", VW / 2, 812, {
+        size: 42,
+        weight: "800",
+        color: "#ff8a97",
+        glow: "#ff5e7e",
+        glowBlur: 16,
+        letterSpacing: "1px",
+      });
+      text(ctx, `zabrakło do 70% — spróbuj jeszcze raz`, VW / 2, 852, {
+        size: 18,
+        color: "#c9b7a6",
+      });
+    }
+
+    const fc = this.counts.miss === 0 && this.holdsBroken === 0 && this.judgedCount > 0;
+    let extra = `celność ${(this.accuracy() * 100).toFixed(1)}%  ·  max combo ${this.maxCombo}  ·  flow ${this.maxFlow}`;
+    if (fc) extra = "PEŁNE COMBO  ·  " + extra;
+    if (this.newBest) extra = "★ REKORD  ·  " + extra;
+    text(ctx, extra, VW / 2, 900, { size: 17, color: "#9a8c7e" });
+
+    const stats: [string, number, string][] = [
       ["PERFECT", this.counts.perfect, "#ffe27a"],
       ["SUPER", this.counts.great, "#8affc1"],
       ["OK", this.counts.good, "#8ab6ff"],
       ["PUDŁO", this.counts.miss, "#ff6b7d"],
-      ["TRZYMANE", this.holdsDone, "#8affc1"],
-      ["ZERWANE", this.holdsBroken, "#ff6b7d"],
+      ["TRZYM.", this.holdsDone, "#8affc1"],
+      ["ZERW.", this.holdsBroken, "#ff6b7d"],
     ];
-    rows.forEach((r, i) => {
-      const y = 662 + i * 56;
-      text(ctx, r[0], VW / 2 - 60, y, { size: 26, align: "right", color: r[2] });
-      text(ctx, String(r[1]), VW / 2 + 60, y, { size: 26, align: "left", color: "#fff" });
+    stats.forEach((r, i) => {
+      const x = VW / 2 - 300 + i * 120 + 60;
+      text(ctx, String(r[1]), x, 958, { size: 30, weight: "800", color: "#fff" });
+      text(ctx, r[0], x, 988, { size: 13, color: r[2] });
     });
 
-    const by = 1120;
+    // przyciski
+    const by = 1150;
     const bw = VW / 2 - MARGIN - 12;
+    const retryLabel = passed ? "JESZCZE RAZ" : "SPRÓBUJ PONOWNIE";
+    const g1 = ctx.createLinearGradient(MARGIN, 0, MARGIN + bw, 0);
+    g1.addColorStop(0, "#ff9f43");
+    g1.addColorStop(1, "#ff5e7e");
+    ctx.fillStyle = g1;
+    roundRect(ctx, MARGIN, by - 55, bw, 110, 24);
+    ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.1)";
-    roundRect(ctx, MARGIN, by - 55, bw, 110, 22);
+    roundRect(ctx, VW / 2 + 12, by - 55, bw, 110, 24);
     ctx.fill();
-    roundRect(ctx, VW / 2 + 12, by - 55, bw, 110, 22);
-    ctx.fill();
-    text(ctx, "JESZCZE RAZ", MARGIN + bw / 2, by, { size: 24, color: "#ffce8a" });
-    text(ctx, "MENU", VW / 2 + 12 + bw / 2, by, { size: 24, color: "#c9b7a6" });
+    text(ctx, retryLabel, MARGIN + bw / 2, by, { size: 22, weight: "800", color: "#1a0d12" });
+    text(ctx, "MENU", VW / 2 + 12 + bw / 2, by, { size: 22, color: "#c9b7a6" });
+
+    ctx.restore();
   }
 }

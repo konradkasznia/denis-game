@@ -134,6 +134,10 @@ ok(perfect.judgedCount === perfect.song.notes.length, "wszystkie nuty ocenione")
 ok(perfect.combo === perfect.maxCombo, "combo nieprzerwane do końca");
 ok(perfect.accuracy() > 0.99, `celność ~100% (${(perfect.accuracy() * 100).toFixed(1)}%)`);
 ok(perfect.score > 40000, `wysoki wynik (${perfect.score})`);
+ok(perfect.flowTier === 4, `mnożnik dobity do x5 (tier ${perfect.flowTier})`);
+ok(perfect.maxFlow >= 40, `flow rośnie z serią perfektów (${perfect.maxFlow})`);
+ok(perfect.starFill() >= 4.9, `5 gwiazdek za idealny przebieg (${perfect.starFill().toFixed(2)})`);
+ok(perfect.rating() >= 0.7, `runda zaliczona (ocena ${(perfect.rating() * 100).toFixed(0)}%)`);
 ok(Number(localStorage.getItem("denis.best")) === perfect.score, "rekord zapisany");
 
 console.log("\n· trzymania puszczane za wcześnie:");
@@ -150,6 +154,7 @@ ok(idle.scene === "results", "kończy się ekranem wyniku");
 ok(idle.counts.miss === idle.song.notes.length, `same pudła (${idle.counts.miss})`);
 ok(idle.score === 0, "wynik 0");
 ok(idle.combo === 0, "combo 0");
+ok(idle.rating() < 0.7, "runda niezaliczona przy samych pudłach");
 
 // auto-domknięcie: trzymamy głowy, ale nigdy nie puszczamy palca
 console.log("\n· trzymania bez puszczenia palca (auto-domknięcie na końcu):");

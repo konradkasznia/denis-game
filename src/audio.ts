@@ -16,6 +16,8 @@ export class AudioEngine {
   private _running = false;
   private trackBuffers = new Map<string, AudioBuffer>();
   private srcNode: AudioBufferSourceNode | null = null;
+  private sfxGain: GainNode | null = null;
+  private _sfxOn = true;
 
   get running() {
     return this._running;
@@ -37,6 +39,9 @@ export class AudioEngine {
       comp.ratio.value = 4;
       this.master.connect(comp).connect(this.ctx.destination);
       this.noiseBuffer = this.makeNoise(this.ctx);
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.gain.value = 0.22;
+      this.sfxGain.connect(this.master);
     }
     // klasyczny trik odblokowania audio na iOS: krótki cichy bufor w geście
     try {
@@ -93,6 +98,49 @@ export class AudioEngine {
 
   isTrackLoaded(url: string) {
     return this.trackBuffers.has(url);
+  }
+
+  setSfxEnabled(on: boolean) {
+    this._sfxOn = on;
+  }
+
+  /** Krótki dźwięk reakcji na trafienie (nakłada się na muzykę). */
+  sfx(kind: "perfect" | "great" | "good" | "miss" | "flow" | "combo") {
+    if (!this._sfxOn || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.connect(this.sfxGain);
+
+    if (kind === "miss") {
+      const n = ctx.createBufferSource();
+      n.buffer = this.noiseBuffer;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 520;
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      n.connect(lp).connect(g);
+      n.start(t);
+      n.stop(t + 0.18);
+      return;
+    }
+
+    const o = ctx.createOscillator();
+    o.type = "triangle";
+    const base =
+      kind === "perfect" ? 1320 : kind === "great" ? 1040 : kind === "good" ? 820 : kind === "flow" ? 1660 : 990;
+    o.frequency.setValueAtTime(base, t);
+    if (kind === "flow") o.frequency.exponentialRampToValueAtTime(base * 2, t + 0.18);
+    if (kind === "combo") o.frequency.exponentialRampToValueAtTime(base * 1.5, t + 0.1);
+    const dur = kind === "flow" ? 0.24 : kind === "combo" ? 0.15 : 0.07;
+    const peak = kind === "perfect" ? 0.5 : kind === "flow" ? 0.55 : 0.34;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    o.start(t);
+    o.stop(t + dur + 0.03);
   }
 
   /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap. */
