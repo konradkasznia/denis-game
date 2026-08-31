@@ -19,15 +19,10 @@ export interface SongMeta {
 }
 
 // Kolejność = kolejność rund. „Kolejna runda" prowadzi do następnego playable.
+// „Pan Młody" chwilowo wyłączony — skupiamy się na dopracowaniu „Panna Młoda".
+// Chart + mp3 zostają w repo (public/charts/pan-mlody.json, assets/songs/), żeby
+// łatwo przywrócić: wystarczy dodać wpis z powrotem.
 export const SONGS: SongMeta[] = [
-  {
-    id: "pan-mlody",
-    title: "Pan Młody",
-    artist: "Denis",
-    accent: "#ff9f43",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Pan%20M%C5%82ody",
-    playable: true,
-  },
   {
     id: "panna-mloda",
     title: "Panna Młoda",
