@@ -1,0 +1,6 @@
+# Ujecie 3 - kazda klatka po 3f (3 klatki osi czasu @ 30 fps = 100 ms)
+1 - 3f
+2 - 3f
+3 - 3f
+4 - 3f
+5 - 3f
