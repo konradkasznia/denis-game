@@ -19,6 +19,7 @@ interface RawChart {
   gridOffset?: number;
   duration: number;
   audioUrl: string;
+  bg?: string;
   notes: { lane: number; time: number; dur?: number }[];
 }
 
@@ -37,6 +38,7 @@ export function rawToSong(raw: RawChart): SongDef {
     startBar: 0,
     lanes: LANES,
     audioUrl: raw.audioUrl,
+    bg: raw.bg,
     notes,
     duration: raw.duration,
   };

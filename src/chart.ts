@@ -37,6 +37,8 @@ export interface SongDef {
   lanes: number;
   /** ścieżka do prawdziwego pliku audio; brak = syntezowany podkład */
   audioUrl?: string;
+  /** tło ekranu gry dla tego utworu (obraz); brak = domyślne */
+  bg?: string;
   notes: Note[];
   /** całkowita długość utworu w sekundach */
   duration: number;

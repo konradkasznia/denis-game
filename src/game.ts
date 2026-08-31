@@ -111,6 +111,8 @@ export class Game {
   private bg = new Image();
   private bgReady = false;
   private coverCache = new Map<string, HTMLImageElement>();
+  private songBg: HTMLImageElement | null = null; // tło bieżącego utworu
+  private bgCache = new Map<string, HTMLImageElement>();
 
   private trackId = DEFAULT_TRACK;
   private song: SongDef = buildSynthSong();
@@ -155,7 +157,6 @@ export class Game {
   private bannerTxt = "";
   private bannerAt = -10;
   private shake = 0;
-  private soundHintDismissed = false;
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private resultsSavedBest = false;
@@ -177,9 +178,32 @@ export class Game {
     try {
       const s = await loadTrack(this.trackId);
       if (this.scene !== "play") this.song = s;
+      this.loadSongBg(s.bg);
     } catch (e) {
       this.loadError = String(e);
     }
+  }
+
+  /** Wczytuje tło utworu (jeśli podane i istnieje); inaczej zostaje domyślne. */
+  private loadSongBg(url?: string) {
+    if (!url) {
+      this.songBg = null;
+      return;
+    }
+    const cached = this.bgCache.get(url);
+    if (cached) {
+      this.songBg = cached;
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      this.bgCache.set(url, img);
+      this.songBg = img;
+    };
+    img.onerror = () => {
+      this.songBg = null;
+    };
+    img.src = url;
   }
 
   // ---- pętla ----------------------------------------------------------
@@ -283,12 +307,6 @@ export class Game {
         return this.handlePauseTap(x, y);
       }
       if (x >= 0 && inRect(PAUSE_RECT, x, y)) return this.pauseGame();
-      // podpowiedź o dźwięku: pierwszy tap w jej obszarze tylko ją zamyka
-      if (!this.soundHintDismissed && this.songTime <= 11 && x >= 0 && y > 280 && y < 430) {
-        this.soundHintDismissed = true;
-        return;
-      }
-      this.soundHintDismissed = true;
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
       if (lane < 0) lane = this.laneAtX(x);
       if (lane >= 0) this.pressLane(lane);
@@ -386,6 +404,7 @@ export class Game {
       this.prepStep = "wczytywanie beatmapy";
       const song = await loadTrack(this.trackId);
       if (!guard()) return;
+      this.loadSongBg(song.bg);
 
       if (song.audioUrl) {
         await this.audio.loadTrack(song.audioUrl, (s) => {
@@ -423,7 +442,6 @@ export class Game {
     this.shake = 0;
     this.bannerAt = -10;
     this.flowUpAt = -10;
-    this.soundHintDismissed = false;
     this.lastHoldTick = 0;
     this.resultStarSeen = 0;
     this.paused = false;
@@ -765,13 +783,14 @@ export class Game {
   // ---- rysowanie: wspólne tło ------------------------------------
 
   private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number) {
-    if (this.bgReady) {
-      const iw = this.bg.width;
-      const ih = this.bg.height;
+    const img = this.songBg ?? (this.bgReady ? this.bg : null);
+    if (img && img.width) {
+      const iw = img.width;
+      const ih = img.height;
       const scale = Math.max(VW / iw, VH / ih) * (1 + pulse * 0.015);
       const w = iw * scale;
       const h = ih * scale;
-      ctx.drawImage(this.bg, (VW - w) / 2, (VH - h) / 2 - 20, w, h);
+      ctx.drawImage(img, (VW - w) / 2, (VH - h) / 2 - 20, w, h);
     } else {
       ctx.fillStyle = "#101018";
       ctx.fillRect(0, 0, VW, VH);
@@ -930,17 +949,18 @@ export class Game {
     ctx.arc(on ? tx + 40 : tx + 16, ty, 12, 0, Math.PI * 2);
     ctx.fill();
 
-    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1082, {
+    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1078, {
       size: 19,
       color: "#ffce8a",
     });
-    text(ctx, "Trafiaj kółka na linii. Długie nuty przytrzymaj — czasem dwie naraz.", VW / 2, 1132, {
+    text(ctx, "🔊 iPhone: wyłącz przełącznik ciszy, żeby słyszeć muzykę", VW / 2, 1124, {
       size: 17,
-      color: "#9a8c7e",
+      weight: "700",
+      color: "#ffb457",
     });
-    text(ctx, "klawisze: D F J K  ·  prototyp", VW / 2, 1166, {
+    text(ctx, "Trafiaj kółka na linii. Długie przytrzymaj — czasem dwie naraz.", VW / 2, 1158, {
       size: 15,
-      color: "#6b6055",
+      color: "#8a7c6e",
     });
   }
 
@@ -1116,35 +1136,49 @@ export class Game {
     const pulse = this.beatPulse();
 
     if (this.awaitingStart) {
-      this.drawStage(ctx, 0.4, pulse);
-      ctx.fillStyle = "rgba(4,4,10,0.55)";
+      this.drawStage(ctx, 0.45, pulse);
+      ctx.fillStyle = "rgba(4,4,10,0.58)";
       ctx.fillRect(0, 0, VW, VH);
-      text(ctx, this.song.title.toUpperCase(), VW / 2, VH / 2 - 150, {
-        size: 40,
+      text(ctx, this.song.title.toUpperCase(), VW / 2, 300, {
+        size: 42,
         weight: "800",
         color: "#fff7ec",
         glow: "#ffb457",
         glowBlur: 16,
       });
+
+      // ostrzeżenie o dźwięku — TYLKO tutaj, przed grą
+      const suspended = this.audio.state !== "running";
+      ctx.fillStyle = "rgba(8,6,12,0.85)";
+      roundRect(ctx, 44, 386, VW - 88, 132, 18);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,180,90,0.5)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, 44, 386, VW - 88, 132, 18);
+      ctx.stroke();
+      text(ctx, "🔊 SPRAWDŹ DŹWIĘK", VW / 2, 424, { size: 22, weight: "800", color: "#ffce8a" });
+      text(ctx, "iPhone: przełącznik ciszy nad przyciskami głośności — WYŁĄCZ", VW / 2, 458, {
+        size: 16,
+        color: "#c9b7a6",
+      });
+      text(ctx, "oraz podkręć głośność multimediów", VW / 2, 486, { size: 16, color: "#c9b7a6" });
+      void suspended;
+
       const s = 1 + pulse * 0.06;
       ctx.save();
-      ctx.translate(VW / 2, VH / 2);
+      ctx.translate(VW / 2, 760);
       ctx.scale(s, s);
       ctx.fillStyle = "rgba(255,180,90,0.16)";
       ctx.beginPath();
-      ctx.arc(0, 0, 92, 0, Math.PI * 2);
+      ctx.arc(0, 0, 96, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
-      text(ctx, "▶", VW / 2 + 6, VH / 2, { size: 84, color: "#ffce8a" });
-      text(ctx, "STUKNIJ, ABY ZAGRAĆ", VW / 2, VH / 2 + 150, {
+      text(ctx, "▶", VW / 2 + 6, 760, { size: 88, color: "#ffce8a" });
+      text(ctx, "STUKNIJ, ABY ZAGRAĆ", VW / 2, 910, {
         size: 28,
         weight: "800",
         color: "#ffce8a",
         letterSpacing: "3px",
-      });
-      text(ctx, "iPhone: wyłącz przełącznik ciszy (dzwonek), żeby był dźwięk", VW / 2, VH - 130, {
-        size: 17,
-        color: "#9a8c7e",
       });
       return;
     }
@@ -1170,15 +1204,105 @@ export class Game {
       ctx.restore();
     }
 
+    this.drawCharacter(ctx);
     this.drawPlayfield(ctx, pulse);
     this.drawNotes(ctx);
     this.drawJudgePopups(ctx);
     this.drawHud(ctx);
     this.drawCountdown(ctx);
-    this.drawSoundHint(ctx);
     if (this.paused) this.drawPause(ctx);
 
     ctx.restore(); // koniec trzęsienia
+  }
+
+  // ---- postać (placeholder — czeka na Twoją grafikę) -------------
+  //
+  // Gdy dostaniemy klatki: `public/assets/char/<utwor>/dance-1..N.png`
+  // (+ opcjonalnie hit.png / miss.png), podmieniamy tę metodę na rysowanie
+  // klatek. Reszta (bit, reakcje) jest już policzona z songTime.
+
+  private drawCharacter(ctx: CanvasRenderingContext2D) {
+    const beat = 60 / this.song.bpm;
+    const t = Math.max(this.songTime, 0);
+    const phase = (t % beat) / beat; // 0..1 w obrębie bitu
+    const groundY = 660;
+    const cx = VW / 2;
+
+    const hit = clamp(1 - (this.songTime - this.denisPopAt) / 0.22, 0, 1);
+    const miss = clamp(1 - (this.songTime - this.denisMissAt) / 0.32, 0, 1);
+    const flowUp = clamp(1 - (this.songTime - this.flowUpAt) / 0.5, 0, 1);
+
+    // groove: podskok na bicie + kołysanie
+    const bounce = -Math.abs(Math.sin(phase * Math.PI)) * (14 + flowUp * 30);
+    const sway = Math.sin(t / beat * Math.PI) * 12;
+    const tilt = (Math.sin(t / beat * Math.PI) * 0.05) + miss * 0.25;
+    const scale = 1 + hit * 0.08 + flowUp * 0.12;
+    const armRaise = hit * 1.1 + flowUp * 0.7;
+
+    ctx.save();
+    ctx.translate(cx + sway, groundY + bounce);
+    ctx.rotate(tilt);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = 0.9;
+
+    const col = miss > 0.1 ? "#7a5a44" : "#c98a5a";
+    const rim = "rgba(255,220,180,0.9)";
+    ctx.strokeStyle = rim;
+    ctx.lineCap = "round";
+
+    // nogi
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 22;
+    const legSwing = Math.sin(t / beat * Math.PI * 2) * 12;
+    ctx.beginPath();
+    ctx.moveTo(-10, -120);
+    ctx.lineTo(-18 - legSwing, 0);
+    ctx.moveTo(10, -120);
+    ctx.lineTo(18 + legSwing, 0);
+    ctx.stroke();
+
+    // tułów
+    ctx.lineWidth = 46;
+    ctx.beginPath();
+    ctx.moveTo(0, -120);
+    ctx.lineTo(0, -230);
+    ctx.stroke();
+
+    // ramiona
+    ctx.lineWidth = 18;
+    const aBase = -220;
+    const aL = -0.5 - armRaise + Math.sin(t / beat * Math.PI * 2) * 0.3;
+    const aR = 0.5 + armRaise - Math.sin(t / beat * Math.PI * 2) * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(0, aBase);
+    ctx.lineTo(Math.sin(aL) * 70, aBase - Math.cos(aL) * 70);
+    ctx.moveTo(0, aBase);
+    ctx.lineTo(Math.sin(aR) * 70, aBase - Math.cos(aR) * 70);
+    ctx.stroke();
+
+    // głowa
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(0, -270, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    // rim light
+    ctx.strokeStyle = rim;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, -270, 30, Math.PI * 0.8, Math.PI * 1.6);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // subtelny cień
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(cx + sway, groundY + 6, 70 - bounce * 0.6, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   private drawPause(ctx: CanvasRenderingContext2D) {
@@ -1486,35 +1610,6 @@ export class Game {
       glow: "#ffb457",
       glowBlur: 40,
     });
-    ctx.restore();
-  }
-
-  private drawSoundHint(ctx: CanvasRenderingContext2D) {
-    // Web nie potrafi odczytać przełącznika ciszy iPhone — pokazujemy
-    // podpowiedź przez pierwsze sekundy gry (do zamknięcia stuknięciem).
-    if (this.soundHintDismissed) return;
-    if (this.songTime < 0 || this.songTime > 11) return;
-    const suspended = this.audio.state !== "running";
-    const y = 300;
-    ctx.save();
-    ctx.fillStyle = "rgba(8,6,12,0.82)";
-    roundRect(ctx, 40, y, VW - 80, suspended ? 118 : 92, 16);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,180,90,0.5)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, 40, y, VW - 80, suspended ? 118 : 92, 16);
-    ctx.stroke();
-    text(ctx, suspended ? "🔇 Dźwięk zablokowany" : "Nie słychać muzyki?", VW / 2, y + 30, {
-      size: 22,
-      weight: "800",
-      color: "#ffce8a",
-    });
-    text(ctx, "iPhone: wyłącz przełącznik ciszy nad przyciskami głośności", VW / 2, y + 60, {
-      size: 16,
-      color: "#c9b7a6",
-    });
-    if (suspended)
-      text(ctx, "i stuknij ekran jeszcze raz", VW / 2, y + 86, { size: 16, color: "#c9b7a6" });
     ctx.restore();
   }
 
