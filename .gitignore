@@ -4,3 +4,6 @@ dist
 *.local
 .vite
 /Piosenki/
+
+figma-ekrany/
+/tool-results/
