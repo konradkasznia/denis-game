@@ -7,3 +7,6 @@ dist
 
 figma-ekrany/
 /tool-results/
+
+.vercel
+.env*
