@@ -2,7 +2,8 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { LANES, loadSong, type Note, type SongDef } from "./chart.ts";
+import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
+import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import {
   ACC_WEIGHT,
   classify,
@@ -102,8 +103,11 @@ export class Game {
   private bgReady = false;
   private coverCache = new Map<string, HTMLImageElement>();
 
-  private song: SongDef = loadSong();
+  private trackId = DEFAULT_TRACK;
+  private song: SongDef = buildSynthSong();
   private songTime = 0;
+  private preparing = false;
+  private loadError = "";
 
   private score = 0;
   private displayScore = 0;
@@ -133,6 +137,17 @@ export class Game {
       if (this.scene === "loading") this.scene = "menu";
     };
     this.bg.src = "assets/denis/denis-stage.png";
+    // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
+    void this.preloadChart();
+  }
+
+  private async preloadChart() {
+    try {
+      const s = await loadTrack(this.trackId);
+      if (this.scene !== "play") this.song = s;
+    } catch (e) {
+      this.loadError = String(e);
+    }
   }
 
   // ---- pętla ----------------------------------------------------------
@@ -168,6 +183,18 @@ export class Game {
       case "results":
         this.drawResults(ctx);
         break;
+    }
+
+    if (this.preparing) {
+      ctx.fillStyle = "rgba(4,4,10,0.72)";
+      ctx.fillRect(0, 0, VW, VH);
+      const d = Math.floor((performance.now() / 300) % 4);
+      text(ctx, `Wczytywanie utworu${".".repeat(d)}`, VW / 2, VH / 2, {
+        size: 34,
+        color: "#ffce8a",
+      });
+    } else if (this.loadError && (this.scene === "menu" || this.scene === "songs")) {
+      text(ctx, this.loadError, VW / 2, VH - 96, { size: 20, color: "#ff6b7d" });
     }
   }
 
@@ -242,8 +269,20 @@ export class Game {
   // ---- przejścia stanów --------------------------------------------
 
   private async startPlay() {
-    await this.audio.unlock();
-    this.song = loadSong();
+    if (this.preparing) return;
+    this.preparing = true;
+    this.loadError = "";
+    try {
+      await this.audio.unlock();
+      const song = await loadTrack(this.trackId);
+      if (song.audioUrl) await this.audio.loadTrack(song.audioUrl);
+      this.song = song;
+    } catch (e) {
+      this.loadError = "Nie udało się wczytać utworu";
+      console.error(e);
+      this.preparing = false;
+      return;
+    }
     this.score = 0;
     this.displayScore = 0;
     this.combo = 0;
@@ -261,6 +300,7 @@ export class Game {
     this.scene = "play";
     markDiscovered(this.song.id);
     this.audio.start(this.song);
+    this.preparing = false;
   }
 
   private finish() {

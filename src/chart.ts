@@ -30,11 +30,13 @@ export interface SongDef {
   title: string;
   artist: string;
   bpm: number;
-  /** ile pełnych taktów gra podkład */
+  /** ile pełnych taktów gra podkład (używane tylko przez syntezowany podkład) */
   bars: number;
   /** od którego taktu zaczynają lecieć nuty (lead-in) */
   startBar: number;
   lanes: number;
+  /** ścieżka do prawdziwego pliku audio; brak = syntezowany podkład */
+  audioUrl?: string;
   notes: Note[];
   /** całkowita długość utworu w sekundach */
   duration: number;
@@ -46,7 +48,7 @@ export const LANES = 4;
 // żeby granie było płynne i miało sens muzyczny.
 const LANE_PATTERN = [0, 1, 2, 3, 2, 1, 0, 2, 3, 1, 2, 0, 1, 3, 2, 1];
 
-function mkNote(lane: number, time: number, dur = 0): Note {
+export function mkNote(lane: number, time: number, dur = 0): Note {
   return { lane, time: +time.toFixed(4), dur, judged: false, hit: false, holding: false, headJ: null, judgedAt: 0 };
 }
 
@@ -124,9 +126,9 @@ function build(): SongDef {
   const duration = bars * barLen;
 
   return {
-    id: "placeholder-01",
-    title: "Podkład testowy",
-    artist: "Denis",
+    id: "rozgrzewka",
+    title: "Rozgrzewka",
+    artist: "podkład testowy",
     bpm,
     bars,
     startBar,
@@ -136,8 +138,8 @@ function build(): SongDef {
   };
 }
 
-/** Świeża kopia utworu (nuty z wyzerowanym stanem) do rozpoczęcia rozgrywki. */
-export function loadSong(): SongDef {
+/** Syntezowany podkład testowy — świeża kopia z wyzerowanym stanem nut. */
+export function buildSynthSong(): SongDef {
   const s = build();
   return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur)) };
 }

@@ -1,5 +1,5 @@
 // Sanity-check generatora beatmapy (node --experimental-strip-types test/chart.test.mjs)
-import { loadSong, LANES } from "../src/chart.ts";
+import { buildSynthSong as loadSong, LANES } from "../src/chart.ts";
 
 let fail = 0;
 const ok = (cond, msg) => {

@@ -81,6 +81,7 @@ const ctx = chain();
 
 async function playthrough(mode) {
   const g = new Game();
+  g.trackId = "rozgrzewka"; // syntezowany podkład — bez fetch/audio
   await new Promise((r) => setTimeout(r, 5));
   await g.startPlay();
   const ac = g.audio.ctx;

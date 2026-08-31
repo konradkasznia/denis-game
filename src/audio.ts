@@ -14,6 +14,8 @@ export class AudioEngine {
   private noiseBuffer: AudioBuffer | null = null;
   private startTime = 0;
   private _running = false;
+  private trackBuffers = new Map<string, AudioBuffer>();
+  private srcNode: AudioBufferSourceNode | null = null;
 
   get running() {
     return this._running;
@@ -41,8 +43,28 @@ export class AudioEngine {
     return this.ctx.currentTime - this.startTime;
   }
 
+  isTrackLoaded(url: string) {
+    return this.trackBuffers.has(url);
+  }
+
+  /** Wczytuje i dekoduje plik audio (raz na URL). */
+  async loadTrack(url: string): Promise<void> {
+    await this.unlock();
+    if (this.trackBuffers.has(url)) return;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`audio ${res.status}: ${url}`);
+    const buf = await this.ctx!.decodeAudioData(await res.arrayBuffer());
+    this.trackBuffers.set(url, buf);
+  }
+
   stop() {
     this._running = false;
+    try {
+      this.srcNode?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.srcNode = null;
     if (this.ctx) {
       try {
         this.master?.gain.setValueAtTime(this.master.gain.value, this.ctx.currentTime);
@@ -53,13 +75,27 @@ export class AudioEngine {
     }
   }
 
-  /** Rozpisuje cały podkład z wyprzedzeniem i uruchamia zegar. */
+  /** Uruchamia zegar utworu: prawdziwy plik audio albo syntezowany podkład. */
   start(song: SongDef) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
     this.master.gain.cancelScheduledValues(ctx.currentTime);
     this.master.gain.setValueAtTime(0.9, ctx.currentTime);
 
+    // --- prawdziwy plik audio ---
+    if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.trackBuffers.get(song.audioUrl)!;
+      src.connect(this.master);
+      const t0 = ctx.currentTime + 0.25;
+      this.startTime = t0;
+      this._running = true;
+      src.start(t0);
+      this.srcNode = src;
+      return;
+    }
+
+    // --- syntezowany podkład ---
     const beat = 60 / song.bpm;
     const step = beat / 4;
     const t0 = ctx.currentTime + 0.25;

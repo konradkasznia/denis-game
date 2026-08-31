@@ -20,16 +20,22 @@ export interface SongMeta {
 
 export const SONGS: SongMeta[] = [
   {
-    id: "placeholder-01",
-    title: "Podkład testowy",
-    artist: "Denis Impulsywni",
-    accent: "#ff9f43",
-    // TODO: podmienić na link do prawdziwego utworu
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Impulsywni",
+    id: "pan-mlody",
+    title: "Pan Młody",
+    artist: "Denis",
+    accent: "#ffd24c",
+    // TODO: podmienić na bezpośredni link do utworu
+    spotifyUrl: "https://open.spotify.com/search/Denis%20Pan%20M%C5%82ody",
     playable: true,
   },
-  { id: "mystery-1", title: "???", artist: "Denis Impulsywni", accent: "#ff5e7e", playable: false },
-  { id: "mystery-2", title: "???", artist: "Denis Impulsywni", accent: "#8ab6ff", playable: false },
+  {
+    id: "rozgrzewka",
+    title: "Rozgrzewka",
+    artist: "podkład testowy",
+    accent: "#ff9f43",
+    playable: true,
+  },
+  { id: "panna-mloda", title: "???", artist: "Denis", accent: "#ff5e7e", playable: false },
 ];
 
 const KEY = "denis.discovered";
