@@ -8,8 +8,17 @@
 
 import { buildSynthSong, LANES, mkNote, type Note, type SongDef } from "./chart.ts";
 
-export const DEFAULT_TRACK = "pan-mlody";
-export const SYNTH_TRACK = "rozgrzewka";
+export const DEFAULT_TRACK = "panna-mloda";
+
+// Utwory bez własnego pliku audio — grane na syntezowanym podkładzie.
+// Gdy wpłynie mp3 danego utworu: dodajemy `public/charts/<id>.json`
+// z `audioUrl` i prawdziwą beatmapą, a wpis stąd znika.
+const SYNTH_TRACKS: Record<string, { title: string; artist: string; bpm: number; bars: number }> = {
+  rozgrzewka: { title: "Rozgrzewka", artist: "podkład testowy", bpm: 100, bars: 22 },
+  "panna-mloda": { title: "Panna Młoda", artist: "Denis", bpm: 128, bars: 26 },
+  "ksiaze-z-bajki": { title: "Książę z bajki", artist: "Denis", bpm: 112, bars: 28 },
+  "to-ty": { title: "To Ty!", artist: "Denis", bpm: 144, bars: 30 },
+};
 
 interface RawChart {
   id: string;
@@ -51,8 +60,17 @@ export function rawToSong(raw: RawChart): SongDef {
 }
 
 export async function loadTrack(id: string): Promise<SongDef> {
-  if (id === SYNTH_TRACK || id === "placeholder-01") return buildSynthSong();
-  const res = await fetch(`charts/${id}.json`);
-  if (!res.ok) throw new Error(`nie znaleziono beatmapy: charts/${id}.json`);
-  return rawToSong((await res.json()) as RawChart);
+  // 1. prawdziwy utwór z pliku beatmapy
+  try {
+    const res = await fetch(`charts/${id}.json`);
+    if (res.ok) {
+      const raw = (await res.json()) as RawChart;
+      if (raw && Array.isArray(raw.notes) && raw.notes.length) return rawToSong(raw);
+    }
+  } catch {
+    /* brak pliku albo to nie JSON — lecimy na podkład */
+  }
+  // 2. syntezowany podkład
+  const cfg = SYNTH_TRACKS[id] ?? SYNTH_TRACKS.rozgrzewka;
+  return buildSynthSong({ id: id === "placeholder-01" ? "rozgrzewka" : id, ...cfg });
 }

@@ -6,7 +6,14 @@ import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, hapticsAvailable, setHapticsEnabled } from "./haptics.ts";
-import { discoveredIds, markDiscovered, SONGS, type SongMeta } from "./songs.ts";
+import {
+  discoveredIds,
+  markDiscovered,
+  nextRound,
+  SONGS,
+  type SongMeta,
+  spotifyUrl,
+} from "./songs.ts";
 import { VH, VW } from "./viewport.ts";
 import { clamp, lerp, roundRect, shade, text, wrapText } from "./ui.ts";
 
@@ -53,6 +60,10 @@ const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: VW / 2 - 180, y: 556, w: 360, h: 100 };
 const PZ_RESTART: Rect = { x: VW / 2 - 180, y: 676, w: 360, h: 82 };
 const PZ_MENU: Rect = { x: VW / 2 - 180, y: 776, w: 360, h: 82 };
+const RES_PRIMARY: Rect = { x: MARGIN, y: 1020, w: VW - MARGIN * 2, h: 82 };
+const RES_SPOTIFY: Rect = { x: MARGIN, y: 1112, w: VW - MARGIN * 2, h: 68 };
+const RES_AGAIN: Rect = { x: MARGIN, y: 1192, w: (VW - MARGIN * 2) / 2 - 8, h: 46 };
+const RES_MENU: Rect = { x: VW / 2 + 8, y: 1192, w: (VW - MARGIN * 2) / 2 - 8, h: 46 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -401,11 +412,38 @@ export class Game {
       this.resultsAt = performance.now() - 2200;
       return;
     }
-    const by = 1150;
-    if (x < 0 || (y > by - 60 && y < by + 60)) {
-      if (x < 0 || x < VW / 2) void this.startPlay();
-      else this.scene = "menu";
+    const passed = this.rating() >= PASS_RATING;
+
+    if (x < 0 || inRect(RES_PRIMARY, x, y)) {
+      if (passed) {
+        const nxt = nextRound(this.trackId);
+        if (nxt) {
+          this.trackId = nxt;
+          void this.startPlay();
+        } else {
+          this.scene = "menu"; // ostatnia runda
+        }
+      } else {
+        void this.startPlay(); // spróbuj ponownie tę samą
+      }
+      return;
     }
+    if (inRect(RES_SPOTIFY, x, y)) {
+      const url = spotifyUrl(this.trackId);
+      if (url) {
+        try {
+          window.open?.(url, "_blank", "noopener");
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    if (inRect(RES_AGAIN, x, y)) {
+      void this.startPlay();
+      return;
+    }
+    if (inRect(RES_MENU, x, y)) this.scene = "menu";
   }
 
   // ---- przejścia stanów --------------------------------------------
@@ -2039,25 +2077,48 @@ export class Game {
     ];
     stats.forEach((r, i) => {
       const x = VW / 2 - 300 + i * 120 + 60;
-      text(ctx, String(r[1]), x, 958, { size: 30, weight: "800", color: "#fff" });
-      text(ctx, r[0], x, 988, { size: 13, color: r[2] });
+      text(ctx, String(r[1]), x, 950, { size: 28, weight: "800", color: "#fff" });
+      text(ctx, r[0], x, 978, { size: 12, color: r[2] });
     });
 
-    // przyciski
-    const by = 1150;
-    const bw = VW / 2 - MARGIN - 12;
-    const retryLabel = passed ? "JESZCZE RAZ" : "SPRÓBUJ PONOWNIE";
-    const g1 = ctx.createLinearGradient(MARGIN, 0, MARGIN + bw, 0);
+    // --- przyciski ---
+    const nxt = nextRound(this.trackId);
+    const primaryLabel = passed
+      ? nxt
+        ? "KOLEJNA RUNDA ›"
+        : "WRÓĆ DO MENU"
+      : "SPRÓBUJ PONOWNIE";
+    const g1 = ctx.createLinearGradient(RES_PRIMARY.x, 0, RES_PRIMARY.x + RES_PRIMARY.w, 0);
     g1.addColorStop(0, "#ff9f43");
     g1.addColorStop(1, "#ff5e7e");
     ctx.fillStyle = g1;
-    roundRect(ctx, MARGIN, by - 55, bw, 110, 24);
+    roundRect(ctx, RES_PRIMARY.x, RES_PRIMARY.y, RES_PRIMARY.w, RES_PRIMARY.h, 22);
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.1)";
-    roundRect(ctx, VW / 2 + 12, by - 55, bw, 110, 24);
+    text(ctx, primaryLabel, VW / 2, RES_PRIMARY.y + RES_PRIMARY.h / 2, {
+      size: 26,
+      weight: "800",
+      color: "#1a0d12",
+    });
+
+    // Zapisz na Spotify
+    ctx.fillStyle = "#1DB954";
+    roundRect(ctx, RES_SPOTIFY.x, RES_SPOTIFY.y, RES_SPOTIFY.w, RES_SPOTIFY.h, 20);
     ctx.fill();
-    text(ctx, retryLabel, MARGIN + bw / 2, by, { size: 22, weight: "800", color: "#1a0d12" });
-    text(ctx, "MENU", VW / 2 + 12 + bw / 2, by, { size: 22, color: "#c9b7a6" });
+    text(ctx, "♥  Zapisz na Spotify", VW / 2, RES_SPOTIFY.y + RES_SPOTIFY.h / 2, {
+      size: 22,
+      weight: "800",
+      color: "#04220f",
+    });
+
+    // małe linki
+    text(ctx, "Jeszcze raz", RES_AGAIN.x + RES_AGAIN.w / 2, RES_AGAIN.y + RES_AGAIN.h / 2, {
+      size: 18,
+      color: "#c9b7a6",
+    });
+    text(ctx, "Menu", RES_MENU.x + RES_MENU.w / 2, RES_MENU.y + RES_MENU.h / 2, {
+      size: 18,
+      color: "#c9b7a6",
+    });
 
     ctx.restore();
   }

@@ -58,24 +58,30 @@ export function mkNote(lane: number, time: number, dur = 0): Note {
   return { lane, time: +time.toFixed(4), dur, judged: false, hit: false, holding: false, headJ: null, judgedAt: 0 };
 }
 
-function build(): SongDef {
-  const bpm = 100;
+export interface SynthOpts {
+  id: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  bars: number;
+}
+
+function build(o: SynthOpts): SongDef {
+  const bpm = o.bpm;
   const beat = 60 / bpm;
   const step = beat / 4; // 16-tka
-  const bars = 26;
+  const bars = o.bars;
   const startBar = 2;
   const barLen = 16 * step;
+  // przesunięcie wzorca torów zależne od id — każdy utwór gra się inaczej
+  const shift = [...o.id].reduce((a, c) => a + c.charCodeAt(0), 0) % LANES;
 
-  // 1. Zbierz czasy uderzeń (te same, które gra sekwencer perkusji w audio.ts)
+  // 1. Czasy nut: rzadki puls (stopa + werbel + 1 synkopa na takt) ≈ 1.5–2/s
   const beatTimes: number[] = [];
   for (let bar = startBar; bar < bars; bar++) {
     const barStart = bar * barLen;
-    const kickSteps = [0, 4, 8, 12];
-    const snareSteps = [4, 12];
-    const busy = (bar >= 8 && bar < 14) || (bar >= 18 && bar < 24);
-    const hatSteps = busy ? [2, 6, 10, 14] : bar % 2 === 0 ? [6] : [10];
-    const stepsThisBar = new Set<number>([...kickSteps, ...snareSteps, ...hatSteps]);
-    [...stepsThisBar].sort((a, b) => a - b).forEach((s) => beatTimes.push(barStart + s * step));
+    const steps = new Set<number>([0, 4, 8, 12, bar % 2 === 0 ? 6 : 10]);
+    [...steps].sort((a, b) => a - b).forEach((s) => beatTimes.push(barStart + s * step));
   }
 
   // 2. Przypisz tory z wzorca, unikając powtórki tego samego toru zbyt blisko
@@ -84,10 +90,10 @@ function build(): SongDef {
   let lastLane = -1;
   let lastTime = -10;
   for (const t of beatTimes) {
-    let lane = LANE_PATTERN[pi % LANE_PATTERN.length];
+    let lane = (LANE_PATTERN[pi % LANE_PATTERN.length] + shift) % LANES;
     pi++;
     if (lane === lastLane && t - lastTime < 0.18) {
-      lane = LANE_PATTERN[pi % LANE_PATTERN.length];
+      lane = (LANE_PATTERN[pi % LANE_PATTERN.length] + shift) % LANES;
       pi++;
     }
     notes.push(mkNote(lane, t));
@@ -103,21 +109,22 @@ function build(): SongDef {
     else notes.push(mkNote(lane, time, dur));
   };
 
-  // pojedyncze trzymania — tor bierzemy z nuty stojącej na tym downbeacie
   const laneAt = (time: number, fallback: number) =>
     notes.find((x) => Math.abs(x.time - time) < 0.01)?.lane ?? fallback;
-  setHold((startBar + 4) * barLen, laneAt((startBar + 4) * barLen, 1), beat * 2);
-  setHold((startBar + 20) * barLen, laneAt((startBar + 20) * barLen, 2), beat * 2);
 
-  // akord trzymany w połowie utworu (dwa tory jednocześnie)
-  const midT = (startBar + 12) * barLen;
-  setHold(midT, 0, beat * 2);
-  setHold(midT, 3, beat * 2);
-
+  const hb1 = startBar + 4;
+  const hb2 = Math.floor((startBar + bars) / 2); // akord w środku
+  const hb3 = bars - 6;
+  const finBar = bars - 2;
+  if (hb1 < bars - 3) setHold(hb1 * barLen, laneAt(hb1 * barLen, 1), beat * 2);
+  if (hb2 > hb1 + 2 && hb2 < bars - 3) {
+    setHold(hb2 * barLen, 0, beat * 2);
+    setHold(hb2 * barLen, 3, beat * 2);
+  }
+  if (hb3 > hb2 + 2 && hb3 < bars - 3) setHold(hb3 * barLen, laneAt(hb3 * barLen, 2), beat * 2);
   // finał — długi akord trzymany
-  const finT = (bars - 2) * barLen;
-  setHold(finT, 1, beat * 3.5);
-  setHold(finT, 2, beat * 3.5);
+  setHold(finBar * barLen, 1, beat * 3);
+  setHold(finBar * barLen, 2, beat * 3);
 
   // 4. Usuń nuty w tym samym torze kolidujące z trwaniem trzymania.
   const holds = notes.filter((n) => n.dur > 0);
@@ -132,9 +139,9 @@ function build(): SongDef {
   const duration = bars * barLen;
 
   return {
-    id: "rozgrzewka",
-    title: "Rozgrzewka",
-    artist: "podkład testowy",
+    id: o.id,
+    title: o.title,
+    artist: o.artist,
     bpm,
     bars,
     startBar,
@@ -144,8 +151,16 @@ function build(): SongDef {
   };
 }
 
-/** Syntezowany podkład testowy — świeża kopia z wyzerowanym stanem nut. */
-export function buildSynthSong(): SongDef {
-  const s = build();
+const DEFAULT_SYNTH: SynthOpts = {
+  id: "rozgrzewka",
+  title: "Rozgrzewka",
+  artist: "podkład testowy",
+  bpm: 100,
+  bars: 24,
+};
+
+/** Syntezowany podkład testowy dla utworu bez pliku audio. */
+export function buildSynthSong(opts?: Partial<SynthOpts>): SongDef {
+  const s = build({ ...DEFAULT_SYNTH, ...opts });
   return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur)) };
 }

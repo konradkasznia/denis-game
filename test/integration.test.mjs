@@ -81,7 +81,7 @@ const ctx = chain();
 
 async function playthrough(mode) {
   const g = new Game();
-  g.trackId = "rozgrzewka"; // syntezowany podkład — bez fetch/audio
+  g.trackId = "panna-mloda"; // syntezowany podkład (runda 1) — bez fetch/audio
   await new Promise((r) => setTimeout(r, 5));
   await g.startPlay();
   ok(g.awaitingStart === true, mode + ": po wczytaniu czeka na dotyk startu");
@@ -121,11 +121,10 @@ async function playthrough(mode) {
   return g;
 }
 
-const holdCount = new Game().song.notes.filter((n) => n.dur > 0).length;
-console.log(`(nut trzymanych w utworze: ${holdCount})\n`);
-
 console.log("· przebieg idealny (głowy + poprawne puszczanie trzymań):");
 const perfect = await playthrough("hold-perfect");
+const holdCount = perfect.song.notes.filter((n) => n.dur > 0).length;
+console.log(`(nut trzymanych w utworze: ${holdCount})`);
 ok(perfect.scene === "results", "kończy się ekranem wyniku");
 ok(perfect.counts.miss === 0, `zero pudeł (${perfect.counts.miss})`);
 ok(perfect.holdsDone === holdCount, `wszystkie trzymania utrzymane (${perfect.holdsDone}/${holdCount})`);
@@ -181,6 +180,24 @@ ok(gn.scene === "songs", "klik w Poznane Utwory otwiera kolekcje");
 gn.onPress(-1, 60, 66); // wroc
 ok(gn.scene === "menu", "przycisk Wroc wraca do menu");
 ok(new Game().discoveredCount() >= 1, "zagrany utwor jest oznaczony jako poznany");
+
+// kolejność rund + "Kolejna runda" po zaliczeniu
+const { nextRound } = await import("../src/songs.ts");
+ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
+ok(nextRound("ksiaze-z-bajki") === "to-ty", "runda 2 -> runda 3");
+{
+  const gp = new Game();
+  gp.trackId = "panna-mloda";
+  await new Promise((r) => setTimeout(r, 5));
+  await gp.startPlay();
+  gp.score = 999999;
+  gp.parScore = 1000;
+  gp.finish();
+  gp.resultsAt = performance.now() - 5000; // po animacji
+  gp.onPress(-1, 360, 1060); // KOLEJNA RUNDA
+  await new Promise((r) => setTimeout(r, 5));
+  ok(gp.trackId === "ksiaze-z-bajki", "przycisk Kolejna runda przełącza na następny utwór");
+}
 
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
 process.exit(fail === 0 ? 0 : 1);
