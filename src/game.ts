@@ -2,6 +2,7 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
+import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
@@ -124,7 +125,7 @@ export class Game {
   private coverCache = new Map<string, HTMLImageElement>();
   private songBg: HTMLImageElement | null = null; // tło bieżącego utworu
   private bgCache = new Map<string, HTMLImageElement>();
-  private charImg: HTMLImageElement | null = null; // postać (PNG) bieżącego utworu
+  private character = new Character();
 
   private trackId = DEFAULT_TRACK;
   private song: SongDef = buildSynthSong();
@@ -191,7 +192,7 @@ export class Game {
       const s = await loadTrack(this.trackId);
       if (this.scene !== "play") this.song = s;
       this.loadSongBg(s.bg);
-      this.loadCharacter(s.character);
+      this.character.load({ character: s.character, characters: s.characters });
     } catch (e) {
       this.loadError = String(e);
     }
@@ -219,26 +220,6 @@ export class Game {
     img.src = url;
   }
 
-  private loadCharacter(url?: string) {
-    if (!url) {
-      this.charImg = null;
-      return;
-    }
-    const cached = this.bgCache.get(url);
-    if (cached) {
-      this.charImg = cached;
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      this.bgCache.set(url, img);
-      this.charImg = img;
-    };
-    img.onerror = () => {
-      this.charImg = null;
-    };
-    img.src = url;
-  }
 
   // ---- pętla ----------------------------------------------------------
 
@@ -466,7 +447,7 @@ export class Game {
       const song = await loadTrack(this.trackId);
       if (!guard()) return;
       this.loadSongBg(song.bg);
-      this.loadCharacter(song.character);
+      this.character.load({ character: song.character, characters: song.characters });
 
       if (song.audioUrl) {
         await this.audio.loadTrack(song.audioUrl, (s) => {
@@ -1277,76 +1258,40 @@ export class Game {
     ctx.restore(); // koniec trzęsienia
   }
 
-  // ---- postać (placeholder — czeka na Twoją grafikę) -------------
+  // ---- postać na pierwszym planie -----------------------------------
   //
-  // Gdy dostaniemy klatki: `public/assets/char/<utwor>/dance-1..N.png`
-  // (+ opcjonalnie hit.png / miss.png), podmieniamy tę metodę na rysowanie
-  // klatek. Reszta (bit, reakcje) jest już policzona z songTime.
+  // Ruch jest ten sam niezależnie od trafień (tylko groove do bitu).
+  // Prawdziwe animacje: `src/character.ts` (sprite sheet / sekwencja PNG,
+  // kilka na osi czasu utworu). Bez grafik rysujemy wektorowy placeholder.
 
   private drawCharacter(ctx: CanvasRenderingContext2D) {
+    const groundY = this.song.characterY ?? 706;
+    const targetH = 440 * (this.song.characterScale ?? 1);
+    if (this.character.draw(ctx, VW / 2, groundY, this.songTime, this.song.bpm, targetH)) return;
+
+    // --- placeholder wektorowy (do czasu podesłania grafik) ---
     const beat = 60 / this.song.bpm;
     const t = Math.max(this.songTime, 0);
-    const phase = (t % beat) / beat; // 0..1 w obrębie bitu
-    const groundY = this.song.characterY ?? 706;
+    const phase = (t % beat) / beat;
     const cx = VW / 2;
-
-    const hit = clamp(1 - (this.songTime - this.denisPopAt) / 0.22, 0, 1);
-    const miss = clamp(1 - (this.songTime - this.denisMissAt) / 0.32, 0, 1);
-    const flowUp = clamp(1 - (this.songTime - this.flowUpAt) / 0.5, 0, 1);
-
-    // groove: podskok na bicie + kołysanie
-    const bounce = -Math.abs(Math.sin(phase * Math.PI)) * (14 + flowUp * 30);
+    const bounce = -Math.abs(Math.sin(phase * Math.PI)) * 14;
     const sway = Math.sin((t / beat) * Math.PI) * 12;
-    const tilt = Math.sin((t / beat) * Math.PI) * 0.045 + miss * 0.22 - flowUp * 0.04;
-    // squash & stretch — spłaszczenie przy „lądowaniu" na bicie
-    const land = Math.pow(Math.max(0, Math.sin(phase * Math.PI * 2) * -1), 1.4);
-    const sqx = 1 + land * 0.07 + hit * 0.05;
-    const sqy = 1 - land * 0.07 + hit * 0.09 + flowUp * 0.12;
-
-    // --- prawdziwa grafika (PNG animowane proceduralnie) ---
-    if (this.charImg && this.charImg.width) {
-      const img = this.charImg;
-      const h = 440 * (this.song.characterScale ?? 1);
-      const w = (img.width / img.height) * h;
-      ctx.save();
-      ctx.translate(cx + sway, groundY + bounce);
-      ctx.rotate(tilt);
-      ctx.scale(sqx, sqy);
-      if (miss > 0.05) {
-        ctx.globalAlpha = 1;
-      }
-      ctx.drawImage(img, -w / 2, -h, w, h);
-      ctx.restore();
-
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = "#000";
-      ctx.beginPath();
-      ctx.ellipse(cx + sway, groundY + 8, w * 0.32 - bounce * 0.5, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      return;
-    }
-
-    // --- placeholder wektorowy (do czasu podesłania grafiki) ---
-    const scale = 1 + hit * 0.08 + flowUp * 0.12;
-    const armRaise = hit * 1.1 + flowUp * 0.7;
+    const tilt = Math.sin((t / beat) * Math.PI) * 0.045;
+    const land = Math.pow(Math.max(0, -Math.sin(phase * Math.PI * 2)), 1.4);
 
     ctx.save();
     ctx.translate(cx + sway, groundY + bounce);
     ctx.rotate(tilt);
-    ctx.scale(scale * sqx, scale * sqy);
-    ctx.globalAlpha = 0.92;
+    ctx.scale(1 + land * 0.07, 1 - land * 0.07);
+    ctx.globalAlpha = 0.9;
 
-    const col = miss > 0.1 ? "#7a5a44" : "#c98a5a";
+    const col = "#c98a5a";
     const rim = "rgba(255,220,180,0.9)";
-    ctx.strokeStyle = rim;
     ctx.lineCap = "round";
+    const legSwing = Math.sin((t / beat) * Math.PI * 2) * 12;
 
-    // nogi
     ctx.strokeStyle = col;
     ctx.lineWidth = 22;
-    const legSwing = Math.sin(t / beat * Math.PI * 2) * 12;
     ctx.beginPath();
     ctx.moveTo(-10, -120);
     ctx.lineTo(-18 - legSwing, 0);
@@ -1354,41 +1299,33 @@ export class Game {
     ctx.lineTo(18 + legSwing, 0);
     ctx.stroke();
 
-    // tułów
     ctx.lineWidth = 46;
     ctx.beginPath();
     ctx.moveTo(0, -120);
     ctx.lineTo(0, -230);
     ctx.stroke();
 
-    // ramiona
     ctx.lineWidth = 18;
     const aBase = -220;
-    const aL = -0.5 - armRaise + Math.sin(t / beat * Math.PI * 2) * 0.3;
-    const aR = 0.5 + armRaise - Math.sin(t / beat * Math.PI * 2) * 0.3;
+    const a = Math.sin((t / beat) * Math.PI * 2) * 0.4;
     ctx.beginPath();
     ctx.moveTo(0, aBase);
-    ctx.lineTo(Math.sin(aL) * 70, aBase - Math.cos(aL) * 70);
+    ctx.lineTo(Math.sin(-0.5 + a) * 70, aBase - Math.cos(-0.5 + a) * 70);
     ctx.moveTo(0, aBase);
-    ctx.lineTo(Math.sin(aR) * 70, aBase - Math.cos(aR) * 70);
+    ctx.lineTo(Math.sin(0.5 + a) * 70, aBase - Math.cos(0.5 + a) * 70);
     ctx.stroke();
 
-    // głowa
     ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(0, -270, 30, 0, Math.PI * 2);
     ctx.fill();
-
-    // rim light
     ctx.strokeStyle = rim;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(0, -270, 30, Math.PI * 0.8, Math.PI * 1.6);
     ctx.stroke();
-
     ctx.restore();
 
-    // subtelny cień
     ctx.save();
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = "#000";

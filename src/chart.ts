@@ -39,8 +39,10 @@ export interface SongDef {
   audioUrl?: string;
   /** tło ekranu gry dla tego utworu (obraz); brak = domyślne */
   bg?: string;
-  /** postać na pierwszym planie: PNG animowane proceduralnie do bitu */
+  /** postać na pierwszym planie: pojedynczy PNG (animowany proceduralnie) */
   character?: string;
+  /** animacje postaci na osi czasu utworu (sprite sheet / sekwencja PNG) */
+  characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
   notes: Note[];
