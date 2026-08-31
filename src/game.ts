@@ -15,7 +15,7 @@ import {
 } from "./judge.ts";
 import { discoveredIds, markDiscovered, SONGS, type SongMeta } from "./songs.ts";
 import { VH, VW } from "./viewport.ts";
-import { clamp, lerp, roundRect, shade, text } from "./ui.ts";
+import { clamp, lerp, roundRect, shade, text, wrapText } from "./ui.ts";
 
 type Scene = "loading" | "menu" | "songs" | "play" | "results";
 
@@ -107,7 +107,12 @@ export class Game {
   private song: SongDef = buildSynthSong();
   private songTime = 0;
   private preparing = false;
+  private prepId = 0;
+  private prepStep = "";
+  private prepStart = 0;
   private loadError = "";
+  /** utwór wczytany, czeka na świeży dotyk startu (kluczowe dla audio na iOS) */
+  private awaitingStart = false;
 
   private score = 0;
   private displayScore = 0;
@@ -153,7 +158,7 @@ export class Game {
   // ---- pętla ----------------------------------------------------------
 
   update(_dt: number, _nowMs: number) {
-    if (this.scene === "play") {
+    if (this.scene === "play" && !this.awaitingStart) {
       this.songTime = this.audio.getSongTime();
       this.checkMisses();
       this.resolveHeldHolds();
@@ -186,15 +191,31 @@ export class Game {
     }
 
     if (this.preparing) {
-      ctx.fillStyle = "rgba(4,4,10,0.72)";
-      ctx.fillRect(0, 0, VW, VH);
-      const d = Math.floor((performance.now() / 300) % 4);
-      text(ctx, `Wczytywanie utworu${".".repeat(d)}`, VW / 2, VH / 2, {
-        size: 34,
-        color: "#ffce8a",
-      });
+      const secs = (performance.now() - this.prepStart) / 1000;
+      // watchdog: nie zostawiaj gracza na zawsze na ekranie ładowania
+      if (secs > 35) {
+        this.loadError = `Wczytywanie utknęło na etapie: ${this.prepStep}. Sprawdź połączenie z serwerem i spróbuj ponownie.`;
+        this.preparing = false;
+        this.prepId++;
+      } else {
+        ctx.fillStyle = "rgba(4,4,10,0.78)";
+        ctx.fillRect(0, 0, VW, VH);
+        const d = Math.floor((performance.now() / 300) % 4);
+        text(ctx, `Wczytywanie${".".repeat(d)}`, VW / 2, VH / 2 - 40, {
+          size: 36,
+          color: "#ffce8a",
+        });
+        text(ctx, `${this.prepStep} · ${secs.toFixed(0)} s`, VW / 2, VH / 2 + 18, {
+          size: 20,
+          color: "#9a8c7e",
+        });
+        text(ctx, "stuknij, aby przerwać", VW / 2, VH / 2 + 90, { size: 18, color: "#6b6055" });
+      }
     } else if (this.loadError && (this.scene === "menu" || this.scene === "songs")) {
-      text(ctx, this.loadError, VW / 2, VH - 96, { size: 20, color: "#ff6b7d" });
+      const lines = wrapText(this.loadError, 46);
+      lines.forEach((ln, i) =>
+        text(ctx, ln, VW / 2, VH - 150 + i * 26, { size: 18, color: "#ff8a97" }),
+      );
     }
   }
 
@@ -207,10 +228,12 @@ export class Game {
   }
 
   onPress(lane: number, x: number, y: number) {
+    if (this.preparing) return this.cancelPrepare();
     if (this.scene === "menu") return this.handleMenuTap(x, y);
     if (this.scene === "songs") return this.handleSongsTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
+      if (this.awaitingStart) return this.beginSong();
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
       if (lane < 0) lane = this.laneAtX(x);
       if (lane >= 0) this.pressLane(lane);
@@ -222,8 +245,14 @@ export class Game {
   }
 
   private handleMenuTap(x: number, y: number) {
-    if (x < 0) return void this.startPlay(); // klawisz Enter/Spacja
-    if (inRect(MENU_START, x, y)) return void this.startPlay();
+    if (x < 0) {
+      this.trackId = DEFAULT_TRACK;
+      return void this.startPlay(); // klawisz Enter/Spacja
+    }
+    if (inRect(MENU_START, x, y)) {
+      this.trackId = DEFAULT_TRACK;
+      return void this.startPlay();
+    }
     if (inRect(MENU_SONGS, x, y)) {
       this.scene = "songs";
       return;
@@ -246,7 +275,12 @@ export class Game {
       return;
     }
     const disc = discoveredIds();
-    for (const { meta, spotify } of this.songsLayout()) {
+    for (const { meta, cover, spotify } of this.songsLayout()) {
+      if (meta.playable && inRect(cover, x, y)) {
+        this.trackId = meta.id;
+        void this.startPlay();
+        return;
+      }
       if (disc.has(meta.id) && meta.spotifyUrl && inRect(spotify, x, y)) {
         try {
           window.open?.(meta.spotifyUrl, "_blank", "noopener");
@@ -270,19 +304,38 @@ export class Game {
 
   private async startPlay() {
     if (this.preparing) return;
+    const myId = ++this.prepId;
     this.preparing = true;
+    this.prepStep = "przygotowanie";
+    this.prepStart = performance.now();
     this.loadError = "";
+
+    const guard = () => myId === this.prepId && this.preparing;
     try {
+      this.prepStep = "odblokowanie dźwięku";
       await this.audio.unlock();
+      if (!guard()) return;
+
+      this.prepStep = "wczytywanie beatmapy";
       const song = await loadTrack(this.trackId);
-      if (song.audioUrl) await this.audio.loadTrack(song.audioUrl);
+      if (!guard()) return;
+
+      if (song.audioUrl) {
+        await this.audio.loadTrack(song.audioUrl, (s) => {
+          if (guard()) this.prepStep = s;
+        });
+      }
+      if (!guard()) return;
       this.song = song;
     } catch (e) {
-      this.loadError = "Nie udało się wczytać utworu";
+      if (guard()) {
+        this.loadError = `Nie udało się wczytać utworu (${(e as Error).message || e}). Sprawdź połączenie i spróbuj ponownie.`;
+        this.preparing = false;
+      }
       console.error(e);
-      this.preparing = false;
       return;
     }
+
     this.score = 0;
     this.displayScore = 0;
     this.combo = 0;
@@ -298,9 +351,29 @@ export class Game {
     this.newBest = false;
     this.songTime = 0;
     this.scene = "play";
+    this.awaitingStart = true; // start dopiero od świeżego dotyku (iOS audio)
     markDiscovered(this.song.id);
-    this.audio.start(this.song);
     this.preparing = false;
+  }
+
+  /** Uruchamia utwór z bieżącego gestu użytkownika (odblokowuje audio na iOS). */
+  private beginSong() {
+    this.awaitingStart = false;
+    this.songTime = 0;
+    try {
+      void this.audio.ctx?.resume?.();
+    } catch {
+      /* ignore */
+    }
+    this.audio.start(this.song);
+  }
+
+  /** Przerywa trwające wczytywanie i wraca do menu. */
+  private cancelPrepare() {
+    this.prepId++;
+    this.preparing = false;
+    this.loadError = "";
+    this.scene = "menu";
   }
 
   private finish() {
@@ -710,26 +783,36 @@ export class Game {
     const disc = discoveredIds();
     for (const { meta, card, cover, spotify } of this.songsLayout()) {
       const d = disc.has(meta.id);
+      const revealed = d || meta.playable;
+      const cx = card.x + card.w / 2;
 
       ctx.fillStyle = "rgba(18,14,24,0.74)";
       roundRect(ctx, card.x, card.y, card.w, card.h, 20);
       ctx.fill();
-      ctx.strokeStyle = d ? "rgba(255,180,90,0.35)" : "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = revealed ? "rgba(255,180,90,0.35)" : "rgba(255,255,255,0.08)";
       ctx.lineWidth = 2;
       roundRect(ctx, card.x, card.y, card.w, card.h, 20);
       ctx.stroke();
 
-      this.drawCover(ctx, cover, meta, d);
+      this.drawCover(ctx, cover, meta, revealed);
 
-      const cx = card.x + card.w / 2;
-      if (d) {
-        text(ctx, meta.title, cx, cover.y + cover.h + 36, {
-          size: 25,
-          weight: "700",
-          color: "#fff",
+      if (meta.playable) {
+        // odznaka „graj" na okładce
+        ctx.save();
+        ctx.fillStyle = "rgba(10,8,14,0.66)";
+        ctx.beginPath();
+        ctx.arc(cover.x + cover.w - 30, cover.y + cover.h - 30, 24, 0, Math.PI * 2);
+        ctx.fill();
+        text(ctx, "▶", cover.x + cover.w - 27, cover.y + cover.h - 30, {
+          size: 22,
+          color: "#ffce8a",
         });
+        ctx.restore();
+
+        text(ctx, meta.title, cx, cover.y + cover.h + 36, { size: 25, weight: "700", color: "#fff" });
         text(ctx, meta.artist, cx, cover.y + cover.h + 66, { size: 18, color: "#b9a999" });
-        if (meta.spotifyUrl) {
+
+        if (d && meta.spotifyUrl) {
           ctx.fillStyle = "#1DB954";
           roundRect(ctx, spotify.x, spotify.y, spotify.w, spotify.h, spotify.h / 2);
           ctx.fill();
@@ -739,7 +822,10 @@ export class Game {
             color: "#04220f",
           });
         } else {
-          text(ctx, "link wkrótce", cx, spotify.y + spotify.h / 2, { size: 17, color: "#6b6055" });
+          text(ctx, "stuknij okładkę, aby zagrać", cx, spotify.y + spotify.h / 2, {
+            size: 16,
+            color: "#8a7c6e",
+          });
         }
       } else {
         text(ctx, "? ? ?", cx, cover.y + cover.h + 42, {
@@ -747,10 +833,7 @@ export class Game {
           weight: "700",
           color: "rgba(255,255,255,0.4)",
         });
-        text(ctx, "zagraj, aby odkryć", cx, spotify.y + spotify.h / 2, {
-          size: 17,
-          color: "#6b6055",
-        });
+        text(ctx, "wkrótce", cx, spotify.y + spotify.h / 2, { size: 17, color: "#6b6055" });
       }
     }
 
@@ -761,6 +844,41 @@ export class Game {
 
   private drawPlay(ctx: CanvasRenderingContext2D) {
     const pulse = this.beatPulse();
+
+    if (this.awaitingStart) {
+      this.drawStage(ctx, 0.4, pulse);
+      ctx.fillStyle = "rgba(4,4,10,0.55)";
+      ctx.fillRect(0, 0, VW, VH);
+      text(ctx, this.song.title.toUpperCase(), VW / 2, VH / 2 - 150, {
+        size: 40,
+        weight: "800",
+        color: "#fff7ec",
+        glow: "#ffb457",
+        glowBlur: 16,
+      });
+      const s = 1 + pulse * 0.06;
+      ctx.save();
+      ctx.translate(VW / 2, VH / 2);
+      ctx.scale(s, s);
+      ctx.fillStyle = "rgba(255,180,90,0.16)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 92, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      text(ctx, "▶", VW / 2 + 6, VH / 2, { size: 84, color: "#ffce8a" });
+      text(ctx, "STUKNIJ, ABY ZAGRAĆ", VW / 2, VH / 2 + 150, {
+        size: 28,
+        weight: "800",
+        color: "#ffce8a",
+        letterSpacing: "3px",
+      });
+      text(ctx, "iPhone: wyłącz przełącznik ciszy (dzwonek), żeby był dźwięk", VW / 2, VH - 130, {
+        size: 17,
+        color: "#9a8c7e",
+      });
+      return;
+    }
+
     const missGlow = clamp(1 - (this.songTime - this.denisMissAt) / 0.3, 0, 1);
     this.drawStage(
       ctx,

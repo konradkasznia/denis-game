@@ -70,6 +70,23 @@ export function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+/** Dzieli tekst na linie po ~maxChars znaków (po słowach). */
+export function wrapText(str: string, maxChars: number): string[] {
+  const words = str.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur && (cur + " " + w).length > maxChars) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 /** Rozjaśnia (amt > 0) lub przyciemnia (amt < 0) kolor #rrggbb. */
 export function shade(hex: string, amt: number): string {
   const n = parseInt(hex.slice(1), 16);

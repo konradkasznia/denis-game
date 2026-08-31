@@ -84,6 +84,8 @@ async function playthrough(mode) {
   g.trackId = "rozgrzewka"; // syntezowany podkład — bez fetch/audio
   await new Promise((r) => setTimeout(r, 5));
   await g.startPlay();
+  ok(g.awaitingStart === true, mode + ": po wczytaniu czeka na dotyk startu");
+  g.onPress(-1, 360, 640); // świeży dotyk uruchamia utwór
   const ac = g.audio.ctx;
   const dt = 1 / 60;
   let frame = 0;

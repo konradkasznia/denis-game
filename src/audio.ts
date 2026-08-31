@@ -21,6 +21,10 @@ export class AudioEngine {
     return this._running;
   }
 
+  get state() {
+    return this.ctx?.state ?? "none";
+  }
+
   /** Musi być wywołane w reakcji na gest użytkownika (tap / klik). */
   async unlock() {
     if (!this.ctx) {
@@ -34,7 +38,51 @@ export class AudioEngine {
       this.master.connect(comp).connect(this.ctx.destination);
       this.noiseBuffer = this.makeNoise(this.ctx);
     }
-    if (this.ctx.state === "suspended") await this.ctx.resume();
+    // klasyczny trik odblokowania audio na iOS: krótki cichy bufor w geście
+    try {
+      const b = this.ctx.createBuffer(1, 1, 22050);
+      const s = this.ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(this.ctx.destination);
+      s.start(0);
+    } catch {
+      /* ignore */
+    }
+    // resume() na iOS potrafi wisieć — próbujemy, ale nie blokujemy w nieskończoność
+    if (this.ctx.state === "suspended") {
+      await Promise.race([
+        this.ctx.resume().catch(() => {}),
+        new Promise((r) => setTimeout(r, 2500)),
+      ]);
+    }
+  }
+
+  /** decodeAudioData w wersji Promise ORAZ callback (starsze Safari). */
+  private decode(arr: ArrayBuffer): Promise<AudioBuffer> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const ok = (b: AudioBuffer) => {
+        if (!settled) {
+          settled = true;
+          resolve(b);
+        }
+      };
+      const err = (e: unknown) => {
+        if (!settled) {
+          settled = true;
+          reject(e instanceof Error ? e : new Error("decodeAudioData failed"));
+        }
+      };
+      try {
+        const p = this.ctx!.decodeAudioData(arr, ok, err);
+        if (p && typeof (p as Promise<AudioBuffer>).then === "function") {
+          (p as Promise<AudioBuffer>).then(ok, err);
+        }
+      } catch (e) {
+        err(e);
+      }
+      setTimeout(() => err(new Error("decodeAudioData timeout (15s)")), 15000);
+    });
   }
 
   /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem). */
@@ -47,13 +95,23 @@ export class AudioEngine {
     return this.trackBuffers.has(url);
   }
 
-  /** Wczytuje i dekoduje plik audio (raz na URL). */
-  async loadTrack(url: string): Promise<void> {
+  /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap. */
+  async loadTrack(url: string, onStep?: (s: string) => void): Promise<void> {
     await this.unlock();
     if (this.trackBuffers.has(url)) return;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`audio ${res.status}: ${url}`);
-    const buf = await this.ctx!.decodeAudioData(await res.arrayBuffer());
+    onStep?.("pobieranie pliku");
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 30000);
+    let arr: ArrayBuffer;
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
+      arr = await res.arrayBuffer();
+    } finally {
+      clearTimeout(to);
+    }
+    onStep?.("dekodowanie dźwięku");
+    const buf = await this.decode(arr);
     this.trackBuffers.set(url, buf);
   }
 
@@ -79,6 +137,7 @@ export class AudioEngine {
   start(song: SongDef) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     this.master.gain.cancelScheduledValues(ctx.currentTime);
     this.master.gain.setValueAtTime(0.9, ctx.currentTime);
 
