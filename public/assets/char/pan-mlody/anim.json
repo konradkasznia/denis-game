@@ -1,7 +1,7 @@
 {
   "type": "sheet",
   "src": "dance.png",
-  "frames": 22,
-  "cols": 22,
-  "fps": 13
+  "frames": 8,
+  "cols": 8,
+  "fps": 6
 }
