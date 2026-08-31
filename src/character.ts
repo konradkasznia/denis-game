@@ -8,6 +8,10 @@
 //   sprite sheet:  { "type": "sheet",  "src": "sheet.png", "frames": 24, "cols": 6, "fps": 18 }
 //   sekwencja PNG: { "type": "frames", "src": "f-{}.png",  "frames": 24, "fps": 18, "pad": 2 }
 // Pojedynczy statyczny PNG (bez folderu) też działa — jest animowany proceduralnie.
+//
+// Różny czas klatek (np. dłuższe zatrzymanie na pozie): dodaj do anim.json
+//   "holds":   [4,1,1,3,1,1]      — krotność taktu 1000/fps na klatkę, albo
+//   "frameMs": [800,90,90,500,90,90]  — dokładny czas klatki w ms (ważniejsze niż fps).
 
 import { clamp } from "./ui.ts";
 
@@ -19,6 +23,10 @@ interface AnimMeta {
   rows?: number;
   fps: number;
   pad?: number;
+  /** czas trwania każdej klatki w ms (długość = frames). Ma pierwszeństwo przed fps/holds. */
+  frameMs?: number[];
+  /** krotność bazowego taktu (1000/fps) dla każdej klatki, np. [1,1,4,1] = 3. klatka x4 dłużej. */
+  holds?: number[];
 }
 
 interface LoadedAnim {
@@ -28,6 +36,8 @@ interface LoadedAnim {
   fw: number;
   fh: number;
   ready: boolean;
+  /** rozkład czasu klatek: skumulowane końce (ms) + suma; null = równe klatki wg fps */
+  timing: { ends: number[]; total: number } | null;
 }
 
 export interface CharSegment {
@@ -38,6 +48,25 @@ export interface CharSegment {
 }
 
 const CROSSFADE = 0.4;
+
+/** Zamienia frameMs / holds z anim.json na skumulowane końce klatek w ms. */
+function buildTiming(meta: AnimMeta): { ends: number[]; total: number } | null {
+  let ms: number[] | null = null;
+  if (meta.frameMs?.length === meta.frames) {
+    ms = meta.frameMs.slice();
+  } else if (meta.holds?.length === meta.frames && meta.fps > 0) {
+    const base = 1000 / meta.fps;
+    ms = meta.holds.map((h) => Math.max(1, h) * base);
+  }
+  if (!ms) return null;
+  const ends: number[] = [];
+  let acc = 0;
+  for (const v of ms) {
+    acc += Math.max(1, v);
+    ends.push(acc);
+  }
+  return { ends, total: acc };
+}
 
 export class Character {
   private anims = new Map<string, LoadedAnim>();
@@ -79,7 +108,7 @@ export class Character {
     } catch {
       return;
     }
-    const entry: LoadedAnim = { meta, fw: 0, fh: 0, ready: false };
+    const entry: LoadedAnim = { meta, fw: 0, fh: 0, ready: false, timing: buildTiming(meta) };
     this.anims.set(dir, entry);
 
     if ((meta.type ?? "sheet") === "frames") {
@@ -173,7 +202,14 @@ export class Character {
     alpha: number,
   ): boolean {
     if (!a || !a.ready) return false;
-    const f = Math.floor(t * a.meta.fps) % a.meta.frames;
+    let f: number;
+    if (a.timing) {
+      const x = ((t * 1000) % a.timing.total + a.timing.total) % a.timing.total;
+      f = a.timing.ends.findIndex((e) => x < e);
+      if (f < 0) f = a.meta.frames - 1;
+    } else {
+      f = Math.floor(t * a.meta.fps) % a.meta.frames;
+    }
     const w = (a.fw / a.fh) * targetH;
     ctx.save();
     ctx.globalAlpha = clamp(alpha, 0, 1);

@@ -55,6 +55,27 @@ public/assets/char/denis-1/anim.json
 ```
 (`{}` = miejsce na numer, `pad: 2` → `01`, `02`, …)
 
+### Niektóre klatki dłużej (np. zatrzymanie na pozie / „zdjęciu")
+
+Dwa sposoby, oba opcjonalne — działają i dla `sheet`, i dla `frames`:
+
+- **`holds`** — krotność bazowego taktu (`1000/fps`) na każdą klatkę. Najprostsze.
+  ```json
+  { "type": "sheet", "src": "dance.png", "frames": 6, "cols": 6, "fps": 12,
+    "holds": [4, 1, 1, 3, 1, 1] }
+  ```
+  → klatka 1 trzyma 4× dłużej, klatka 4 — 3× dłużej, reszta normalnie.
+
+- **`frameMs`** — dokładny czas każdej klatki w milisekundach (ma pierwszeństwo
+  przed `fps`/`holds`).
+  ```json
+  { "type": "frames", "src": "f-{}.png", "frames": 6, "fps": 12, "pad": 2,
+    "frameMs": [800, 90, 90, 500, 90, 90] }
+  ```
+
+Długość `holds` / `frameMs` musi się równać `frames`. Podgląd z uwzględnieniem
+tych czasów: `node tools/preview.mjs <utwor>` → `dance-preview.gif`.
+
 ### Kilka animacji w jednym utworze (np. inna postać od 30 s)
 
 W pliku `public/charts/<utwor>.json`:
