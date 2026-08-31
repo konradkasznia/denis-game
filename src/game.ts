@@ -26,7 +26,7 @@ const MARGIN = 40;
 const HORIZON_Y = 330; // punkt zbiegu torów
 const HIT_Y = 1118; // linia trafienia (puste kółka)
 const PAD_BOT = VH - 16; // dół „klawiszy" dotykowych
-const APPROACH = 1.4; // s: jak długo nuta jest widoczna zanim dojdzie do linii
+const APPROACH = 2.15; // s: jak długo nuta jest widoczna zanim dojdzie do linii
 const LANE_GAP_HIT = 150; // odstęp środków torów przy linii trafienia
 const RECEPTOR_R = 52; // promień pustego kółka na linii
 const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
@@ -50,6 +50,9 @@ const MENU_PLUS: Rect = { x: VW / 2 + 106, y: 884, w: 88, h: 88 };
 const MENU_VIBRO: Rect = { x: VW / 2 - 200, y: 990, w: 400, h: 60 };
 const SONGS_BACK: Rect = { x: 16, y: 36, w: 160, h: 62 };
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
+const PZ_RESUME: Rect = { x: VW / 2 - 180, y: 556, w: 360, h: 100 };
+const PZ_RESTART: Rect = { x: VW / 2 - 180, y: 676, w: 360, h: 82 };
+const PZ_MENU: Rect = { x: VW / 2 - 180, y: 776, w: 360, h: 82 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -119,6 +122,8 @@ export class Game {
   private loadError = "";
   /** utwór wczytany, czeka na świeży dotyk startu (kluczowe dla audio na iOS) */
   private awaitingStart = false;
+  private paused = false;
+  private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
 
   private score = 0;
   private displayScore = 0;
@@ -180,7 +185,12 @@ export class Game {
   // ---- pętla ----------------------------------------------------------
 
   update(dt: number, _nowMs: number) {
-    if (this.scene === "play" && !this.awaitingStart) {
+    if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
+      this.paused = false;
+      this.resumeAt = 0;
+      void this.audio.resumePlayback();
+    }
+    if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       this.songTime = this.audio.getSongTime();
       this.checkMisses();
       this.resolveHeldHolds();
@@ -268,11 +278,11 @@ export class Game {
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
       if (this.awaitingStart) return this.beginSong();
-      if (x >= 0 && inRect(PAUSE_RECT, x, y)) {
-        this.audio.stop();
-        this.scene = "menu";
-        return;
+      if (this.paused) {
+        if (this.resumeAt) return; // trwa odliczanie
+        return this.handlePauseTap(x, y);
       }
+      if (x >= 0 && inRect(PAUSE_RECT, x, y)) return this.pauseGame();
       // podpowiedź o dźwięku: pierwszy tap w jej obszarze tylko ją zamyka
       if (!this.soundHintDismissed && this.songTime <= 11 && x >= 0 && y > 280 && y < 430) {
         this.soundHintDismissed = true;
@@ -416,6 +426,8 @@ export class Game {
     this.soundHintDismissed = false;
     this.lastHoldTick = 0;
     this.resultStarSeen = 0;
+    this.paused = false;
+    this.resumeAt = 0;
     this.resultsSavedBest = false;
     this.newBest = false;
     this.songTime = 0;
@@ -443,6 +455,37 @@ export class Game {
   /** Ocena rundy 0..~1.3 (gauge klamruje do 1). */
   private rating(): number {
     return this.score / this.parScore;
+  }
+
+  private pauseGame() {
+    this.paused = true;
+    this.resumeAt = 0;
+    for (let l = 0; l < LANES; l++) {
+      const h = this.held[l];
+      if (h) {
+        h.holding = false;
+        h.judged = true;
+        this.held[l] = null;
+      }
+    }
+    this.audio.pause();
+  }
+
+  private handlePauseTap(x: number, y: number) {
+    if (x < 0 || inRect(PZ_RESUME, x, y)) {
+      this.resumeAt = performance.now() + 850; // krótkie 3-2-1
+      return;
+    }
+    if (inRect(PZ_RESTART, x, y)) {
+      this.paused = false;
+      void this.startPlay();
+      return;
+    }
+    if (inRect(PZ_MENU, x, y)) {
+      this.audio.stop();
+      this.paused = false;
+      this.scene = "menu";
+    }
   }
 
   /** Uruchamia utwór z bieżącego gestu użytkownika (odblokowuje audio na iOS). */
@@ -695,9 +738,10 @@ export class Game {
   private eForTime(t: number): number {
     const rel = (t - this.songTime) / APPROACH; // 1 = świeżo, 0 = na linii
     const travel = 1 - rel; // 0 daleko, 1 na linii
-    if (travel <= 0) return Math.pow(Math.max(travel, -0.4), 2) * Math.sign(travel) * 0.6;
+    if (travel <= 0) return travel * 0.6; // nuta zeszła poniżej linii
     if (travel >= 1) return 1 + (travel - 1) * 1.6;
-    return Math.pow(travel, 2.1);
+    // łagodne przyspieszenie perspektywiczne (blisko liniowe u dołu)
+    return Math.pow(travel, 1.32);
   }
 
   private yForE(e: number): number {
@@ -1132,8 +1176,61 @@ export class Game {
     this.drawHud(ctx);
     this.drawCountdown(ctx);
     this.drawSoundHint(ctx);
+    if (this.paused) this.drawPause(ctx);
 
     ctx.restore(); // koniec trzęsienia
+  }
+
+  private drawPause(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.fillStyle = "rgba(4,4,10,0.82)";
+    ctx.fillRect(0, 0, VW, VH);
+
+    if (this.resumeAt) {
+      const left = Math.max(1, Math.ceil((this.resumeAt - performance.now()) / 1000 + 0.25));
+      text(ctx, String(left), VW / 2, VH / 2, {
+        size: 180,
+        weight: "800",
+        color: "#fff7ec",
+        glow: "#ffb457",
+        glowBlur: 40,
+      });
+      ctx.restore();
+      return;
+    }
+
+    text(ctx, "PAUZA", VW / 2, 430, {
+      size: 62,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 20,
+      letterSpacing: "8px",
+    });
+
+    const g = ctx.createLinearGradient(PZ_RESUME.x, 0, PZ_RESUME.x + PZ_RESUME.w, 0);
+    g.addColorStop(0, "#ff9f43");
+    g.addColorStop(1, "#ff5e7e");
+    ctx.fillStyle = g;
+    roundRect(ctx, PZ_RESUME.x, PZ_RESUME.y, PZ_RESUME.w, PZ_RESUME.h, PZ_RESUME.h / 2);
+    ctx.fill();
+    text(ctx, "WZNÓW", VW / 2, PZ_RESUME.y + PZ_RESUME.h / 2, {
+      size: 34,
+      weight: "800",
+      color: "#1a0d12",
+    });
+
+    ctx.fillStyle = "rgba(255,255,255,0.1)";
+    roundRect(ctx, PZ_RESTART.x, PZ_RESTART.y, PZ_RESTART.w, PZ_RESTART.h, 18);
+    ctx.fill();
+    text(ctx, "OD NOWA", VW / 2, PZ_RESTART.y + PZ_RESTART.h / 2, { size: 24, color: "#ffce8a" });
+
+    ctx.fillStyle = "rgba(255,255,255,0.1)";
+    roundRect(ctx, PZ_MENU.x, PZ_MENU.y, PZ_MENU.w, PZ_MENU.h, 18);
+    ctx.fill();
+    text(ctx, "MENU", VW / 2, PZ_MENU.y + PZ_MENU.h / 2, { size: 24, color: "#c9b7a6" });
+
+    ctx.restore();
   }
 
   // ---- pole gry (perspektywa) -----------------------------------

@@ -163,6 +163,26 @@ export class AudioEngine {
     this.trackBuffers.set(url, buf);
   }
 
+  /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime). */
+  pause() {
+    if (this.ctx && this.ctx.state === "running") void this.ctx.suspend();
+  }
+
+  /** Wznawia po pauzie (wołać z gestu użytkownika). */
+  async resumePlayback() {
+    if (this.ctx && this.ctx.state === "suspended") {
+      try {
+        await this.ctx.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  get paused() {
+    return this._running && this.ctx?.state === "suspended";
+  }
+
   stop() {
     this._running = false;
     try {
