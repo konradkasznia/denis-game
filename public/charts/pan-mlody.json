@@ -8,8 +8,8 @@
   "audioUrl": "assets/songs/pan-mlody.mp3",
   "bg": "assets/bg/pan-mlody.jpg",
   "characters": [{"at":0,"sprite":"assets/char/pan-mlody"}],
-  "characterScale": 1.15,
-  "characterY": 690,
+  "characterScale": 0.68,
+  "characterY": 660,
   "generated": "2026-08-31",
   "note": "chart testowy: rzadki puls (pol-beat) + 17 trzyman. Nie sledzi wokalu - docelowo z plikow A/B/C/D.",
   "notes": [
