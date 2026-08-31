@@ -12,10 +12,20 @@ import {
   pickNote,
   SCORE,
 } from "./judge.ts";
+import { discoveredIds, markDiscovered, SONGS, type SongMeta } from "./songs.ts";
 import { VH, VW } from "./viewport.ts";
-import { clamp, lerp, roundRect, text } from "./ui.ts";
+import { clamp, lerp, roundRect, shade, text } from "./ui.ts";
 
-type Scene = "loading" | "menu" | "play" | "results";
+type Scene = "loading" | "menu" | "songs" | "play" | "results";
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+const inRect = (r: Rect, x: number, y: number) =>
+  x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
 // --- układ pola gry ---
 const MARGIN = 40;
@@ -29,6 +39,13 @@ const HOLD_BONUS = 180;
 
 const LANE_COLORS = ["#ff9f43", "#ff6b3d", "#ffd24c", "#ff5e7e"];
 const LANE_LABELS = ["D", "F", "J", "K"];
+
+// --- strefy dotyku menu / kolekcji ---
+const MENU_START: Rect = { x: VW / 2 - 200, y: 548, w: 400, h: 112 };
+const MENU_SONGS: Rect = { x: VW / 2 - 200, y: 700, w: 400, h: 96 };
+const MENU_MINUS: Rect = { x: VW / 2 - 194, y: 884, w: 88, h: 88 };
+const MENU_PLUS: Rect = { x: VW / 2 + 106, y: 884, w: 88, h: 88 };
+const SONGS_BACK: Rect = { x: 16, y: 36, w: 160, h: 62 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -83,6 +100,7 @@ export class Game {
 
   private bg = new Image();
   private bgReady = false;
+  private coverCache = new Map<string, HTMLImageElement>();
 
   private song: SongDef = loadSong();
   private songTime = 0;
@@ -141,6 +159,9 @@ export class Game {
       case "menu":
         this.drawMenu(ctx);
         break;
+      case "songs":
+        this.drawSongs(ctx);
+        break;
       case "play":
         this.drawPlay(ctx);
         break;
@@ -160,6 +181,7 @@ export class Game {
 
   onPress(lane: number, x: number, y: number) {
     if (this.scene === "menu") return this.handleMenuTap(x, y);
+    if (this.scene === "songs") return this.handleSongsTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
@@ -173,22 +195,40 @@ export class Game {
   }
 
   private handleMenuTap(x: number, y: number) {
-    if (x >= 0) {
-      const cy = 1024;
-      if (y > cy - 55 && y < cy + 55) {
-        if (x > VW / 2 - 210 && x < VW / 2 - 90) {
-          this.settings.offsetMs = clamp(this.settings.offsetMs - 5, -120, 120);
-          saveSettings(this.settings);
-          return;
+    if (x < 0) return void this.startPlay(); // klawisz Enter/Spacja
+    if (inRect(MENU_START, x, y)) return void this.startPlay();
+    if (inRect(MENU_SONGS, x, y)) {
+      this.scene = "songs";
+      return;
+    }
+    if (inRect(MENU_MINUS, x, y)) {
+      this.settings.offsetMs = clamp(this.settings.offsetMs - 5, -120, 120);
+      saveSettings(this.settings);
+      return;
+    }
+    if (inRect(MENU_PLUS, x, y)) {
+      this.settings.offsetMs = clamp(this.settings.offsetMs + 5, -120, 120);
+      saveSettings(this.settings);
+      return;
+    }
+  }
+
+  private handleSongsTap(x: number, y: number) {
+    if (x < 0 || inRect(SONGS_BACK, x, y)) {
+      this.scene = "menu";
+      return;
+    }
+    const disc = discoveredIds();
+    for (const { meta, spotify } of this.songsLayout()) {
+      if (disc.has(meta.id) && meta.spotifyUrl && inRect(spotify, x, y)) {
+        try {
+          window.open?.(meta.spotifyUrl, "_blank", "noopener");
+        } catch {
+          /* ignore */
         }
-        if (x > VW / 2 + 90 && x < VW / 2 + 210) {
-          this.settings.offsetMs = clamp(this.settings.offsetMs + 5, -120, 120);
-          saveSettings(this.settings);
-          return;
-        }
+        return;
       }
     }
-    void this.startPlay();
   }
 
   private handleResultsTap(x: number, y: number) {
@@ -219,6 +259,7 @@ export class Game {
     this.newBest = false;
     this.songTime = 0;
     this.scene = "play";
+    markDiscovered(this.song.id);
     this.audio.start(this.song);
   }
 
@@ -423,75 +464,106 @@ export class Game {
 
   private drawMenu(ctx: CanvasRenderingContext2D) {
     const pulse = this.beatPulse();
-    this.drawStage(ctx, 0.15, pulse);
+    this.drawStage(ctx, 0.22, pulse);
 
-    text(ctx, "DENIS", VW / 2, 150, {
-      size: 104,
+    // --- powitanie ---
+    text(ctx, "DENIS", VW / 2, 156, {
+      size: 112,
       weight: "800",
       color: "#fff7ec",
       glow: "#ffb457",
-      glowBlur: 32,
-      letterSpacing: "8px",
+      glowBlur: 34,
+      letterSpacing: "6px",
     });
-    text(ctx, "GRA RYTMICZNA", VW / 2, 232, { size: 30, color: "#ffce8a", letterSpacing: "10px" });
-
-    const cardY = 560;
+    text(ctx, "IMPULSYWNI", VW / 2, 238, {
+      size: 36,
+      weight: "700",
+      color: "#ffce8a",
+      letterSpacing: "16px",
+    });
+    // plakietka LIVE
+    const lw = 150;
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 30;
-    ctx.fillStyle = "rgba(18,14,24,0.72)";
-    roundRect(ctx, MARGIN, cardY, VW - MARGIN * 2, 190, 24);
+    ctx.strokeStyle = "rgba(255,180,90,0.7)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, VW / 2 - lw / 2, 276, lw, 46, 23);
+    ctx.stroke();
+    const dot = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+    ctx.fillStyle = `rgba(255,94,110,${0.5 + dot * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(VW / 2 - 34, 299, 6, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = "rgba(255,180,90,0.35)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, MARGIN, cardY, VW - MARGIN * 2, 190, 24);
-    ctx.stroke();
+    text(ctx, "LIVE", VW / 2 + 8, 300, { size: 22, weight: "800", color: "#fff7ec", letterSpacing: "4px" });
 
-    text(ctx, this.song.title, VW / 2, cardY + 58, { size: 40, color: "#fff" });
-    text(ctx, `${this.song.artist} · ${this.song.bpm} BPM`, VW / 2, cardY + 104, {
-      size: 24,
-      color: "#c9b7a6",
-    });
-    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, cardY + 146, {
-      size: 22,
-      color: "#ffce8a",
-    });
+    text(ctx, "gra rytmiczna", VW / 2, 372, { size: 20, color: "#8a7c6e", letterSpacing: "8px" });
 
-    const bs = 1 + pulse * 0.04;
+    // --- STARTUJEMY! ---
+    const bs = 1 + pulse * 0.035;
     ctx.save();
-    ctx.translate(VW / 2, 850);
+    ctx.translate(VW / 2, MENU_START.y + MENU_START.h / 2);
     ctx.scale(bs, bs);
-    const grad = ctx.createLinearGradient(-180, 0, 180, 0);
+    const grad = ctx.createLinearGradient(-MENU_START.w / 2, 0, MENU_START.w / 2, 0);
     grad.addColorStop(0, "#ff9f43");
     grad.addColorStop(1, "#ff5e7e");
     ctx.fillStyle = grad;
     ctx.shadowColor = "rgba(255,120,90,0.6)";
-    ctx.shadowBlur = 30;
-    roundRect(ctx, -180, -50, 360, 100, 50);
+    ctx.shadowBlur = 34;
+    roundRect(ctx, -MENU_START.w / 2, -MENU_START.h / 2, MENU_START.w, MENU_START.h, MENU_START.h / 2);
     ctx.fill();
     ctx.restore();
-    text(ctx, "GRAJ", VW / 2, 850, { size: 44, weight: "800", color: "#1a0d12" });
+    text(ctx, "STARTUJEMY!", VW / 2, MENU_START.y + MENU_START.h / 2, {
+      size: 42,
+      weight: "800",
+      color: "#1a0d12",
+    });
 
-    const cy = 1024;
+    // --- Poznane Utwory ---
+    ctx.strokeStyle = "rgba(255,180,90,0.55)";
+    ctx.lineWidth = 2;
+    ctx.fillStyle = "rgba(18,14,24,0.55)";
+    roundRect(ctx, MENU_SONGS.x, MENU_SONGS.y, MENU_SONGS.w, MENU_SONGS.h, MENU_SONGS.h / 2);
+    ctx.fill();
+    ctx.stroke();
+    text(ctx, "Poznane Utwory", VW / 2, MENU_SONGS.y + MENU_SONGS.h / 2 - 6, {
+      size: 32,
+      weight: "700",
+      color: "#ffce8a",
+    });
+    const disc = this.discoveredCount();
+    text(ctx, `odkryte: ${disc} / ${SONGS.length}`, VW / 2, MENU_SONGS.y + MENU_SONGS.h / 2 + 24, {
+      size: 16,
+      color: "#8a7c6e",
+    });
+
+    // --- kalibracja ---
     text(
       ctx,
       `Kalibracja dźwięku: ${this.settings.offsetMs > 0 ? "+" : ""}${this.settings.offsetMs} ms`,
       VW / 2,
-      cy - 66,
-      { size: 20, color: "#b9a999" },
+      MENU_MINUS.y - 26,
+      { size: 19, color: "#b9a999" },
     );
-    this.pill(ctx, VW / 2 - 150, cy, "−");
-    this.pill(ctx, VW / 2 + 150, cy, "+");
+    this.pill(ctx, MENU_MINUS.x + 44, MENU_MINUS.y + 44, "−");
+    this.pill(ctx, MENU_PLUS.x + 44, MENU_PLUS.y + 44, "+");
 
-    text(ctx, "Stukaj w tor przy linii. Długie nuty przytrzymaj — czasem dwie naraz.", VW / 2, 1150, {
-      size: 19,
+    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1050, {
+      size: 20,
+      color: "#ffce8a",
+    });
+    text(ctx, "Stukaj w tor przy linii. Długie nuty przytrzymaj, czasem dwie naraz.", VW / 2, 1128, {
+      size: 18,
       color: "#9a8c7e",
     });
-    text(ctx, "klawisze: D F J K  ·  prototyp, podkład tymczasowy", VW / 2, 1206, {
-      size: 17,
+    text(ctx, "klawisze: D F J K  ·  prototyp, podkład tymczasowy", VW / 2, 1170, {
+      size: 16,
       color: "#6b6055",
     });
+  }
+
+  private discoveredCount(): number {
+    const d = discoveredIds();
+    return SONGS.filter((s) => d.has(s.id)).length;
   }
 
   private pill(ctx: CanvasRenderingContext2D, x: number, y: number, label: string) {
@@ -503,6 +575,146 @@ export class Game {
     roundRect(ctx, x - 44, y - 44, 88, 88, 20);
     ctx.stroke();
     text(ctx, label, x, y, { size: 44, color: "#ffce8a" });
+  }
+
+  // ---- ekran: poznane utwory --------------------------------
+
+  private songsLayout(): { meta: SongMeta; card: Rect; cover: Rect; spotify: Rect }[] {
+    const cols = 2;
+    const gutter = 32;
+    const cardW = (VW - MARGIN * 2 - gutter) / cols;
+    const cardH = 372;
+    const top = 196;
+    const rowGap = 28;
+    return SONGS.map((meta, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = MARGIN + col * (cardW + gutter);
+      const y = top + row * (cardH + rowGap);
+      const coverSize = cardW - 90;
+      const cover: Rect = { x: x + (cardW - coverSize) / 2, y: y + 18, w: coverSize, h: coverSize };
+      const spotify: Rect = { x: x + 24, y: y + cardH - 60, w: cardW - 48, h: 44 };
+      return { meta, card: { x, y, w: cardW, h: cardH }, cover, spotify };
+    });
+  }
+
+  private coverImg(meta: SongMeta): HTMLImageElement | null {
+    if (!meta.cover) return null;
+    let img = this.coverCache.get(meta.id);
+    if (!img) {
+      img = new Image();
+      img.src = meta.cover;
+      this.coverCache.set(meta.id, img);
+    }
+    return img;
+  }
+
+  private drawCover(ctx: CanvasRenderingContext2D, r: Rect, meta: SongMeta, discovered: boolean) {
+    ctx.save();
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.clip();
+    if (!discovered) {
+      ctx.fillStyle = "#15121c";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      text(ctx, "?", r.x + r.w / 2, r.y + r.h / 2, {
+        size: r.h * 0.4,
+        weight: "800",
+        color: "rgba(255,255,255,0.16)",
+      });
+    } else {
+      const img = this.coverImg(meta);
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, r.x, r.y, r.w, r.h);
+      } else {
+        const g = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
+        g.addColorStop(0, shade(meta.accent, 24));
+        g.addColorStop(1, shade(meta.accent, -74));
+        ctx.fillStyle = g;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        text(ctx, (meta.title[0] || "?").toUpperCase(), r.x + r.w / 2, r.y + r.h / 2, {
+          size: r.h * 0.46,
+          weight: "800",
+          color: "rgba(255,255,255,0.88)",
+        });
+      }
+    }
+    ctx.restore();
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.stroke();
+  }
+
+  private drawSongs(ctx: CanvasRenderingContext2D) {
+    this.drawStage(ctx, 0.55, this.beatPulse() * 0.3);
+
+    text(ctx, "‹ WRÓĆ", SONGS_BACK.x + 14, SONGS_BACK.y + 34, {
+      size: 24,
+      align: "left",
+      color: "#ffce8a",
+      weight: "700",
+    });
+    text(ctx, "POZNANE UTWORY", VW / 2, 110, {
+      size: 40,
+      weight: "800",
+      color: "#fff7ec",
+      glow: "#ffb457",
+      glowBlur: 18,
+      letterSpacing: "2px",
+    });
+    text(ctx, `odkryte: ${this.discoveredCount()} / ${SONGS.length}`, VW / 2, 154, {
+      size: 20,
+      color: "#c9b7a6",
+    });
+
+    const disc = discoveredIds();
+    for (const { meta, card, cover, spotify } of this.songsLayout()) {
+      const d = disc.has(meta.id);
+
+      ctx.fillStyle = "rgba(18,14,24,0.74)";
+      roundRect(ctx, card.x, card.y, card.w, card.h, 20);
+      ctx.fill();
+      ctx.strokeStyle = d ? "rgba(255,180,90,0.35)" : "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, card.x, card.y, card.w, card.h, 20);
+      ctx.stroke();
+
+      this.drawCover(ctx, cover, meta, d);
+
+      const cx = card.x + card.w / 2;
+      if (d) {
+        text(ctx, meta.title, cx, cover.y + cover.h + 36, {
+          size: 25,
+          weight: "700",
+          color: "#fff",
+        });
+        text(ctx, meta.artist, cx, cover.y + cover.h + 66, { size: 18, color: "#b9a999" });
+        if (meta.spotifyUrl) {
+          ctx.fillStyle = "#1DB954";
+          roundRect(ctx, spotify.x, spotify.y, spotify.w, spotify.h, spotify.h / 2);
+          ctx.fill();
+          text(ctx, "▶  SPOTIFY", spotify.x + spotify.w / 2, spotify.y + spotify.h / 2, {
+            size: 19,
+            weight: "800",
+            color: "#04220f",
+          });
+        } else {
+          text(ctx, "link wkrótce", cx, spotify.y + spotify.h / 2, { size: 17, color: "#6b6055" });
+        }
+      } else {
+        text(ctx, "? ? ?", cx, cover.y + cover.h + 42, {
+          size: 25,
+          weight: "700",
+          color: "rgba(255,255,255,0.4)",
+        });
+        text(ctx, "zagraj, aby odkryć", cx, spotify.y + spotify.h / 2, {
+          size: 17,
+          color: "#6b6055",
+        });
+      }
+    }
+
+    text(ctx, "prototyp · okładki tymczasowe", VW / 2, VH - 54, { size: 16, color: "#6b6055" });
   }
 
   // ---- ekran: gra --------------------------------------------

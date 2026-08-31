@@ -69,3 +69,13 @@ export function clamp(v: number, lo: number, hi: number) {
 export function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
+
+/** Rozjaśnia (amt > 0) lub przyciemnia (amt < 0) kolor #rrggbb. */
+export function shade(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp(Math.round(((n >> 16) & 255) + amt), 0, 255);
+  const g = clamp(Math.round(((n >> 8) & 255) + amt), 0, 255);
+  const b = clamp(Math.round((n & 255) + amt), 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+

@@ -154,5 +154,25 @@ const noRelease = await playthrough("heads-only");
 ok(noRelease.holdsDone === holdCount, `trzymania domknięte automatycznie (${noRelease.holdsDone}/${holdCount})`);
 ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 
+// smoke: każdy ekran rysuje się bez wyjątku
+console.log("\n· render wszystkich ekranów:");
+const gr = new Game();
+await new Promise((r) => setTimeout(r, 5));
+for (const sc of ["loading", "menu", "songs", "results", "play"]) {
+  gr.scene = sc;
+  gr.render(ctx);
+}
+ok(true, "menu / songs / results / play / loading renderują się bez błędu");
+
+// nawigacja menu → songs → menu i oznaczanie „poznanych"
+const gn = new Game();
+await new Promise((r) => setTimeout(r, 5));
+gn.scene = "menu";
+gn.onPress(-1, 360, 748); // Poznane Utwory
+ok(gn.scene === "songs", "klik w Poznane Utwory otwiera kolekcje");
+gn.onPress(-1, 60, 66); // wroc
+ok(gn.scene === "menu", "przycisk Wroc wraca do menu");
+ok(new Game().discoveredCount() >= 1, "zagrany utwor jest oznaczony jako poznany");
+
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
 process.exit(fail === 0 ? 0 : 1);
