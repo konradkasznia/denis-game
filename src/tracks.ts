@@ -38,10 +38,10 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
   "panna-mloda": {
     title: "Panna Młoda",
     artist: "Denis",
-    bpm: 128,
-    bars: 26,
+    bpm: 155, // podane przez Konrada (do potwierdzenia z mp3)
+    bars: 31,
     // tymczasowo: ujęcia 1→2→3→4 zmieniają się co 4 s (docelowe sekundy do ustalenia)
-    characters: rotateShots("assets/char/panna-mloda", [1, 2, 3, 4], 50),
+    characters: rotateShots("assets/char/panna-mloda", [1, 2, 3, 4], 52),
     characterScale: 0.95,
     characterY: 704,
   },
