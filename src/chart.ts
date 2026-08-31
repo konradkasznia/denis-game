@@ -66,6 +66,12 @@ export interface SynthOpts {
   artist: string;
   bpm: number;
   bars: number;
+  /** opcjonalne warstwy wizualne — działają też dla podkładu syntezowanego */
+  bg?: string;
+  character?: string;
+  characters?: { at: number; sprite: string }[];
+  characterScale?: number;
+  characterY?: number;
 }
 
 function build(o: SynthOpts): SongDef {
@@ -148,6 +154,11 @@ function build(o: SynthOpts): SongDef {
     bars,
     startBar,
     lanes: LANES,
+    bg: o.bg,
+    character: o.character,
+    characters: o.characters,
+    characterScale: o.characterScale,
+    characterY: o.characterY,
     notes: cleaned,
     duration,
   };

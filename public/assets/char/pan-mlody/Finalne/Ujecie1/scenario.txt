@@ -1,8 +1,0 @@
-# Ujecie 1 - scenariusz animacji (klatka - czas)
-1 - 03f
-2 - 03f
-3 - 06f
-4 - 07f
-3 - 03f
-2 - 03f
-5 - 08f

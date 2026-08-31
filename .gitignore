@@ -14,6 +14,13 @@ figma-ekrany/
 public/assets/char/*/raw/
 public/assets/char/*/_contact.png
 
+# cieżkie materiały robocze (nieużywane przez grę) — trzymamy lokalnie, nie w repo/deployu
+public/assets/char/*/Finalne/*.zip
+public/assets/char/*/Finalne/*.mp3
+public/assets/char/*/Finalne/magnific_*
+public/assets/char/*/Finalne/tupanie*
+public/assets/char/*/Finalne/*.psd
+
 /Materiały robocze/
 deploy-log.txt
 

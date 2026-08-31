@@ -1,0 +1,13 @@
+# Ujecie 2 - scenariusz animacji (klatka - czas w klatkach osi czasu, 30 fps)
+1 - 2f
+2 - 2f
+3 - 2f
+4 - 5f
+5 - 5f
+4 - 5f
+5 - 5f
+4 - 5f
+5 - 5f
+4 - 10f
+3 - 2f
+2 - 2f

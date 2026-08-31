@@ -13,9 +13,38 @@ export const DEFAULT_TRACK = "pan-mlody";
 // Utwory bez własnego pliku audio — grane na syntezowanym podkładzie.
 // Gdy wpłynie mp3 danego utworu: dodajemy `public/charts/<id>.json`
 // z `audioUrl` i prawdziwą beatmapą, a wpis stąd znika.
-const SYNTH_TRACKS: Record<string, { title: string; artist: string; bpm: number; bars: number }> = {
+type SynthCfg = {
+  title: string;
+  artist: string;
+  bpm: number;
+  bars: number;
+  bg?: string;
+  characters?: { at: number; sprite: string }[];
+  characterScale?: number;
+  characterY?: number;
+};
+
+/** naprzemienne ujęcia postaci co `every` s przez `secs` s utworu */
+function rotateShots(base: string, ujecia: number[], secs: number, every = 4): { at: number; sprite: string }[] {
+  const out: { at: number; sprite: string }[] = [];
+  for (let t = 0, i = 0; t < secs; t += every, i++) {
+    out.push({ at: t, sprite: `${base}/ujecie${ujecia[i % ujecia.length]}` });
+  }
+  return out;
+}
+
+const SYNTH_TRACKS: Record<string, SynthCfg> = {
   rozgrzewka: { title: "Rozgrzewka", artist: "podkład testowy", bpm: 100, bars: 22 },
-  "panna-mloda": { title: "Panna Młoda", artist: "Denis", bpm: 128, bars: 26 },
+  "panna-mloda": {
+    title: "Panna Młoda",
+    artist: "Denis",
+    bpm: 128,
+    bars: 26,
+    // tymczasowo: ujęcia 1→2→3→4 zmieniają się co 4 s (docelowe sekundy do ustalenia)
+    characters: rotateShots("assets/char/panna-mloda", [1, 2, 3, 4], 50),
+    characterScale: 0.95,
+    characterY: 704,
+  },
   "ksiaze-z-bajki": { title: "Książę z bajki", artist: "Denis", bpm: 112, bars: 28 },
   "to-ty": { title: "To Ty!", artist: "Denis", bpm: 144, bars: 30 },
 };
