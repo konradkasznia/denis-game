@@ -123,13 +123,18 @@ if (sameSize) {
   console.log(`  wyrownanie: kotwica po glowie (${FW}x${FH})`);
 }
 
-// --- arkusz: jedna komorka na KROK scenariusza ---
-const NF = seq.length;
+// --- arkusz: TYLKO unikalne klatki (bez duplikatow), scenariusz = "sequence" ---
+const uniq = [...new Set(seq.map((s) => s.fi))].sort((a, b) => a - b);
+const cellOf = new Map(uniq.map((fi, i) => [fi, i]));
+const NF = uniq.length;
+const sequence = seq.map((s) => cellOf.get(s.fi));
+const frameMs = seq.map((s) => s.ms);
+
 const sheet = new PNG({ width: FW * NF, height: FH });
 sheet.data.fill(0);
-seq.forEach((s, k) => {
-  const p = imgs[s.fi];
-  const { ox, oy } = place(s.fi);
+uniq.forEach((fi, k) => {
+  const p = imgs[fi];
+  const { ox, oy } = place(fi);
   for (let y = 0; y < p.height; y++)
     for (let x = 0; x < p.width; x++) {
       const X = k * FW + ox + x, Y = oy + y;
@@ -142,21 +147,24 @@ seq.forEach((s, k) => {
 
 fs.mkdirSync(OUT, { recursive: true });
 fs.writeFileSync(`${OUT}/dance.png`, PNG.sync.write(sheet));
-const frameMs = seq.map((s) => s.ms);
-const fps = Math.round(1000 / (total / NF));
-fs.writeFileSync(`${OUT}/anim.json`,
-  JSON.stringify({ type: "sheet", src: "dance.png", frames: NF, cols: NF, fps, frameMs }, null, 2) + "\n");
-console.log(`  -> ${OUT}/dance.png + anim.json`);
+const fps = Math.round(1000 / (total / seq.length));
+const linear = sequence.every((v, i) => v === i);
+const meta = { type: "sheet", src: "dance.png", frames: NF, cols: NF, fps, frameMs };
+if (!linear) meta.sequence = sequence;
+fs.writeFileSync(`${OUT}/anim.json`, JSON.stringify(meta, null, 2) + "\n");
+console.log(`  -> ${OUT}/dance.png (${NF} unikalnych klatek) + anim.json`);
+if (!linear) console.log(`  sequence: [${sequence.join(",")}]`);
 
 // --- podglad GIF ---
 {
   const PW = 300, PH = Math.round((FH / FW) * PW);
   const gif = GIFEncoder();
-  for (let k = 0; k < NF; k++) {
+  for (let step = 0; step < seq.length; step++) {
+    const cell = sequence[step];
     const rgba = new Uint8Array(PW * PH * 4);
     for (let i = 0; i < rgba.length; i += 4) { rgba[i] = 18; rgba[i + 1] = 16; rgba[i + 2] = 26; rgba[i + 3] = 255; }
     for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) {
-      const sx = k * FW + Math.round((x / PW) * FW), sy = Math.round((y / PH) * FH);
+      const sx = cell * FW + Math.round((x / PW) * FW), sy = Math.round((y / PH) * FH);
       const si = (sy * sheet.width + sx) * 4, a = sheet.data[si + 3] / 255;
       if (a <= 0.02) continue;
       const di = (y * PW + x) * 4;
@@ -165,7 +173,7 @@ console.log(`  -> ${OUT}/dance.png + anim.json`);
       rgba[di + 2] = sheet.data[si + 2] * a + rgba[di + 2] * (1 - a);
     }
     const pal = quantize(rgba, 256);
-    gif.writeFrame(applyPalette(rgba, pal), PW, PH, { palette: pal, delay: frameMs[k] });
+    gif.writeFrame(applyPalette(rgba, pal), PW, PH, { palette: pal, delay: frameMs[step] });
   }
   gif.finish();
   fs.writeFileSync(`${OUT}/dance-preview.gif`, gif.bytes());

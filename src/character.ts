@@ -10,8 +10,11 @@
 // Pojedynczy statyczny PNG (bez folderu) też działa — jest animowany proceduralnie.
 //
 // Różny czas klatek (np. dłuższe zatrzymanie na pozie): dodaj do anim.json
-//   "holds":   [4,1,1,3,1,1]      — krotność taktu 1000/fps na klatkę, albo
-//   "frameMs": [800,90,90,500,90,90]  — dokładny czas klatki w ms (ważniejsze niż fps).
+//   "holds":   [4,1,1,3,1,1]      — krotność taktu 1000/fps na krok, albo
+//   "frameMs": [800,90,90,500,90,90]  — dokładny czas kroku w ms (ważniejsze niż fps).
+// Powtarzanie/skoki klatek bez duplikowania grafiki:
+//   "sequence": [0,1,2,3,2,1,4]   — który obraz z arkusza pokazać w danym kroku.
+//   Arkusz trzyma tylko unikalne klatki; długość frameMs/holds = długość sequence.
 
 import { clamp } from "./ui.ts";
 
@@ -23,10 +26,13 @@ interface AnimMeta {
   rows?: number;
   fps: number;
   pad?: number;
-  /** czas trwania każdej klatki w ms (długość = frames). Ma pierwszeństwo przed fps/holds. */
+  /** czas trwania każdego KROKU w ms (długość = sequence albo frames). Ma pierwszeństwo przed fps/holds. */
   frameMs?: number[];
-  /** krotność bazowego taktu (1000/fps) dla każdej klatki, np. [1,1,4,1] = 3. klatka x4 dłużej. */
+  /** krotność bazowego taktu (1000/fps) dla każdego kroku, np. [1,1,4,1] = 3. krok x4 dłużej. */
   holds?: number[];
+  /** kolejność odtwarzania klatek z arkusza (indeksy 0..frames-1), z powtórzeniami/skokami.
+   *  Bez tego pola: kroki = klatki po kolei. Arkusz trzyma tylko unikalne klatki. */
+  sequence?: number[];
 }
 
 interface LoadedAnim {
@@ -49,12 +55,13 @@ export interface CharSegment {
 
 const CROSSFADE = 0.4;
 
-/** Zamienia frameMs / holds z anim.json na skumulowane końce klatek w ms. */
+/** Zamienia frameMs / holds z anim.json na skumulowane końce kroków w ms. */
 function buildTiming(meta: AnimMeta): { ends: number[]; total: number } | null {
+  const steps = meta.sequence?.length ?? meta.frames;
   let ms: number[] | null = null;
-  if (meta.frameMs?.length === meta.frames) {
+  if (meta.frameMs?.length === steps) {
     ms = meta.frameMs.slice();
-  } else if (meta.holds?.length === meta.frames && meta.fps > 0) {
+  } else if (meta.holds?.length === steps && meta.fps > 0) {
     const base = 1000 / meta.fps;
     ms = meta.holds.map((h) => Math.max(1, h) * base);
   }
@@ -202,14 +209,17 @@ export class Character {
     alpha: number,
   ): boolean {
     if (!a || !a.ready) return false;
-    let f: number;
+    const seq = a.meta.sequence;
+    const steps = seq?.length ?? a.meta.frames;
+    let step: number;
     if (a.timing) {
       const x = ((t * 1000) % a.timing.total + a.timing.total) % a.timing.total;
-      f = a.timing.ends.findIndex((e) => x < e);
-      if (f < 0) f = a.meta.frames - 1;
+      step = a.timing.ends.findIndex((e) => x < e);
+      if (step < 0) step = steps - 1;
     } else {
-      f = Math.floor(t * a.meta.fps) % a.meta.frames;
+      step = Math.floor(t * a.meta.fps) % steps;
     }
+    const f = seq ? clamp(seq[step] ?? 0, 0, a.meta.frames - 1) : step;
     const w = (a.fw / a.fh) * targetH;
     ctx.save();
     ctx.globalAlpha = clamp(alpha, 0, 1);

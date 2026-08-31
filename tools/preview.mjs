@@ -51,18 +51,20 @@ if (type === "frames") {
 // --- czasy klatek (ms) ---
 const base = 1000 / (meta.fps || 12);
 let durs;
-if (meta.frameMs?.length === N) durs = meta.frameMs.slice();
-else if (meta.holds?.length === N) durs = meta.holds.map((h) => Math.max(1, h) * base);
-else durs = Array(N).fill(base);
-console.log(`${ID}: ${type}, ${N} klatek, petla ${(durs.reduce((a, b) => a + b, 0) / 1000).toFixed(2)}s`);
+const steps = meta.sequence?.length ?? N;
+if (meta.frameMs?.length === steps) durs = meta.frameMs.slice();
+else if (meta.holds?.length === steps) durs = meta.holds.map((h) => Math.max(1, h) * base);
+else durs = Array(steps).fill(base);
+const cellSeq = meta.sequence ?? [...Array(N).keys()];
+console.log(`${ID}: ${type}, ${N} unikalnych klatek, ${steps} krokow, petla ${(durs.reduce((a, b) => a + b, 0) / 1000).toFixed(2)}s`);
 console.log(`  czasy: [${durs.map((d) => Math.round(d)).join(", ")}] ms`);
 
 // --- render GIF ---
 const PW = 300;
 const PH = Math.round((FH / FW) * PW);
 const gif = GIFEncoder();
-for (let f = 0; f < N; f++) {
-  const src = frameRGBA[f];
+for (let f = 0; f < steps; f++) {
+  const src = frameRGBA[cellSeq[f]];
   const rgba = new Uint8Array(PW * PH * 4);
   for (let i = 0; i < rgba.length; i += 4) { rgba[i] = 18; rgba[i + 1] = 16; rgba[i + 2] = 26; rgba[i + 3] = 255; }
   for (let y = 0; y < PH; y++)

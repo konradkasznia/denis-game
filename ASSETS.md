@@ -73,8 +73,21 @@ Dwa sposoby, oba opcjonalne — działają i dla `sheet`, i dla `frames`:
     "frameMs": [800, 90, 90, 500, 90, 90] }
   ```
 
-Długość `holds` / `frameMs` musi się równać `frames`. Podgląd z uwzględnieniem
-tych czasów: `node tools/preview.mjs <utwor>` → `dance-preview.gif`.
+### Powtarzanie klatek bez duplikowania grafiki — `sequence`
+
+Gdy pętla wraca do tej samej klatki (np. `1-2-3-4-3-2`), arkusz PNG trzyma
+**tylko unikalne klatki**, a kolejność odtwarzania jest w `sequence`:
+```json
+{ "type": "sheet", "src": "dance.png", "frames": 4, "cols": 4, "fps": 8,
+  "sequence": [0, 1, 2, 3, 2, 1],
+  "frameMs":  [100, 100, 200, 400, 200, 100] }
+```
+`sequence` = indeks obrazu z arkusza (0..frames-1) na każdy krok. Długość
+`frameMs` / `holds` = długość `sequence` (a jak nie ma `sequence` — = `frames`).
+Dzięki temu 12-krokowa animacja z 5 zdjęć waży tyle co 5 zdjęć, nie 12.
+
+Podgląd z uwzględnieniem czasów i sekwencji:
+`node tools/preview.mjs <utwor>` → `dance-preview.gif`.
 
 ### Kilka animacji w jednym utworze (np. inna postać od 30 s)
 
