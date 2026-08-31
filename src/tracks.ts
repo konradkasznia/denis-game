@@ -20,6 +20,9 @@ interface RawChart {
   duration: number;
   audioUrl: string;
   bg?: string;
+  character?: string;
+  characterScale?: number;
+  characterY?: number;
   notes: { lane: number; time: number; dur?: number }[];
 }
 
@@ -39,6 +42,9 @@ export function rawToSong(raw: RawChart): SongDef {
     lanes: LANES,
     audioUrl: raw.audioUrl,
     bg: raw.bg,
+    character: raw.character,
+    characterScale: raw.characterScale,
+    characterY: raw.characterY,
     notes,
     duration: raw.duration,
   };

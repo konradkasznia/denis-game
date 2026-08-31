@@ -8,25 +8,40 @@ Wszystko wrzucasz do `public/assets/`. Nazwa `<utwor>` = `id` z pliku
 - Jeden obraz na utwór, pionowy (proporcje ~9:16, np. **1080 × 1920**).
 - Wypełnia cały ekran (skalowane „cover"), więc ważne rzeczy trzymaj w środku.
 - Jasność bez znaczenia — gra i tak przyciemnia dół pod pole gry.
-- Wpisz ścieżkę w JSON utworu: `"bg": "assets/bg/pan-mlody.jpg"` (już jest dla Pan Młody).
-- Brak pliku → używane jest tło domyślne.
+- Ścieżka jest już wpisana w JSON: `"bg": "assets/bg/pan-mlody.jpg"`.
+- Brak pliku → tło domyślne.
 
-## Postać (tańcząca / śpiewająca) — `public/assets/char/<utwor>/`
+## Postać (na pierwszym planie, przed nutami)
 
-Na razie w grze jest **placeholder** (patykowy tancerz reagujący na bit).
-Gdy narysujesz postać, podeślij klatki:
+Postać stoi z przodu i rusza się **do bitu** (podskok, kołysanie, spłaszczenie
+przy „lądowaniu"), reaguje na trafienie (podskok + rozciągnięcie), pudło
+(przechył) i wejście na wyższy mnożnik (wyskok).
 
-- `dance-1.png`, `dance-2.png`, … `dance-N.png` — pętla tańca (min. 2, optymalnie 4–8 klatek).
-  Przełączają się do bitu utworu.
-- `hit.png` *(opcjonalnie)* — poza przy trafieniu (np. ręce w górze).
-- `miss.png` *(opcjonalnie)* — poza przy pudle (np. zgarbiona).
+### Najprościej: JEDEN plik PNG
 
-Wymagania klatek:
-- **PNG z przezroczystym tłem**.
-- Ta sama wysokość i ten sam „grunt" (stopy na tej samej linii) na każdej klatce,
-  żeby nie skakała.
-- Wysokość ~**900–1200 px**, postać wyśrodkowana w poziomie.
-- Styl dowolny — dopasuję skalę i pozycję w grze.
+`public/assets/char/pan-mlody/character.png`
 
-Jak wolisz jedną animację (sprite sheet / GIF / Lottie JSON) zamiast osobnych
-klatek — też dam radę, tylko napisz w jakim formacie.
+- **PNG z przezroczystym tłem**, cała postać w jednej pozie (na wprost, stojąca).
+- Wysokość ~**1000–1600 px**, postać wyśrodkowana w poziomie, **stopy przy dolnej
+  krawędzi** obrazka (grunt = dół pliku).
+- Ścieżka jest już w JSON. Dostrojenie rozmiaru/pozycji:
+  `"characterScale": 1` (mnożnik) i `"characterY": 706` (linia gruntu w px).
+
+Tę jedną grafikę animuję proceduralnie (transformacje canvasu) — bez dodatkowych
+klatek. Wystarczy do dobrego „groove".
+
+### Lepszy ruch (opcjonalnie): osobne części ciała
+
+Jeśli chcesz płynniejszą animację kończyn, podeślij zamiast tego:
+`head.png`, `torso.png`, `arm-left.png`, `arm-right.png`, `leg-left.png`,
+`leg-right.png` (wszystkie w tej samej „scenie", przezroczyste tło). Zrobię
+z tego lalkę (skeletal) z prawdziwym machaniem rękami/nogami.
+
+### Albo klatki / sprite sheet
+
+`dance-1.png … dance-N.png` (4–8 klatek, ta sama wysokość i grunt) albo jeden
+sprite sheet + info o siatce. Też obsłużę.
+
+---
+
+Napisz w mailu/wiadomości którą wersję wysyłasz, to od razu wiem jak wpiąć.

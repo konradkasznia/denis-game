@@ -113,6 +113,7 @@ export class Game {
   private coverCache = new Map<string, HTMLImageElement>();
   private songBg: HTMLImageElement | null = null; // tło bieżącego utworu
   private bgCache = new Map<string, HTMLImageElement>();
+  private charImg: HTMLImageElement | null = null; // postać (PNG) bieżącego utworu
 
   private trackId = DEFAULT_TRACK;
   private song: SongDef = buildSynthSong();
@@ -179,6 +180,7 @@ export class Game {
       const s = await loadTrack(this.trackId);
       if (this.scene !== "play") this.song = s;
       this.loadSongBg(s.bg);
+      this.loadCharacter(s.character);
     } catch (e) {
       this.loadError = String(e);
     }
@@ -202,6 +204,27 @@ export class Game {
     };
     img.onerror = () => {
       this.songBg = null;
+    };
+    img.src = url;
+  }
+
+  private loadCharacter(url?: string) {
+    if (!url) {
+      this.charImg = null;
+      return;
+    }
+    const cached = this.bgCache.get(url);
+    if (cached) {
+      this.charImg = cached;
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      this.bgCache.set(url, img);
+      this.charImg = img;
+    };
+    img.onerror = () => {
+      this.charImg = null;
     };
     img.src = url;
   }
@@ -405,6 +428,7 @@ export class Game {
       const song = await loadTrack(this.trackId);
       if (!guard()) return;
       this.loadSongBg(song.bg);
+      this.loadCharacter(song.character);
 
       if (song.audioUrl) {
         await this.audio.loadTrack(song.audioUrl, (s) => {
@@ -1204,9 +1228,9 @@ export class Game {
       ctx.restore();
     }
 
-    this.drawCharacter(ctx);
     this.drawPlayfield(ctx, pulse);
     this.drawNotes(ctx);
+    this.drawCharacter(ctx); // pierwszy plan — przed nutami
     this.drawJudgePopups(ctx);
     this.drawHud(ctx);
     this.drawCountdown(ctx);
@@ -1225,7 +1249,7 @@ export class Game {
     const beat = 60 / this.song.bpm;
     const t = Math.max(this.songTime, 0);
     const phase = (t % beat) / beat; // 0..1 w obrębie bitu
-    const groundY = 660;
+    const groundY = this.song.characterY ?? 706;
     const cx = VW / 2;
 
     const hit = clamp(1 - (this.songTime - this.denisPopAt) / 0.22, 0, 1);
@@ -1234,16 +1258,47 @@ export class Game {
 
     // groove: podskok na bicie + kołysanie
     const bounce = -Math.abs(Math.sin(phase * Math.PI)) * (14 + flowUp * 30);
-    const sway = Math.sin(t / beat * Math.PI) * 12;
-    const tilt = (Math.sin(t / beat * Math.PI) * 0.05) + miss * 0.25;
+    const sway = Math.sin((t / beat) * Math.PI) * 12;
+    const tilt = Math.sin((t / beat) * Math.PI) * 0.045 + miss * 0.22 - flowUp * 0.04;
+    // squash & stretch — spłaszczenie przy „lądowaniu" na bicie
+    const land = Math.pow(Math.max(0, Math.sin(phase * Math.PI * 2) * -1), 1.4);
+    const sqx = 1 + land * 0.07 + hit * 0.05;
+    const sqy = 1 - land * 0.07 + hit * 0.09 + flowUp * 0.12;
+
+    // --- prawdziwa grafika (PNG animowane proceduralnie) ---
+    if (this.charImg && this.charImg.width) {
+      const img = this.charImg;
+      const h = 440 * (this.song.characterScale ?? 1);
+      const w = (img.width / img.height) * h;
+      ctx.save();
+      ctx.translate(cx + sway, groundY + bounce);
+      ctx.rotate(tilt);
+      ctx.scale(sqx, sqy);
+      if (miss > 0.05) {
+        ctx.globalAlpha = 1;
+      }
+      ctx.drawImage(img, -w / 2, -h, w, h);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.ellipse(cx + sway, groundY + 8, w * 0.32 - bounce * 0.5, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    // --- placeholder wektorowy (do czasu podesłania grafiki) ---
     const scale = 1 + hit * 0.08 + flowUp * 0.12;
     const armRaise = hit * 1.1 + flowUp * 0.7;
 
     ctx.save();
     ctx.translate(cx + sway, groundY + bounce);
     ctx.rotate(tilt);
-    ctx.scale(scale, scale);
-    ctx.globalAlpha = 0.9;
+    ctx.scale(scale * sqx, scale * sqy);
+    ctx.globalAlpha = 0.92;
 
     const col = miss > 0.1 ? "#7a5a44" : "#c98a5a";
     const rim = "rgba(255,220,180,0.9)";
