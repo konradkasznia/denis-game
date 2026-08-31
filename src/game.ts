@@ -183,6 +183,12 @@ export class Game {
 
   private popups: Popup[] = [];
   private hitFx: { lane: number; at: number; kind: Judgement }[] = [];
+  private confetti: {
+    x: number; y: number; vx: number; vy: number;
+    rot: number; vr: number; w: number; h: number;
+    color: string; life: number; ttl: number;
+    swayA: number; swayF: number; swayP: number;
+  }[] = [];
   private laneFlash = [0, 0, 0, 0];
   private lanePress = [0, 0, 0, 0];
   private comboPopAt = -10;
@@ -277,6 +283,70 @@ export class Game {
     for (let i = 0; i < LANES; i++) this.lanePress[i] = lerp(this.lanePress[i], 0, 0.2);
     this.shake *= Math.pow(0.0025, dt); // szybki zanik trzęsienia (~0.85/klatkę)
     if (this.shake < 0.15) this.shake = 0;
+    this.updateConfetti(dt);
+  }
+
+  // ---- confetti (wybuch za postacią przy combo co 10) ----------------
+  private static readonly CONFETTI_COLORS = [
+    "#ff5e7e", "#ffd24c", "#8affc1", "#8ab6ff", "#ff9f43", "#ffffff",
+  ];
+
+  private burstConfetti(x: number, y: number) {
+    const n = 82;
+    for (let i = 0; i < n; i++) {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.25;
+      const spd = 240 + Math.random() * 430;
+      const col = Game.CONFETTI_COLORS[(Math.random() * Game.CONFETTI_COLORS.length) | 0];
+      this.confetti.push({
+        x: x + (Math.random() - 0.5) * 70,
+        y: y + (Math.random() - 0.5) * 46,
+        vx: Math.cos(ang) * spd + (Math.random() - 0.5) * 130,
+        vy: Math.sin(ang) * spd - 40,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 14,
+        w: 8 + Math.random() * 13,
+        h: 5 + Math.random() * 8,
+        color: col,
+        life: 0,
+        ttl: 1.7 + Math.random() * 1.1,
+        swayA: 24 + Math.random() * 46, // amplituda dryfu (px/s)
+        swayF: 1.6 + Math.random() * 1.8, // częstotliwość
+        swayP: Math.random() * Math.PI * 2,
+      });
+    }
+    if (this.confetti.length > 340) this.confetti.splice(0, this.confetti.length - 340);
+  }
+
+  private updateConfetti(dt: number) {
+    if (!this.confetti.length) return;
+    const GRAV = 780;
+    const drag = Math.pow(0.55, dt); // łagodny opór — poziomy pęd gaśnie, zostaje dryf
+    for (const p of this.confetti) {
+      p.life += dt;
+      p.vy += GRAV * dt;
+      p.vx *= drag;
+      const sway = Math.sin(p.life * p.swayF + p.swayP) * p.swayA;
+      p.x += (p.vx + sway) * dt;
+      p.y += p.vy * dt;
+      p.rot += p.vr * dt;
+    }
+    this.confetti = this.confetti.filter((p) => p.life < p.ttl && p.y < VH + 40);
+  }
+
+  private drawConfetti(ctx: CanvasRenderingContext2D) {
+    if (!this.confetti.length) return;
+    for (const p of this.confetti) {
+      const fade = p.life > p.ttl - 0.35 ? Math.max(0, (p.ttl - p.life) / 0.35) : 1;
+      const flutter = Math.cos(p.life * 12 + p.x * 0.05); // migotanie „papierka"
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.scale(1, 0.35 + 0.65 * Math.abs(flutter));
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
   }
 
   private lastHoldTick = 0;
@@ -593,6 +663,7 @@ export class Game {
     this.held = [null, null, null, null];
     this.popups = [];
     this.hitFx = [];
+    this.confetti = [];
     this.shake = 0;
     this.bannerAt = -10;
     this.flowUpAt = -10;
@@ -860,12 +931,14 @@ export class Game {
       haptic("flowUp");
       this.pushBanner(`MNOŻNIK ×${mult}`);
     }
-    // próg combo co 10
+    // próg combo co 10 — wybuch confetti za postacią + mocna wibracja
     if (this.combo >= 10 && this.combo % 10 === 0) {
       this.shake = Math.max(this.shake, 6);
       this.audio.sfx("combo");
       haptic("combo");
       this.pushBanner(`COMBO ×${this.combo}`);
+      const cy = (this.song.characterY ?? 706) - 210 * (this.song.characterScale ?? 1);
+      this.burstConfetti(VW / 2, cy);
     }
 
     this.pushPopup(JUDGE_LABEL[j], JUDGE_COLOR[j], lane);
@@ -1631,6 +1704,7 @@ export class Game {
 
     this.drawPlayfield(ctx, pulse);
     this.drawNotes(ctx);
+    this.drawConfetti(ctx); // za postacią
     this.drawCharacter(ctx); // pierwszy plan — przed nutami
     this.drawJudgePopups(ctx);
     this.drawHud(ctx);

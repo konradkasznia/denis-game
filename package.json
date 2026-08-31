@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/panmlody.test.mjs && node --experimental-strip-types test/integration.test.mjs"
+    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs"
   },
   "devDependencies": {
     "gifenc": "^1.0.3",
