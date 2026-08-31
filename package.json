@@ -11,6 +11,7 @@
     "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/panmlody.test.mjs && node --experimental-strip-types test/integration.test.mjs"
   },
   "devDependencies": {
+    "gifenc": "^1.0.3",
     "pngjs": "^7.0.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
