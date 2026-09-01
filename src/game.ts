@@ -252,7 +252,7 @@ export class Game {
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
-      "reward-denis.png",
+      "reward-denis.png", "wkrotce.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
       loadImg(`assets/ui/${n}`);
@@ -598,8 +598,8 @@ export class Game {
     const meta = SONGS[this.hitIndex];
     if (!meta) return;
 
-    // NAGRODY: przy „wkrótce" przycisk jest na całą szerokość
-    const rewRect = meta.playable ? HIT_REW : { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_RES.h };
+    // NAGRODY: przy „wkrótce" przycisk jest na całą szerokość, wyżej
+    const rewRect = meta.playable ? HIT_REW : { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
     if (inRect(rewRect, x, y)) {
       this.scene = "rewards";
       return;
@@ -1596,25 +1596,30 @@ export class Game {
 
     // --- poziom „wkrótce" (utwór jeszcze niedostępny) ---
     if (!meta.playable) {
-      const rad = Math.min(HIT_GRAJ.h / 2, 28);
-      ctx.fillStyle = "rgba(30,28,36,0.85)";
-      roundRect(ctx, HIT_GRAJ.x, HIT_GRAJ.y, HIT_GRAJ.w, HIT_GRAJ.h, rad);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,180,90,0.45)";
-      ctx.lineWidth = 2;
-      roundRect(ctx, HIT_GRAJ.x, HIT_GRAJ.y, HIT_GRAJ.w, HIT_GRAJ.h, rad);
-      ctx.stroke();
-      text(ctx, "WKRÓTCE", VW / 2, HIT_GRAJ.y + HIT_GRAJ.h / 2, {
-        size: 42,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#ffce8a",
-        letterSpacing: "4px",
-        shadows: HEAD_SHADOWS,
-      });
+      // czerwona pieczątka „WKRÓTCE" ukośnie na postaci
+      const stamp = this.uiImg("wkrotce.png");
+      const cy = HIT_STARS_Y + 340;
+      if (imgReady(stamp)) {
+        const w = VW - 24;
+        const h = (stamp.naturalHeight / stamp.naturalWidth) * w;
+        ctx.save();
+        ctx.translate(VW / 2, cy);
+        ctx.rotate((-13 * Math.PI) / 180);
+        ctx.drawImage(stamp, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      } else {
+        text(ctx, "WKRÓTCE", VW / 2, cy, {
+          size: 72,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#e0322e",
+          stroke: "#e0322e",
+          strokeWidth: 8,
+        });
+      }
       this.uiButton(
         ctx,
-        { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_RES.h },
+        { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h },
         "nagrody",
         { fallback: "NAGRODY" },
       );
