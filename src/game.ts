@@ -82,16 +82,16 @@ const MODAL_OK: Rect = { x: VW / 2 - 170, y: 792, w: 340, h: 92 };
 
 // --- karuzela WYBIERZ HIT (makieta 1080×1920 -> 720×1280) ---
 const HIT_GEAR: Rect = { x: VW - 82, y: 30, w: 62, h: 68 };
-const HIT_LOGO: Rect = { x: VW / 2 - 280, y: 64, w: 560, h: 190 };
-// strzałki przy krawędziach ekranu — nigdy pod tekstem
-const HIT_ARROW_L: Rect = { x: 18, y: 250, w: 66, h: 66 };
-const HIT_ARROW_R: Rect = { x: VW - 84, y: 250, w: 66, h: 66 };
-const HIT_LEVEL_Y = 284; // środek napisu „POZIOM N"
-const HIT_TITLE_Y = 352;
-const HIT_STARS_Y = 408;
-const HIT_GRAJ: Rect = { x: MARGIN, y: 980, w: VW - MARGIN * 2, h: 104 };
-const HIT_RES: Rect = { x: MARGIN, y: 1098, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
-const HIT_REW: Rect = { x: VW / 2 + 9, y: 1098, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
+const HIT_LOGO: Rect = { x: VW / 2 - 280, y: 60, w: 560, h: 190 };
+const HIT_LEVEL_Y = 286; // środek napisu „POZIOM N"
+const HIT_TITLE_Y = 338; // środek tytułu utworu
+const HIT_STARS_Y = 394;
+// strzałki na wysokości tytułu, przy krawędziach
+const HIT_ARROW_L: Rect = { x: 14, y: HIT_TITLE_Y - 46, w: 92, h: 92 };
+const HIT_ARROW_R: Rect = { x: VW - 106, y: HIT_TITLE_Y - 46, w: 92, h: 92 };
+const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
+const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
+const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
@@ -251,6 +251,7 @@ export class Game {
       "stage-bg.png", "wybierz-hit.png", "gear.png",
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
+      "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
       "reward-denis.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
@@ -1382,7 +1383,7 @@ export class Game {
       (ln, i) =>
         text(ctx, ln, VW / 2, py + 214 + i * 32, { size: 20, color: "#c9b7a6" }),
     );
-    this.button3d(ctx, MODAL_OK, "ROZUMIEM");
+    this.uiButton(ctx, MODAL_OK, "rozumiem", { fallback: "ROZUMIEM" });
   }
 
   // ---- wspólne elementy UI ----------------------------------
@@ -1415,86 +1416,39 @@ export class Game {
     ctx.fillRect(0, 0, VW, VH);
   }
 
-  /** Przycisk 3D w stylu makiety: gruba dolna krawędź + gradientowa twarz + bevel. */
-  private button3d(
+  /** Przycisk z grafiki `assets/ui/button-<name>.png` (napis wbudowany).
+   *  `r` wyznacza szerokość i górę; wysokość liczona z proporcji obrazka.
+   *  Zapas (brak PNG): prosty złoty prostokąt z napisem `fallback`. */
+  private uiButton(
     ctx: CanvasRenderingContext2D,
     r: Rect,
-    label: string,
-    opts: { disabled?: boolean; size?: number } = {},
+    name: string,
+    opts: { disabled?: boolean; fallback?: string } = {},
   ) {
-    const { disabled = false, size = 30 } = opts;
-    const rad = Math.min(r.h / 2, 30);
-    const lip = Math.round(r.h * 0.16); // wysokość „lipu" 3D
-    const faceH = r.h - lip;
-
-    ctx.save();
-
-    // cień pod całością
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.45)";
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetY = 8;
-    ctx.fillStyle = "#000";
+    const { disabled = false, fallback = name.toUpperCase() } = opts;
+    const img = this.uiImg(`button-${name}.png`);
+    if (imgReady(img)) {
+      const h = (img.naturalHeight / img.naturalWidth) * r.w;
+      const y = r.y + (r.h - h) / 2;
+      if (disabled) {
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(desaturated(img), r.x, y, r.w, h);
+        ctx.restore();
+      } else {
+        ctx.drawImage(img, r.x, y, r.w, h);
+      }
+      return;
+    }
+    const rad = Math.min(r.h / 2, 28);
+    ctx.fillStyle = disabled ? "#5a5a62" : "#f2a51e";
     roundRect(ctx, r.x, r.y, r.w, r.h, rad);
     ctx.fill();
-    ctx.restore();
-
-    // dolna krawędź (ciemniejszy „bok" bryły)
-    const edge = ctx.createLinearGradient(0, r.y + faceH - 6, 0, r.y + r.h);
-    if (disabled) {
-      edge.addColorStop(0, "#3f3f46");
-      edge.addColorStop(1, "#2b2b31");
-    } else {
-      edge.addColorStop(0, "#c9791a");
-      edge.addColorStop(1, "#9a5410");
-    }
-    ctx.fillStyle = edge;
-    roundRect(ctx, r.x, r.y + lip, r.w, r.h - lip, rad);
-    ctx.fill();
-
-    // twarz z gradientem
-    const g = ctx.createLinearGradient(0, r.y, 0, r.y + faceH);
-    if (disabled) {
-      g.addColorStop(0, "#7c7c85");
-      g.addColorStop(0.55, "#63636c");
-      g.addColorStop(1, "#54545c");
-    } else {
-      g.addColorStop(0, "#ffe27e");
-      g.addColorStop(0.5, "#ffc63c");
-      g.addColorStop(1, "#f5a81c");
-    }
-    ctx.fillStyle = g;
-    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
-    ctx.fill();
-
-    // jasny bevel u góry
-    ctx.save();
-    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
-    ctx.clip();
-    ctx.strokeStyle = disabled ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.6)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(r.x + rad, r.y + 3);
-    ctx.lineTo(r.x + r.w - rad, r.y + 3);
-    ctx.stroke();
-    ctx.restore();
-
-    // obrys
-    ctx.strokeStyle = disabled ? "rgba(0,0,0,0.35)" : "rgba(120,64,8,0.55)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.stroke();
-
-    ctx.restore();
-
-    text(ctx, label, r.x + r.w / 2, r.y + faceH / 2 + 2, {
-      size,
+    text(ctx, fallback, r.x + r.w / 2, r.y + r.h / 2, {
+      size: 30,
       weight: "900",
       font: HEAD_FONT,
       color: disabled ? "#e2e2e6" : "#4a2600",
-      shadows: disabled
-        ? [{ dx: 0, dy: -1, color: "rgba(0,0,0,0.2)" }]
-        : [{ dx: 0, dy: 1.5, color: "rgba(255,240,200,0.55)" }],
     });
   }
 
@@ -1570,29 +1524,31 @@ export class Game {
       });
     }
 
-    // POZIOM N + strzałki (przy krawędziach, nigdy pod tekstem)
+    // POZIOM N
     text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
-      size: 28,
+      size: 24,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffd24c",
       letterSpacing: "4px",
       shadows: HEAD_SHADOWS,
     });
+
+    // strzałki na wysokości tytułu
     this.arrowBtn(ctx, HIT_ARROW_L, "left", idx > 0);
     this.arrowBtn(ctx, HIT_ARROW_R, "right", idx < this.maxHitIndex());
 
     // tytuł (auto-zmniejszanie, żeby zmieścił się między strzałkami)
     const title = meta ? meta.title.toUpperCase() : "JUŻ WKRÓTCE!";
-    const maxTitleW = HIT_ARROW_R.x - (HIT_ARROW_L.x + HIT_ARROW_L.w) - 24;
-    let tSize = 58;
+    const maxTitleW = HIT_ARROW_R.x - (HIT_ARROW_L.x + HIT_ARROW_L.w) - 20;
+    let tSize = 42;
     ctx.save();
     const measure = () => {
       ctx.font = `900 ${tSize}px ${HEAD_FONT}`;
       const w = ctx.measureText(title)?.width;
       return typeof w === "number" ? w : 0;
     };
-    while (tSize > 30 && measure() > maxTitleW) tSize -= 2;
+    while (tSize > 26 && measure() > maxTitleW) tSize -= 2;
     ctx.restore();
     text(ctx, title, VW / 2, HIT_TITLE_Y, {
       size: tSize,
@@ -1627,7 +1583,7 @@ export class Game {
     }
 
     // GRAJ!
-    this.button3d(ctx, HIT_GRAJ, "GRAJ!", { disabled: !unlocked, size: 40 });
+    this.uiButton(ctx, HIT_GRAJ, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
     if (!unlocked) {
       text(ctx, "Przejdź poprzedni poziom!", VW / 2, HIT_GRAJ.y - 26, {
         size: 22,
@@ -1639,13 +1595,13 @@ export class Game {
     }
 
     // WYNIKI | NAGRODY
-    this.button3d(ctx, HIT_RES, "WYNIKI", { size: 26 });
-    this.button3d(ctx, HIT_REW, "NAGRODY", { size: 26 });
+    this.uiButton(ctx, HIT_RES, "wyniki", { fallback: "WYNIKI" });
+    this.uiButton(ctx, HIT_REW, "nagrody", { fallback: "NAGRODY" });
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
-    const box: Rect = { x: 90, y: 436, w: VW - 180, h: 520 };
+    const box: Rect = { x: 90, y: 420, w: VW - 180, h: 540 };
     let src: HTMLImageElement | null = null;
     if (meta) {
       const named = this.uiImg(`select-${meta.id}.png`);
@@ -1711,7 +1667,7 @@ export class Game {
           shadows: HEAD_SHADOWS,
         }),
     );
-    this.button3d(ctx, REW_HOME, "POWRÓT", { size: 34 });
+    this.uiButton(ctx, REW_HOME, "powrot", { fallback: "POWRÓT" });
   }
 
   // ---- ekran: PROFIL ---------------------------------------
