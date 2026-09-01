@@ -1781,14 +1781,6 @@ export class Game {
     ctx.arc(0, -270, 30, Math.PI * 0.8, Math.PI * 1.6);
     ctx.stroke();
     ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = "#000";
-    ctx.beginPath();
-    ctx.ellipse(cx + sway, groundY + 6, 70 - bounce * 0.6, 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
   }
 
   private drawPause(ctx: CanvasRenderingContext2D) {

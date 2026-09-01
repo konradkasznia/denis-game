@@ -174,8 +174,7 @@ export class Character {
       if (idx > 0 && fade < 1) {
         this.drawAnim(ctx, this.anims.get(this.segments[idx - 1].sprite), x, y, t, targetH, 1 - fade);
       }
-      const drew = this.drawAnim(ctx, this.anims.get(seg.sprite), x, y, t, targetH, fade || 1);
-      if (drew) this.shadow(ctx, x, groundY, bob, targetH);
+      this.drawAnim(ctx, this.anims.get(seg.sprite), x, y, t, targetH, fade || 1);
       return this.hasContent();
     }
 
@@ -187,7 +186,6 @@ export class Character {
       ctx.scale(1 + land * 0.06, 1 - land * 0.06);
       ctx.drawImage(this.single, -w / 2, -targetH, w, targetH);
       ctx.restore();
-      this.shadow(ctx, x, groundY, bob, targetH);
       return true;
     }
     return false;
@@ -233,21 +231,5 @@ export class Character {
     }
     ctx.restore();
     return true;
-  }
-
-  private shadow(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    groundY: number,
-    bob: number,
-    targetH: number,
-  ) {
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = "#000";
-    ctx.beginPath();
-    ctx.ellipse(x, groundY + 6, targetH * 0.22 - bob * 0.5, 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
   }
 }
