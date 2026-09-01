@@ -81,11 +81,11 @@ const BACK: Rect = { x: 16, y: 36, w: 170, h: 62 };
 const MODAL_OK: Rect = { x: VW / 2 - 170, y: 792, w: 340, h: 92 };
 
 // --- karuzela WYBIERZ HIT (makieta 1080×1920 -> 720×1280) ---
-const HIT_GEAR: Rect = { x: VW - 82, y: 30, w: 62, h: 68 };
-const HIT_LOGO: Rect = { x: VW / 2 - 280, y: 60, w: 560, h: 190 };
-const HIT_LEVEL_Y = 286; // środek napisu „POZIOM N"
-const HIT_TITLE_Y = 338; // środek tytułu utworu
-const HIT_STARS_Y = 394;
+const HIT_GEAR: Rect = { x: VW - 82, y: 26, w: 62, h: 68 };
+const HIT_LOGO: Rect = { x: 6, y: 40, w: VW - 12, h: 150 };
+const HIT_LEVEL_Y = 250; // środek napisu „POZIOM N"
+const HIT_TITLE_Y = 306; // środek tytułu utworu
+const HIT_STARS_Y = 362;
 // strzałki na wysokości tytułu, przy krawędziach
 const HIT_ARROW_L: Rect = { x: 14, y: HIT_TITLE_Y - 46, w: 92, h: 92 };
 const HIT_ARROW_R: Rect = { x: VW - 106, y: HIT_TITLE_Y - 46, w: 92, h: 92 };
@@ -1535,10 +1535,10 @@ export class Game {
     if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
     else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
 
-    // logo
+    // logo — na całą szerokość
     const logo = this.uiImg("wybierz-hit.png");
     if (imgReady(logo)) {
-      const w = HIT_LOGO.w;
+      const w = VW - 12;
       const h = (logo.naturalHeight / logo.naturalWidth) * w;
       ctx.drawImage(logo, VW / 2 - w / 2, HIT_LOGO.y, w, h);
     } else {
@@ -1645,7 +1645,7 @@ export class Game {
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
-    const box: Rect = { x: 90, y: 420, w: VW - 180, h: 540 };
+    const box: Rect = { x: 70, y: 392, w: VW - 140, h: 576 };
     let src: HTMLImageElement | null = null;
     const named = this.uiImg(`select-${meta.id}.png`);
     if (imgReady(named)) src = named;
