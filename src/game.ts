@@ -1391,19 +1391,26 @@ export class Game {
     return loadImg(`assets/ui/${name}`);
   }
 
-  /** Tło sceny: grafika `assets/ui/stage-bg.png` (cover) albo ciemny gradient. */
-  private drawUiBg(ctx: CanvasRenderingContext2D) {
+  /** Tło sceny: grafika `assets/ui/stage-bg.png` (cover) albo ciemny gradient.
+   *  `gray` = wersja czarno-biała (dla zablokowanego poziomu). */
+  private drawUiBg(ctx: CanvasRenderingContext2D, gray = false) {
     const bg = this.uiImg("stage-bg.png");
     if (imgReady(bg)) {
       const s = Math.max(VW / bg.naturalWidth, VH / bg.naturalHeight);
       const w = bg.naturalWidth * s;
       const h = bg.naturalHeight * s;
-      ctx.drawImage(bg, (VW - w) / 2, (VH - h) / 2, w, h);
+      const src: CanvasImageSource = gray ? desaturated(bg) : bg;
+      ctx.drawImage(src, (VW - w) / 2, (VH - h) / 2, w, h);
       return;
     }
     const g = ctx.createRadialGradient(VW / 2, VH * 0.32, 40, VW / 2, VH * 0.55, VH * 0.95);
-    g.addColorStop(0, "#2a141d");
-    g.addColorStop(1, "#0a0508");
+    if (gray) {
+      g.addColorStop(0, "#26262a");
+      g.addColorStop(1, "#08080a");
+    } else {
+      g.addColorStop(0, "#2a141d");
+      g.addColorStop(1, "#0a0508");
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, VW, VH);
   }
@@ -1540,7 +1547,7 @@ export class Game {
     const meta = SONGS[idx]; // undefined dla „już wkrótce"
     const unlocked = levelUnlocked(idx);
 
-    this.drawUiBg(ctx);
+    this.drawUiBg(ctx, !!meta && !unlocked);
 
     // zębatka
     const gear = this.uiImg("gear.png");
