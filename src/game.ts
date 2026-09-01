@@ -250,7 +250,7 @@ export class Game {
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
-      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela.png", "button-kolejna.png",
+      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kolejna-runda.png",
       "reward-denis.png", "wkrotce.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
@@ -2387,17 +2387,8 @@ export class Game {
       shadows: HEAD_SHADOWS,
     });
 
-    // --- panel gwiazdek ---
+    // --- gwiazdki ---
     const spY = 190;
-    ctx.save();
-    const sg = ctx.createLinearGradient(0, spY, 0, spY + 74);
-    sg.addColorStop(0, "rgba(255,210,120,0.20)");
-    sg.addColorStop(1, "rgba(10,8,14,0.85)");
-    ctx.fillStyle = sg;
-    roundRect(ctx, 150, spY, VW - 300, 74, 16);
-    ctx.fill();
-    ctx.restore();
-
     const nowStars = Math.floor(shownStars + 0.0001);
     if (nowStars > this.resultStarSeen && this.resultStarSeen < 5) {
       this.resultStarSeen = nowStars;
@@ -2413,16 +2404,8 @@ export class Game {
       this.drawStar(ctx, VW / 2 - 108 + i * 54, spY + 37, r, f);
     }
 
-    // --- panel licznika ---
+    // --- licznik ---
     const gp = { x: 88, y: 288, w: VW - 176, h: 468 };
-    ctx.fillStyle = "rgba(10,8,14,0.72)";
-    roundRect(ctx, gp.x, gp.y, gp.w, gp.h, 22);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, gp.x, gp.y, gp.w, gp.h, 22);
-    ctx.stroke();
-
     const cx = VW / 2;
     const cy = gp.y + 232;
     const R = 172;
@@ -2544,13 +2527,13 @@ export class Game {
     ctx.save();
     ctx.globalAlpha = fadeIn;
 
-    this.uiButton(ctx, RES_BOARD, "tabela", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
+    this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "ZAPISZ NA SPOTIFY", style: "dark-green" });
 
     const nextS = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length ? SONGS[lvlIdx + 1] : null;
     const nextPlayable = !!nextS && nextS.playable && levelUnlocked(lvlIdx + 1);
     const primary = passed ? (nextPlayable ? "KOLEJNA RUNDA!" : "WYBIERZ HIT") : "SPRÓBUJ PONOWNIE";
-    this.uiButton(ctx, RES_PRIMARY, passed && nextPlayable ? "kolejna" : "_", {
+    this.uiButton(ctx, RES_PRIMARY, passed && nextPlayable ? "kolejna-runda" : "_", {
       fallback: primary,
       style: "gold",
     });
