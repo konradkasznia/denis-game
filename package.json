@@ -8,12 +8,16 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs"
+    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs && node --experimental-strip-types test/api.smoke.mjs"
   },
   "devDependencies": {
+    "@vercel/node": "^5.10.2",
     "gifenc": "^1.0.3",
     "pngjs": "^7.0.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
   }
 }

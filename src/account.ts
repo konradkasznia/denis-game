@@ -1,6 +1,16 @@
-// Konto gracza (na razie zamarkowane — logowanie nie jest podłączone do serwera).
-// Trzymamy lokalnie: nick, zgody + daty ich wyrażenia, sposób logowania.
-// Gdy będzie backend: te dane wędrują do API, reszta kodu bez zmian.
+// Konto gracza. Źródłem prawdy jest backend (/api), a lokalnie trzymamy kopię
+// roboczą: nick, zgody + daty ich wyrażenia, sposób logowania. Zmiany nicku /
+// zgody / usunięcia konta są od razu zapisywane lokalnie i w tle wysyłane do API
+// (gdy jest sesja i sieć). Bez sieci działa sam cache lokalny.
+
+import { api, backendReachable, clearToken, getToken } from "./net.ts";
+
+function syncToServer(bodyObj: Record<string, unknown>) {
+  if (!backendReachable() || !getToken()) return;
+  void api("/api/account", { method: "POST", body: bodyObj, auth: true }).catch(() => {
+    /* zmiana i tak jest zapisana lokalnie; przy następnym logowaniu się zsynchronizuje */
+  });
+}
 
 export interface Account {
   nick: string;
@@ -50,6 +60,7 @@ export function setNick(nick: string) {
     getAccount() ?? { nick: "", terms: true, marketing: false, method: "email" };
   a.nick = nick.trim().slice(0, 18);
   saveAccount(a);
+  syncToServer({ action: "nick", nick: a.nick });
 }
 
 export function nick(): string {
@@ -63,6 +74,7 @@ export function setMarketing(on: boolean) {
   a.marketing = on;
   a.marketingAt = new Date().toISOString();
   saveAccount(a);
+  syncToServer({ action: "marketing", on });
 }
 
 export function marketing(): boolean {
@@ -74,6 +86,7 @@ export function clearSession() {
   for (const k of [
     KEY,
     "denis.email",
+    "denis.token",
     "denis.stars",
     "denis.best",
     "denis.discovered",
@@ -85,6 +98,7 @@ export function clearSession() {
       /* ignore */
     }
   }
+  clearToken();
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
@@ -97,7 +111,9 @@ export function clearSession() {
 
 /** Usunięcie konta i wszystkich danych (żądanie „usuń moje dane”). */
 export function deleteAccount() {
-  // usuń też „rekord użytkownika” w lokalnej bazie mock (docelowo: żądanie do API)
+  // żądanie usunięcia po stronie serwera (wymóg RODO / App Store 5.1.1(v))
+  syncToServer({ action: "delete" });
+  // usuń też „rekord użytkownika” w lokalnej atrapie offline
   try {
     const email = localStorage.getItem("denis.email");
     if (email) {

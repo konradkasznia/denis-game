@@ -12,6 +12,7 @@ import {
   setNick,
 } from "./account.ts";
 import {
+  fetchMe,
   login as apiLogin,
   loginSocial as apiLoginSocial,
   register as apiRegister,
@@ -19,7 +20,7 @@ import {
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
-import { gapToTop, myEntry, submitScore, topN } from "./leaderboard.ts";
+import { gapToTop, myEntry, refreshBoard, submitScore, topN } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
@@ -290,6 +291,7 @@ export class Game {
     this.bg.src = "assets/denis/denis-stage.png";
     setHapticsEnabled(true); // wibracje zawsze włączone
     this.audio.setSfxEnabled(this.settings.sfx);
+    void this.syncSession(); // sprawdź sesję na serwerze, ściągnij nick / zgody
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
     // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
@@ -303,6 +305,18 @@ export class Game {
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
       loadImg(`assets/ui/${n}`);
+    }
+  }
+
+  /** Weryfikuje token sesji na serwerze i synchronizuje nick / zgodę marketingową. */
+  private async syncSession() {
+    try {
+      const me = await fetchMe();
+      if (!me) return;
+      if (me.nick && accountNick() !== me.nick) setNick(me.nick);
+      if (accountMarketing() !== me.marketing) setMarketing(me.marketing);
+    } catch {
+      /* brak sieci — działamy na lokalnej kopii */
     }
   }
 
@@ -790,6 +804,7 @@ export class Game {
     if (meta.playable && inRect(HIT_RES, x, y)) {
       this.boardSongId = meta.id;
       this.scene = "board";
+      void refreshBoard(this.boardSongId);
       return;
     }
     if (inRect(HIT_GRAJ, x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
@@ -885,6 +900,7 @@ export class Game {
     if (inRect(RES_BOARD, x, y)) {
       this.boardSongId = this.trackId;
       this.scene = "board";
+      void refreshBoard(this.boardSongId);
     }
   }
 
@@ -1044,8 +1060,10 @@ export class Game {
           /* ignore */
         }
       }
-      this.resultRank = submitScore(this.trackId, this.score);
-      recordStars(this.trackId, Math.floor(this.starFill()));
+      const gained = Math.floor(this.starFill());
+      this.resultRank = submitScore(this.trackId, this.score, gained);
+      recordStars(this.trackId, gained);
+      void refreshBoard(this.trackId);
       // brak internetu → wynik nie trafił do bazy (info na podsumowaniu)
       let online = true;
       try {
