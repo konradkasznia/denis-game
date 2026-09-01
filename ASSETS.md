@@ -1,7 +1,24 @@
 # Grafiki do podłożenia
 
 Wszystko wrzucasz do `public/assets/`. Nazwa `<utwor>` = `id` z pliku
-`public/charts/<utwor>.json` (dla „Pan Młody" to `pan-mlody`).
+`public/charts/<utwor>.json` (dla „Panna Młoda" to `panna-mloda`).
+
+## Ekrany menu / WYBIERZ HIT — `public/assets/ui/`
+
+Grafiki z makiety Figma (`Bez pośredników`, node 131-7466). Format PNG, przezroczyste tło:
+
+| plik | co to | rozmiar wg makiety |
+|---|---|---|
+| `wybierz-hit.png` | logo „WYBIERZ HIT" | ~840×280 |
+| `stage-bg.png` | tło sceny 4K (wspólne dla poziomów) | ~1428×2129 |
+| `gear.png` | ikona zębatki (→ profil) | ~106×116 |
+| `star-full.png` / `star-half.png` / `star-empty.png` | gwiazdki oceny | ~54×55 |
+| `select-<utwor>.png` | postać na ekranie wyboru (statyczna poza) | ~750×1000 |
+| `reward-denis.png` | Denis z prezentem na ekran NAGRODY | ~572×858 |
+
+Brak pliku → zapas rysowany w kodzie (logo/gwiazdki/tło) albo pierwsza klatka
+`assets/char/<utwor>/ujecie1/dance.png` (postać). Poziom zablokowany → postać
+automatycznie czarno-biała (w kodzie, bez osobnego pliku).
 
 ## Tło ekranu gry — `public/assets/bg/<utwor>.jpg`
 

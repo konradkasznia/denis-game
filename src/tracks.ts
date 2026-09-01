@@ -46,7 +46,7 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characterY: 704,
   },
   "ksiaze-z-bajki": { title: "Książę z bajki", artist: "Denis", bpm: 112, bars: 28 },
-  "to-ty": { title: "To Ty!", artist: "Denis", bpm: 144, bars: 30 },
+  pogrzebowka: { title: "Pogrzebówka", artist: "Denis", bpm: 150, bars: 30 }, // bpm tymczasowe, do mp3
 };
 
 interface RawChart {

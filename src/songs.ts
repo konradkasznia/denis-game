@@ -40,11 +40,11 @@ export const SONGS: SongMeta[] = [
     playable: true,
   },
   {
-    id: "to-ty",
-    title: "To Ty!",
+    id: "pogrzebowka",
+    title: "Pogrzebówka",
     artist: "Denis",
     accent: "#ffd24c",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20To%20Ty",
+    spotifyUrl: "https://open.spotify.com/search/Denis%20Pogrzeb%C3%B3wka",
     playable: true,
   },
 ];
@@ -83,4 +83,53 @@ export function markDiscovered(id: string) {
 
 export function isDiscovered(id: string): boolean {
   return discoveredIds().has(id);
+}
+
+// ---- progresja poziomów (gwiazdki) --------------------------------------
+//
+// Poziom N+1 odblokowuje się po zaliczeniu poziomu N na >= UNLOCK_STARS gwiazdek.
+// Najlepszy wynik gwiazdkowy per utwór trzymamy w localStorage jako mapę id -> 0..5.
+
+const STARS_KEY = "denis.stars";
+export const UNLOCK_STARS = 4;
+
+function starsMap(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(STARS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function bestStars(id: string): number {
+  return starsMap()[id] ?? 0;
+}
+
+export function recordStars(id: string, stars: number) {
+  const m = starsMap();
+  const s = Math.max(0, Math.min(5, Math.round(stars)));
+  if (s <= (m[id] ?? 0)) return;
+  m[id] = s;
+  try {
+    localStorage.setItem(STARS_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Czy poziom o danym indeksie w SONGS można zagrać. */
+export function levelUnlocked(index: number): boolean {
+  if (index <= 0) return true;
+  const prev = SONGS[index - 1];
+  return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
+}
+
+/** Ile kolejnych poziomów od początku zaliczono na >= UNLOCK_STARS gwiazdek. */
+export function clearedStreak(): number {
+  let n = 0;
+  for (const s of SONGS) {
+    if (bestStars(s.id) >= UNLOCK_STARS) n++;
+    else break;
+  }
+  return n;
 }

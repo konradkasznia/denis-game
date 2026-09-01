@@ -165,7 +165,7 @@ ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 console.log("\n· render wszystkich ekranów:");
 const gr = new Game();
 await new Promise((r) => setTimeout(r, 5));
-for (const sc of ["loading", "auth", "nick", "menu", "songs", "boards", "board", "results", "play"]) {
+for (const sc of ["loading", "auth", "nick", "menu", "hits", "board", "rewards", "profile", "results", "play"]) {
   gr.scene = sc;
   gr.render(ctx);
 }
@@ -182,34 +182,46 @@ ok(ga.scene === "nick", "po zalogowaniu ekran 'Twój nick'");
 
 // ranking: wynik trafia do tablicy, liczy się miejsce
 const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");
-localStorage.removeItem("denis.board.to-ty");
-const rank = submitScore("to-ty", 250000);
+localStorage.removeItem("denis.board.pogrzebowka");
+const rank = submitScore("pogrzebowka", 250000);
 ok(rank >= 1, `wynik ma miejsce w rankingu (#${rank})`);
-ok(myEntry("to-ty")?.score === 250000, "moj wynik w tablicy");
-ok(topN("to-ty", 10).length === 10, "tablica ma top 10");
-ok(gapToTop("to-ty", 10) >= 0, "policzony dystans do top 10");
-const rank2 = submitScore("to-ty", 1500000);
+ok(myEntry("pogrzebowka")?.score === 250000, "moj wynik w tablicy");
+ok(topN("pogrzebowka", 10).length === 10, "tablica ma top 10");
+ok(gapToTop("pogrzebowka", 10) >= 0, "policzony dystans do top 10");
+const rank2 = submitScore("pogrzebowka", 1500000);
 ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 
-// nawigacja menu → songs → menu i oznaczanie „poznanych"
+// nawigacja: menu → modal dźwięku → WYBIERZ HIT → tablica → z powrotem
 const gn = new Game();
 await new Promise((r) => setTimeout(r, 5));
 gn.scene = "menu";
-gn.onPress(-1, 255, 742); // Poznane Utwory (lewy chip)
-ok(gn.scene === "songs", "klik w Poznane Utwory otwiera kolekcje");
-gn.onPress(-1, 60, 66); // wroc
-ok(gn.scene === "menu", "przycisk Wroc wraca do menu");
-gn.onPress(-1, 465, 742); // Tablice wyników (prawy chip)
-ok(gn.scene === "boards", "klik w Tablice wyników otwiera ranking");
-gn.onPress(-1, 60, 66);
-ok(gn.scene === "menu", "wroc z tablic do menu");
-ok(new Game().discoveredCount() >= 1, "zagrany utwor jest oznaczony jako poznany");
+gn.onPress(-1, -1, -1); // STARTUJEMY! → modal
+ok(gn.soundModal === true, "STARTUJEMY! pokazuje modal dźwięku");
+gn.onPress(-1, -1, -1); // ROZUMIEM
+ok(gn.scene === "hits", "po modalu wchodzi w WYBIERZ HIT");
+gn.onPress(1, 80, 1150); // WYNIKI (lewy przycisk dolnego rzędu)
+ok(gn.scene === "board", "WYNIKI otwiera tablicę utworu");
+gn.onPress(-1, 60, 66); // WRÓĆ
+ok(gn.scene === "hits", "WRÓĆ z tablicy wraca do karuzeli");
+gn.onPress(1, 640, 1150); // NAGRODY (prawy przycisk)
+ok(gn.scene === "rewards", "NAGRODY otwiera ekran nagród");
+gn.onPress(-1, 60, 1130); // POWRÓT
+ok(gn.scene === "hits", "POWRÓT z nagród wraca do karuzeli");
+gn.onPress(1, 665, 60); // zębatka (prawy górny róg)
+ok(gn.scene === "profile", "zębatka otwiera profil");
 
-// kolejność rund + "Kolejna runda" po zaliczeniu
+// progresja: poziom 2 zablokowany dopóki poziom 1 nie ma 4 gwiazdek
+const { bestStars, levelUnlocked, recordStars } = await import("../src/songs.ts");
+localStorage.removeItem("denis.stars");
+ok(levelUnlocked(0) === true && levelUnlocked(1) === false, "start: gra się tylko poziom 1");
+recordStars("panna-mloda", 4);
+ok(bestStars("panna-mloda") === 4, "zapis gwiazdek");
+ok(levelUnlocked(1) === true, "4 gwiazdki na poziomie 1 odblokowują poziom 2");
+
+// kolejność rund
 const { nextRound } = await import("../src/songs.ts");
-ok(nextRound("pan-mlody") === "panna-mloda", "runda 1 -> runda 2");
-ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 2 -> runda 3");
-ok(nextRound("to-ty") === null, "po ostatniej rundzie brak kolejnej");
+ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
+ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
 {
   const gp = new Game();
   gp.trackId = "panna-mloda";

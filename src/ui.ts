@@ -18,6 +18,16 @@ export function roundRect(
   ctx.closePath();
 }
 
+/** Rodzina Roboto Black do nagłówków (ładowana w main.ts; fallback do sans). */
+export const HEAD_FONT = '"Roboto", "Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+
+export interface TextShadow {
+  dx: number;
+  dy: number;
+  blur?: number;
+  color: string;
+}
+
 export function text(
   ctx: CanvasRenderingContext2D,
   str: string,
@@ -32,6 +42,11 @@ export function text(
     glow?: string;
     glowBlur?: number;
     letterSpacing?: string;
+    /** twarde warstwy cienia rysowane pod głównym tekstem (kolejność: od spodu) */
+    shadows?: TextShadow[];
+    /** obrys tekstu */
+    stroke?: string;
+    strokeWidth?: number;
   } = {},
 ) {
   const {
@@ -43,12 +58,32 @@ export function text(
     glow,
     glowBlur = 18,
     letterSpacing,
+    shadows,
+    stroke,
+    strokeWidth = 6,
   } = opts;
   ctx.save();
   ctx.font = `${weight} ${size}px ${font}`;
   ctx.textAlign = align;
   ctx.textBaseline = "middle";
   if (letterSpacing) (ctx as any).letterSpacing = letterSpacing;
+
+  if (shadows) {
+    for (const s of shadows) {
+      ctx.save();
+      ctx.shadowColor = s.blur ? s.color : "transparent";
+      ctx.shadowBlur = s.blur ?? 0;
+      ctx.fillStyle = s.color;
+      ctx.fillText(str, x + s.dx, y + s.dy);
+      ctx.restore();
+    }
+  }
+  if (stroke) {
+    ctx.lineJoin = "round";
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeStyle = stroke;
+    ctx.strokeText(str, x, y);
+  }
   if (glow) {
     ctx.shadowColor = glow;
     ctx.shadowBlur = glowBlur;
@@ -56,6 +91,64 @@ export function text(
   ctx.fillStyle = color;
   ctx.fillText(str, x, y);
   ctx.restore();
+}
+
+/** Domyślny zestaw cieni dla nagłówków w stylu makiety (twardy ciemny cień). */
+export const HEAD_SHADOWS: TextShadow[] = [
+  { dx: 0, dy: 6, blur: 0, color: "rgba(0,0,0,0.55)" },
+  { dx: 0, dy: 3, blur: 0, color: "rgba(0,0,0,0.9)" },
+];
+
+// ---- obrazy: cache + wersja czarno-biała -------------------------------
+
+const imgCache = new Map<string, HTMLImageElement>();
+
+/** Leniwie ładuje obraz z `src` (z cache). Zwraca element (może być jeszcze niegotowy). */
+export function loadImg(src: string): HTMLImageElement {
+  let img = imgCache.get(src);
+  if (!img) {
+    img = new Image();
+    img.src = src;
+    imgCache.set(src, img);
+  }
+  return img;
+}
+
+export function imgReady(img: HTMLImageElement | null | undefined): img is HTMLImageElement {
+  return !!img && img.complete && img.naturalWidth > 0;
+}
+
+const grayCache = new Map<HTMLImageElement, HTMLCanvasElement>();
+
+/** Czarno-biała wersja obrazu (offscreen canvas, cache). */
+export function desaturated(img: HTMLImageElement): HTMLCanvasElement {
+  let c = grayCache.get(img);
+  if (c) return c;
+  c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d")!;
+  try {
+    (g as any).filter = "grayscale(1) brightness(0.85)";
+    g.drawImage(img, 0, 0);
+    (g as any).filter = "none";
+  } catch {
+    g.drawImage(img, 0, 0);
+  }
+  // ręczny fallback / wzmocnienie: nadpisz luminancją
+  try {
+    const d = g.getImageData(0, 0, c.width, c.height);
+    const p = d.data;
+    for (let i = 0; i < p.length; i += 4) {
+      const l = (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) * 0.85;
+      p[i] = p[i + 1] = p[i + 2] = l;
+    }
+    g.putImageData(d, 0, 0);
+  } catch {
+    /* getImageData może rzucić przy tainted canvas — zostaje wynik filtra */
+  }
+  grayCache.set(img, c);
+  return c;
 }
 
 export function lerp(a: number, b: number, t: number) {

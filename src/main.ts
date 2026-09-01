@@ -42,6 +42,22 @@ initInput(canvas, {
 
 if (import.meta.env.DEV) (window as any).__game = game;
 
+// wczytaj Roboto (nagłówki) zanim zacznie się pętla rysowania — z timeoutem,
+// żeby nie blokować gry gdy Google Fonts nie odpowiada
+async function ensureFonts() {
+  try {
+    await Promise.race([
+      Promise.all([
+        (document as any).fonts.load('900 32px "Roboto"'),
+        (document as any).fonts.load('700 20px "Roboto"'),
+      ]),
+      new Promise((res) => setTimeout(res, 1500)),
+    ]);
+  } catch {
+    /* fallback do stacku sans */
+  }
+}
+
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -52,4 +68,4 @@ function frame(now: number) {
   ctx.restore();
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+void ensureFonts().then(() => requestAnimationFrame(frame));
