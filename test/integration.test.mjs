@@ -130,7 +130,8 @@ ok(perfect.holdsDone === holdCount, `wszystkie trzymania utrzymane (${perfect.ho
 ok(perfect.holdsBroken === 0, `zero zerwanych trzymań (${perfect.holdsBroken})`);
 ok(perfect.judgedCount === perfect.song.notes.length, "wszystkie nuty ocenione");
 ok(perfect.combo === perfect.maxCombo, "combo nieprzerwane do końca");
-ok(perfect.accuracy() > 0.99, `celność ~100% (${(perfect.accuracy() * 100).toFixed(1)}%)`);
+const acc = perfect.accSum / perfect.judgedCount;
+ok(acc > 0.99, `celność ~100% (${(acc * 100).toFixed(1)}%)`);
 ok(perfect.score > 40000, `wysoki wynik (${perfect.score})`);
 ok(perfect.flowTier === 4, `mnożnik dobity do x5 (tier ${perfect.flowTier})`);
 ok(perfect.maxFlow >= 40, `flow rośnie z serią perfektów (${perfect.maxFlow})`);
@@ -232,7 +233,7 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   gp.parScore = 1000;
   gp.finish();
   gp.resultsAt = performance.now() - 5000; // po animacji
-  gp.onPress(-1, 360, 1060); // KOLEJNA RUNDA
+  gp.onPress(-1, 360, 1150); // KOLEJNA RUNDA
   await new Promise((r) => setTimeout(r, 5));
   ok(gp.trackId === "ksiaze-z-bajki", "przycisk Kolejna runda przełącza na następny utwór");
 }

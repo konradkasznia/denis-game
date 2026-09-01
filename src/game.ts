@@ -113,13 +113,12 @@ const AUTH_MARKETING: Rect = { x: VW / 2 - 260, y: 930, w: 520, h: 60 };
 const NICK_FIELD: Rect = { x: VW / 2 - 260, y: 452, w: 520, h: 90 };
 const NICK_SAVE: Rect = { x: VW / 2 - 260, y: 576, w: 520, h: 92 };
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
-const PZ_RESUME: Rect = { x: VW / 2 - 180, y: 556, w: 360, h: 100 };
-const PZ_RESTART: Rect = { x: VW / 2 - 180, y: 676, w: 360, h: 82 };
-const PZ_MENU: Rect = { x: VW / 2 - 180, y: 776, w: 360, h: 82 };
-const RES_PRIMARY: Rect = { x: MARGIN, y: 1020, w: VW - MARGIN * 2, h: 82 };
-const RES_SPOTIFY: Rect = { x: MARGIN, y: 1112, w: VW - MARGIN * 2, h: 68 };
-const RES_AGAIN: Rect = { x: MARGIN, y: 1192, w: (VW - MARGIN * 2) / 2 - 8, h: 46 };
-const RES_MENU: Rect = { x: VW / 2 + 8, y: 1192, w: (VW - MARGIN * 2) / 2 - 8, h: 46 };
+const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
+const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
+const PZ_MENU: Rect = { x: MARGIN, y: 800, w: VW - MARGIN * 2, h: 96 };
+const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 88 };
+const RES_SPOTIFY: Rect = { x: MARGIN, y: 1014, w: VW - MARGIN * 2, h: 88 };
+const RES_PRIMARY: Rect = { x: MARGIN, y: 1112, w: VW - MARGIN * 2, h: 96 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -231,7 +230,6 @@ export class Game {
   private boardSongId = DEFAULT_TRACK;
   private resultRank = 0;
   private resultsSavedBest = false;
-  private newBest = false;
 
   constructor() {
     this.bg.onload = () => {
@@ -252,6 +250,7 @@ export class Game {
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
+      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela.png", "button-kolejna.png",
       "reward-denis.png", "wkrotce.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
@@ -650,12 +649,12 @@ export class Game {
     }
     const passed = this.rating() >= PASS_RATING;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
-    const nextId = idx >= 0 && idx + 1 < SONGS.length ? SONGS[idx + 1].id : null;
-    const nextUnlocked = idx >= 0 && levelUnlocked(idx + 1) && !!nextId;
+    const nextS = idx >= 0 && idx + 1 < SONGS.length ? SONGS[idx + 1] : null;
+    const nextUnlocked = !!nextS && nextS.playable && levelUnlocked(idx + 1);
 
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
-      if (passed && nextUnlocked && nextId) {
-        this.trackId = nextId;
+      if (passed && nextUnlocked && nextS) {
+        this.trackId = nextS.id;
         void this.startPlay();
       } else if (passed) {
         this.hitIndex = Math.max(0, idx);
@@ -676,13 +675,9 @@ export class Game {
       }
       return;
     }
-    if (inRect(RES_AGAIN, x, y)) {
-      void this.startPlay();
-      return;
-    }
-    if (inRect(RES_MENU, x, y)) {
-      this.hitIndex = Math.max(0, idx);
-      this.enterHits();
+    if (inRect(RES_BOARD, x, y)) {
+      this.boardSongId = this.trackId;
+      this.scene = "board";
     }
   }
 
@@ -751,7 +746,6 @@ export class Game {
     this.paused = false;
     this.resumeAt = 0;
     this.resultsSavedBest = false;
-    this.newBest = false;
     this.songTime = 0;
     this.scene = "play";
     this.preparing = false;
@@ -796,7 +790,7 @@ export class Game {
 
   private handlePauseTap(x: number, y: number) {
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
-      this.resumeAt = performance.now() + 850; // krótkie 3-2-1
+      this.resumeAt = performance.now() + 3050; // pełne odliczanie 3-2-1
       return;
     }
     if (inRect(PZ_RESTART, x, y)) {
@@ -837,7 +831,6 @@ export class Game {
     if (!this.resultsSavedBest) {
       this.resultsSavedBest = true;
       if (this.score > bestScore()) {
-        this.newBest = true;
         try {
           localStorage.setItem("denis.best", String(this.score));
         } catch {
@@ -1050,10 +1043,6 @@ export class Game {
 
   private allJudged() {
     return this.song.notes.every((n) => n.judged);
-  }
-
-  private accuracy() {
-    return this.judgedCount ? this.accSum / this.judgedCount : 1;
   }
 
   // ---- projekcja perspektywiczna toru ---------------------------
@@ -1448,9 +1437,13 @@ export class Game {
     ctx: CanvasRenderingContext2D,
     r: Rect,
     name: string,
-    opts: { disabled?: boolean; fallback?: string } = {},
+    opts: {
+      disabled?: boolean;
+      fallback?: string;
+      style?: "gold" | "dark-gold" | "dark-green";
+    } = {},
   ) {
-    const { disabled = false, fallback = name.toUpperCase() } = opts;
+    const { disabled = false, fallback = name.toUpperCase(), style = "gold" } = opts;
     const img = this.uiImg(`button-${name}.png`);
     if (imgReady(img)) {
       const h = (img.naturalHeight / img.naturalWidth) * r.w;
@@ -1465,16 +1458,8 @@ export class Game {
       }
       return;
     }
-    const rad = Math.min(r.h / 2, 28);
-    ctx.fillStyle = disabled ? "#5a5a62" : "#f2a51e";
-    roundRect(ctx, r.x, r.y, r.w, r.h, rad);
-    ctx.fill();
-    text(ctx, fallback, r.x + r.w / 2, r.y + r.h / 2, {
-      size: 30,
-      weight: "900",
-      font: HEAD_FONT,
-      color: disabled ? "#e2e2e6" : "#4a2600",
-    });
+    // zapas: rysowany w stylu makiety
+    this.styledBtn(ctx, r, fallback, disabled ? "dark-gold" : style);
   }
 
   /** Strzałka nawigacji (grafika z assets/ui). `dir` = "left" | "right", `on` = aktywna. */
@@ -1530,17 +1515,12 @@ export class Game {
 
     this.drawUiBg(ctx, locked);
 
-    // zębatka
-    const gear = this.uiImg("gear.png");
-    if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
-    else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
-
-    // logo — na całą szerokość
+    // logo — szeroko, ale z miejscem na zębatkę po prawej
     const logo = this.uiImg("wybierz-hit.png");
     if (imgReady(logo)) {
-      const w = VW - 12;
+      const w = VW - 96;
       const h = (logo.naturalHeight / logo.naturalWidth) * w;
-      ctx.drawImage(logo, VW / 2 - w / 2, HIT_LOGO.y, w, h);
+      ctx.drawImage(logo, (VW - 88) / 2 - w / 2, HIT_LOGO.y, w, h);
     } else {
       text(ctx, "WYBIERZ HIT", VW / 2, HIT_LOGO.y + 90, {
         size: 64,
@@ -1550,6 +1530,17 @@ export class Game {
         shadows: HEAD_SHADOWS,
       });
     }
+
+    // zębatka — nad logo, żeby zawsze była widoczna
+    const gear = this.uiImg("gear.png");
+    ctx.save();
+    ctx.fillStyle = "rgba(8,6,12,0.55)";
+    ctx.beginPath();
+    ctx.arc(HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, HIT_GEAR.w * 0.85, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
+    else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
 
     // POZIOM N
     text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
@@ -1878,52 +1869,39 @@ export class Game {
 
   private drawPause(ctx: CanvasRenderingContext2D) {
     ctx.save();
-    ctx.fillStyle = "rgba(4,4,10,0.82)";
+    this.drawUiBg(ctx);
+    ctx.fillStyle = "rgba(4,4,10,0.6)";
     ctx.fillRect(0, 0, VW, VH);
 
     if (this.resumeAt) {
-      const left = Math.max(1, Math.ceil((this.resumeAt - performance.now()) / 1000 + 0.25));
-      text(ctx, String(left), VW / 2, VH / 2, {
-        size: 180,
-        weight: "800",
-        color: "#fff7ec",
-        glow: "#ffb457",
-        glowBlur: 40,
-      });
+      const left = Math.ceil((this.resumeAt - performance.now()) / 1000);
+      if (left >= 1) {
+        const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
+        text(ctx, String(left), VW / 2, VH / 2, {
+          size: 200 - frac * 40,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#fff7ec",
+          glow: "#ffb457",
+          glowBlur: 44,
+        });
+      }
       ctx.restore();
       return;
     }
 
-    text(ctx, "PAUZA", VW / 2, 430, {
-      size: 62,
-      weight: "800",
+    text(ctx, "PAUZA", VW / 2, 420, {
+      size: 72,
+      weight: "900",
+      font: HEAD_FONT,
       color: "#fff7ec",
-      glow: "#ffb457",
-      glowBlur: 20,
-      letterSpacing: "8px",
+      letterSpacing: "6px",
+      shadows: HEAD_SHADOWS,
     });
 
-    const g = ctx.createLinearGradient(PZ_RESUME.x, 0, PZ_RESUME.x + PZ_RESUME.w, 0);
-    g.addColorStop(0, "#ff9f43");
-    g.addColorStop(1, "#ff5e7e");
-    ctx.fillStyle = g;
-    roundRect(ctx, PZ_RESUME.x, PZ_RESUME.y, PZ_RESUME.w, PZ_RESUME.h, PZ_RESUME.h / 2);
-    ctx.fill();
-    text(ctx, "WZNÓW", VW / 2, PZ_RESUME.y + PZ_RESUME.h / 2, {
-      size: 34,
-      weight: "800",
-      color: "#1a0d12",
-    });
-
-    ctx.fillStyle = "rgba(255,255,255,0.1)";
-    roundRect(ctx, PZ_RESTART.x, PZ_RESTART.y, PZ_RESTART.w, PZ_RESTART.h, 18);
-    ctx.fill();
-    text(ctx, "OD NOWA", VW / 2, PZ_RESTART.y + PZ_RESTART.h / 2, { size: 24, color: "#ffce8a" });
-
-    ctx.fillStyle = "rgba(255,255,255,0.1)";
-    roundRect(ctx, PZ_MENU.x, PZ_MENU.y, PZ_MENU.w, PZ_MENU.h, 18);
-    ctx.fill();
-    text(ctx, "MENU", VW / 2, PZ_MENU.y + PZ_MENU.h / 2, { size: 24, color: "#c9b7a6" });
+    this.uiButton(ctx, PZ_RESUME, "graj", { fallback: "GRAJ!", style: "gold" });
+    this.uiButton(ctx, PZ_RESTART, "od-nowa", { fallback: "OD NOWA", style: "dark-gold" });
+    this.uiButton(ctx, PZ_MENU, "wyjdz", { fallback: "WYJDŹ Z GRY", style: "dark-gold" });
 
     ctx.restore();
   }
@@ -2380,7 +2358,7 @@ export class Game {
   // ---- ekran: wynik (licznik + gwiazdki + werdykt) ---------------
 
   private drawResults(ctx: CanvasRenderingContext2D) {
-    this.drawStage(ctx, 0.62, this.beatPulse() * 0.3);
+    this.drawUiBg(ctx);
 
     const now = performance.now();
     const reveal = clamp((now - this.resultsAt) / 1800, 0, 1);
@@ -2390,16 +2368,36 @@ export class Game {
     const shownStars = this.starsFor(shown);
     const revealDone = reveal >= 1;
     const passed = finalR >= PASS_RATING;
+    const lvlIdx = SONGS.findIndex((s) => s.id === this.trackId);
 
-    text(ctx, this.song.title.toUpperCase(), VW / 2, 78, {
+    // --- nagłówek ---
+    text(ctx, `POZIOM ${lvlIdx + 1}`, VW / 2, 92, {
       size: 22,
-      weight: "800",
-      color: "#fff7ec",
-      letterSpacing: "2px",
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffce8a",
+      letterSpacing: "4px",
+      shadows: HEAD_SHADOWS,
     });
-    text(ctx, "WYNIK RUNDY", VW / 2, 116, { size: 17, color: "#8a7c6e", letterSpacing: "8px" });
+    text(ctx, this.song.title.toUpperCase(), VW / 2, 146, {
+      size: 46,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff7ec",
+      shadows: HEAD_SHADOWS,
+    });
 
-    // --- gwiazdki (wskakują w miarę wzrostu wskazówki) ---
+    // --- panel gwiazdek ---
+    const spY = 190;
+    ctx.save();
+    const sg = ctx.createLinearGradient(0, spY, 0, spY + 74);
+    sg.addColorStop(0, "rgba(255,210,120,0.20)");
+    sg.addColorStop(1, "rgba(10,8,14,0.85)");
+    ctx.fillStyle = sg;
+    roundRect(ctx, 150, spY, VW - 300, 74, 16);
+    ctx.fill();
+    ctx.restore();
+
     const nowStars = Math.floor(shownStars + 0.0001);
     if (nowStars > this.resultStarSeen && this.resultStarSeen < 5) {
       this.resultStarSeen = nowStars;
@@ -2411,27 +2409,34 @@ export class Game {
       const f = clamp(shownStars - i, 0, 1);
       const isNew = i === this.resultStarSeen - 1;
       const pop = isNew ? clamp(1 - (now - this.lastStarPopAt) / 320, 0, 1) : 0;
-      const r = 26 * (1 + pop * 0.5);
-      this.drawStar(ctx, VW / 2 - 132 + i * 66, 186, r, f);
+      const r = 23 * (1 + pop * 0.5);
+      this.drawStar(ctx, VW / 2 - 108 + i * 54, spY + 37, r, f);
     }
 
-    // --- licznik (speedometer) ---
+    // --- panel licznika ---
+    const gp = { x: 88, y: 288, w: VW - 176, h: 468 };
+    ctx.fillStyle = "rgba(10,8,14,0.72)";
+    roundRect(ctx, gp.x, gp.y, gp.w, gp.h, 22);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, gp.x, gp.y, gp.w, gp.h, 22);
+    ctx.stroke();
+
     const cx = VW / 2;
-    const cy = 560;
-    const R = 208;
+    const cy = gp.y + 232;
+    const R = 172;
     const A0 = Math.PI * 0.75;
     const SWEEP = Math.PI * 1.5;
     const ang = (r: number) => A0 + clamp(r, 0, 1) * SWEEP;
 
     ctx.save();
     ctx.lineCap = "round";
-    // tło łuku
     ctx.strokeStyle = "rgba(255,255,255,0.1)";
-    ctx.lineWidth = 24;
+    ctx.lineWidth = 22;
     ctx.beginPath();
     ctx.arc(cx, cy, R, A0, A0 + SWEEP);
     ctx.stroke();
-    // wypełnienie
     ctx.strokeStyle = shown >= PASS_RATING ? "#ffd24c" : "#ff7a3d";
     ctx.shadowColor = ctx.strokeStyle;
     ctx.shadowBlur = 18;
@@ -2439,36 +2444,31 @@ export class Game {
     ctx.arc(cx, cy, R, A0, ang(shown));
     ctx.stroke();
     ctx.shadowBlur = 0;
-    // podziałka
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
     ctx.lineWidth = 2;
     for (let k = 0; k <= 10; k++) {
       const a = ang(k / 10);
-      const r1 = R - 16;
-      const r2 = R + (k % 5 === 0 ? 16 : 9);
+      const r1 = R - 14;
+      const r2 = R + (k % 5 === 0 ? 14 : 8);
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
       ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
       ctx.stroke();
     }
-    // znacznik zaliczenia (70%)
     const pa = ang(PASS_RATING);
     ctx.strokeStyle = "#ff5e5e";
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(pa) * (R - 20), cy + Math.sin(pa) * (R - 20));
-    ctx.lineTo(cx + Math.cos(pa) * (R + 22), cy + Math.sin(pa) * (R + 22));
+    ctx.moveTo(cx + Math.cos(pa) * (R - 18), cy + Math.sin(pa) * (R - 18));
+    ctx.lineTo(cx + Math.cos(pa) * (R + 20), cy + Math.sin(pa) * (R + 20));
     ctx.stroke();
-    text(
-      ctx,
-      "70%",
-      cx + Math.cos(pa) * (R + 46),
-      cy + Math.sin(pa) * (R + 46),
-      { size: 16, weight: "800", color: "#ff8a8a" },
-    );
+    text(ctx, "70%", cx + Math.cos(pa) * (R + 44), cy + Math.sin(pa) * (R + 44), {
+      size: 15,
+      weight: "800",
+      color: "#ff8a8a",
+    });
     ctx.restore();
 
-    // wskazówka
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(ang(shown));
@@ -2476,137 +2476,160 @@ export class Game {
     ctx.shadowColor = "#ffb457";
     ctx.shadowBlur = 14;
     ctx.beginPath();
-    ctx.moveTo(-14, 0);
-    ctx.lineTo(0, -10);
-    ctx.lineTo(R - 34, 0);
-    ctx.lineTo(0, 10);
+    ctx.moveTo(-12, 0);
+    ctx.lineTo(0, -9);
+    ctx.lineTo(R - 30, 0);
+    ctx.lineTo(0, 9);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = "#1a0d12";
     ctx.beginPath();
-    ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = "#ffce8a";
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // odczyt środkowy
-    text(ctx, `${Math.round(shown * 100)}%`, cx, cy + 96, {
-      size: 60,
-      weight: "800",
+    text(ctx, `${Math.round(shown * 100)}%`, cx, cy + 82, {
+      size: 58,
+      weight: "900",
+      font: HEAD_FONT,
       color: "#fff7ec",
       glow: "#ffb457",
       glowBlur: 14,
     });
-    text(ctx, this.score.toLocaleString("pl-PL") + " pkt", cx, cy + 146, {
-      size: 20,
-      color: "#c9b7a6",
+
+    if (revealDone) {
+      const vFade = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = vFade;
+      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - 42, {
+        size: passed ? 42 : 36,
+        weight: "900",
+        font: HEAD_FONT,
+        color: passed ? "#5ef2a0" : "#ff6b7d",
+        glow: passed ? "#5ef2a0" : "#ff5e7e",
+        glowBlur: 18,
+        letterSpacing: "1px",
+      });
+      ctx.restore();
+    }
+
+    // --- punkty + miejsce ---
+    text(ctx, `${this.score.toLocaleString("pl-PL")} PKT`, VW / 2, 824, {
+      size: 58,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff7ec",
+      shadows: HEAD_SHADOWS,
     });
     if (this.resultRank > 0) {
-      const gap = gapToTop(this.trackId, 10);
-      const msg =
-        this.resultRank <= 10
-          ? `miejsce ${this.resultRank} · TOP 10! 🔥`
-          : `miejsce ${this.resultRank} · do TOP 10: ${gap.toLocaleString("pl-PL")} pkt`;
-      text(ctx, msg, cx, cy + 176, { size: 17, color: "#ffce8a" });
+      text(ctx, `MIEJSCE ${this.resultRank}`, VW / 2, 880, {
+        size: 30,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffce8a",
+        letterSpacing: "2px",
+        shadows: HEAD_SHADOWS,
+      });
     }
 
-    // --- werdykt + statystyki + przyciski (po animacji) ---
+    // --- przyciski (po animacji licznika) ---
     if (!revealDone) {
-      text(ctx, "stuknij, aby pominąć", VW / 2, VH - 40, { size: 15, color: "#6b6055" });
+      text(ctx, "stuknij, aby pominąć", VW / 2, VH - 34, { size: 15, color: "#6b6055" });
       return;
     }
-
     const fadeIn = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
     ctx.save();
     ctx.globalAlpha = fadeIn;
 
-    if (passed) {
-      text(ctx, "ZALICZONE!", VW / 2, 812, {
-        size: 46,
-        weight: "800",
-        color: "#8affc1",
-        glow: "#8affc1",
-        glowBlur: 20,
-        letterSpacing: "2px",
-      });
-      text(ctx, "runda zaliczona, świetna robota", VW / 2, 852, { size: 18, color: "#c9b7a6" });
-    } else {
-      text(ctx, "NIE TYM RAZEM", VW / 2, 812, {
-        size: 42,
-        weight: "800",
-        color: "#ff8a97",
-        glow: "#ff5e7e",
-        glowBlur: 16,
-        letterSpacing: "1px",
-      });
-      text(ctx, `zabrakło do 70%, spróbuj jeszcze raz`, VW / 2, 852, {
-        size: 18,
-        color: "#c9b7a6",
-      });
-    }
+    this.uiButton(ctx, RES_BOARD, "tabela", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
+    this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "ZAPISZ NA SPOTIFY", style: "dark-green" });
 
-    const fc = this.counts.miss === 0 && this.holdsBroken === 0 && this.judgedCount > 0;
-    let extra = `celność ${(this.accuracy() * 100).toFixed(1)}%  ·  max combo ${this.maxCombo}  ·  flow ${this.maxFlow}`;
-    if (fc) extra = "PEŁNE COMBO  ·  " + extra;
-    if (this.newBest) extra = "★ REKORD  ·  " + extra;
-    text(ctx, extra, VW / 2, 900, { size: 17, color: "#9a8c7e" });
-
-    const stats: [string, number, string][] = [
-      ["PERFECT", this.counts.perfect, "#ffe27a"],
-      ["SUPER", this.counts.great, "#8affc1"],
-      ["OK", this.counts.good, "#8ab6ff"],
-      ["PUDŁO", this.counts.miss, "#ff6b7d"],
-      ["TRZYM.", this.holdsDone, "#8affc1"],
-      ["ZERW.", this.holdsBroken, "#ff6b7d"],
-    ];
-    stats.forEach((r, i) => {
-      const x = VW / 2 - 300 + i * 120 + 60;
-      text(ctx, String(r[1]), x, 950, { size: 28, weight: "800", color: "#fff" });
-      text(ctx, r[0], x, 978, { size: 12, color: r[2] });
-    });
-
-    // --- przyciski ---
-    const rIdx = SONGS.findIndex((s) => s.id === this.trackId);
-    const nextPlayable = rIdx >= 0 && rIdx + 1 < SONGS.length && levelUnlocked(rIdx + 1);
-    const primaryLabel = passed
-      ? nextPlayable
-        ? "KOLEJNA RUNDA ›"
-        : "WYBIERZ HIT"
-      : "SPRÓBUJ PONOWNIE";
-    const g1 = ctx.createLinearGradient(RES_PRIMARY.x, 0, RES_PRIMARY.x + RES_PRIMARY.w, 0);
-    g1.addColorStop(0, "#ff9f43");
-    g1.addColorStop(1, "#ff5e7e");
-    ctx.fillStyle = g1;
-    roundRect(ctx, RES_PRIMARY.x, RES_PRIMARY.y, RES_PRIMARY.w, RES_PRIMARY.h, 22);
-    ctx.fill();
-    text(ctx, primaryLabel, VW / 2, RES_PRIMARY.y + RES_PRIMARY.h / 2, {
-      size: 26,
-      weight: "800",
-      color: "#1a0d12",
-    });
-
-    // Zapisz na Spotify
-    ctx.fillStyle = "#1DB954";
-    roundRect(ctx, RES_SPOTIFY.x, RES_SPOTIFY.y, RES_SPOTIFY.w, RES_SPOTIFY.h, 20);
-    ctx.fill();
-    text(ctx, "♥  Zapisz na Spotify", VW / 2, RES_SPOTIFY.y + RES_SPOTIFY.h / 2, {
-      size: 22,
-      weight: "800",
-      color: "#04220f",
-    });
-
-    // małe linki
-    text(ctx, "Jeszcze raz", RES_AGAIN.x + RES_AGAIN.w / 2, RES_AGAIN.y + RES_AGAIN.h / 2, {
-      size: 18,
-      color: "#c9b7a6",
-    });
-    text(ctx, "Wybierz hit", RES_MENU.x + RES_MENU.w / 2, RES_MENU.y + RES_MENU.h / 2, {
-      size: 18,
-      color: "#c9b7a6",
+    const nextS = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length ? SONGS[lvlIdx + 1] : null;
+    const nextPlayable = !!nextS && nextS.playable && levelUnlocked(lvlIdx + 1);
+    const primary = passed ? (nextPlayable ? "KOLEJNA RUNDA!" : "WYBIERZ HIT") : "SPRÓBUJ PONOWNIE";
+    this.uiButton(ctx, RES_PRIMARY, passed && nextPlayable ? "kolejna" : "_", {
+      fallback: primary,
+      style: "gold",
     });
 
     ctx.restore();
   }
+
+  /** Przycisk rysowany w kodzie w stylu makiety. */
+  private styledBtn(
+    ctx: CanvasRenderingContext2D,
+    r: Rect,
+    label: string,
+    style: "gold" | "dark-gold" | "dark-green",
+  ) {
+    const rad = Math.min(r.h / 2, 26);
+    const lip = Math.round(r.h * 0.14);
+    const faceH = r.h - lip;
+
+    // cień
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 7;
+    ctx.fillStyle = "#000";
+    roundRect(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.fill();
+    ctx.restore();
+
+    // krawędź
+    const edge = ctx.createLinearGradient(0, r.y + faceH - 6, 0, r.y + r.h);
+    edge.addColorStop(0, "#b05206");
+    edge.addColorStop(1, "#70380b");
+    ctx.fillStyle = edge;
+    roundRect(ctx, r.x, r.y + lip, r.w, r.h - lip, rad);
+    ctx.fill();
+
+    // twarz
+    if (style === "gold") {
+      const g = ctx.createLinearGradient(0, r.y, 0, r.y + faceH);
+      g.addColorStop(0, "#ffe27e");
+      g.addColorStop(0.5, "#ffc63c");
+      g.addColorStop(1, "#f5a81c");
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = "#1d0d07";
+    }
+    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+    ctx.fill();
+
+    // obrys
+    ctx.lineWidth = style === "gold" ? 2 : 3;
+    ctx.strokeStyle =
+      style === "dark-green" ? "#1db954" : style === "dark-gold" ? "#c9791a" : "rgba(120,64,8,0.5)";
+    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+    ctx.stroke();
+
+    // górny bevel (tylko złoty)
+    if (style === "gold") {
+      ctx.save();
+      roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+      ctx.clip();
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(r.x + rad, r.y + 3);
+      ctx.lineTo(r.x + r.w - rad, r.y + 3);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    text(ctx, label, r.x + r.w / 2, r.y + faceH / 2 + 1, {
+      size: label.length > 12 ? 32 : 36,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff",
+      stroke: style === "gold" ? "#70380b" : "rgba(0,0,0,0.55)",
+      strokeWidth: style === "gold" ? 5 : 4,
+      shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.4)" }],
+    });
+  }
 }
+
