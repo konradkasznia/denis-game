@@ -2,7 +2,16 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { hasAccount, needsNick, nick as accountNick, saveAccount, setNick } from "./account.ts";
+import {
+  deleteAccount,
+  hasAccount,
+  marketing as accountMarketing,
+  needsNick,
+  nick as accountNick,
+  saveAccount,
+  setMarketing,
+  setNick,
+} from "./account.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { gapToTop, myEntry, submitScore, topN } from "./leaderboard.ts";
@@ -97,18 +106,43 @@ const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h:
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 
 // --- ekran PROFIL ---
-const PROF_NICK: Rect = { x: MARGIN, y: 360, w: VW - MARGIN * 2, h: 104 };
+// --- ekran USTAWIENIA ---
+const SET_W = VW - MARGIN * 2;
+const SET_NICK: Rect = { x: MARGIN, y: 172, w: SET_W, h: 96 };
+const SET_SFX: Rect = { x: MARGIN, y: 282, w: SET_W, h: 68 };
+const SET_MKT: Rect = { x: MARGIN, y: 360, w: SET_W, h: 88 };
+const SET_TERMS: Rect = { x: MARGIN, y: 470, w: SET_W, h: 64 };
+const SET_PRIV: Rect = { x: MARGIN, y: 542, w: SET_W, h: 64 };
+const SET_CONTACT: Rect = { x: MARGIN, y: 614, w: SET_W, h: 64 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 712, w: SET_W, h: 64 };
+const SET_DELETE: Rect = { x: MARGIN, y: 784, w: SET_W, h: 64 };
 
 // --- strzałki na tablicy wyników (między utworami) ---
 const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
 const BOARD_ARROW_R: Rect = { x: VW - 104, y: 1188, w: 60, h: 60 };
 
 // rejestracja / logowanie (zamarkowane)
-const AUTH_LOGIN: Rect = { x: VW / 2 - 260, y: 588, w: 520, h: 92 };
-const AUTH_FORGOT: Rect = { x: VW / 2 - 260, y: 700, w: 250, h: 42 };
-const AUTH_CREATE: Rect = { x: VW / 2 + 10, y: 700, w: 250, h: 42 };
-const AUTH_SOCIAL: Rect = { x: VW / 2 - 260, y: 820, w: 520, h: 86 };
-const AUTH_MARKETING: Rect = { x: VW / 2 - 260, y: 930, w: 520, h: 60 };
+const AUTH_EMAIL: Rect = { x: VW / 2 - 260, y: 238, w: 520, h: 74 };
+const AUTH_PASS: Rect = { x: VW / 2 - 260, y: 324, w: 520, h: 74 };
+const AUTH_TERMS: Rect = { x: VW / 2 - 260, y: 420, w: 520, h: 52 };
+const AUTH_MARKETING: Rect = { x: VW / 2 - 260, y: 480, w: 520, h: 74 };
+const AUTH_DOC_TERMS: Rect = { x: VW / 2 - 260, y: 566, w: 250, h: 40 };
+const AUTH_DOC_PRIV: Rect = { x: VW / 2 + 10, y: 566, w: 250, h: 40 };
+const AUTH_LOGIN: Rect = { x: VW / 2 - 260, y: 622, w: 520, h: 90 };
+const AUTH_FORGOT: Rect = { x: VW / 2 - 260, y: 726, w: 250, h: 42 };
+const AUTH_CREATE: Rect = { x: VW / 2 + 10, y: 726, w: 250, h: 42 };
+const AUTH_SOCIAL: Rect = { x: VW / 2 - 260, y: 800, w: 520, h: 86 };
+
+// dokumenty prawne (strony HTML w public/)
+const DOC_TERMS_URL = "/regulamin.html";
+const DOC_PRIVACY_URL = "/polityka-prywatnosci.html";
+function openDoc(url: string) {
+  try {
+    window.open(url, "_blank", "noopener");
+  } catch {
+    /* ignore */
+  }
+}
 // nick
 const NICK_FIELD: Rect = { x: VW / 2 - 260, y: 452, w: 520, h: 90 };
 const NICK_SAVE: Rect = { x: VW / 2 - 260, y: 576, w: 520, h: 92 };
@@ -141,13 +175,11 @@ interface Popup {
 }
 
 interface Settings {
-  offsetMs: number;
-  haptics: boolean;
   sfx: boolean;
 }
 
 function loadSettings(): Settings {
-  const def: Settings = { offsetMs: 0, haptics: true, sfx: true };
+  const def: Settings = { sfx: true };
   try {
     const raw = localStorage.getItem("denis.settings");
     if (raw) return { ...def, ...JSON.parse(raw) };
@@ -156,6 +188,17 @@ function loadSettings(): Settings {
   }
   return def;
 }
+
+function saveSettings(s: Settings) {
+  try {
+    localStorage.setItem("denis.settings", JSON.stringify(s));
+  } catch {
+    /* ignore */
+  }
+}
+
+const APP_VERSION = "0.9.0";
+const SUPPORT_EMAIL = "[[E-MAIL KONTAKTOWY]]";
 
 function bestScore(): number {
   return Number(localStorage.getItem("denis.best") || 0);
@@ -176,6 +219,7 @@ export class Game {
   private hitIndex = 0; // strona karuzeli WYBIERZ HIT
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
   private soundModal = false;
+  private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
   private song: SongDef = buildSynthSong();
   private songTime = 0;
   private preparing = false;
@@ -227,6 +271,8 @@ export class Game {
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMarketing = false;
+  private authTerms = false;
+  private authError = "";
   private boardSongId = DEFAULT_TRACK;
   private resultRank = 0;
   private resultsSavedBest = false;
@@ -436,6 +482,14 @@ export class Game {
     }
 
     if (this.soundModal) this.drawSoundModal(ctx);
+    if (this.offlineNotice && this.scene === "results") {
+      this.drawModal(
+        ctx,
+        "📡",
+        "BRAK POŁĄCZENIA",
+        "Z powodu braku połączenia z internetem nie udało się zapisać wyniku do bazy.",
+      );
+    }
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -476,6 +530,10 @@ export class Game {
 
   onPress(lane: number, x: number, y: number) {
     if (this.preparing) return this.cancelPrepare();
+    if (this.offlineNotice && this.scene === "results") {
+      this.offlineNotice = false;
+      return;
+    }
     if (this.soundModal) {
       if (x < 0 || inRect(MODAL_OK, x, y)) {
         this.soundModal = false;
@@ -507,16 +565,42 @@ export class Game {
   }
 
   private handleAuthTap(x: number, y: number) {
-    if (x >= 0 && inRect(AUTH_MARKETING, x, y)) {
+    if (x < 0) return;
+    if (inRect(AUTH_DOC_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
+    if (inRect(AUTH_DOC_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
+    if (inRect(AUTH_TERMS, x, y)) {
+      this.authTerms = !this.authTerms;
+      if (this.authTerms) this.authError = "";
+      return;
+    }
+    if (inRect(AUTH_MARKETING, x, y)) {
       this.authMarketing = !this.authMarketing;
       return;
     }
+    if (inRect(AUTH_FORGOT, x, y)) {
+      this.authError = "Odzyskiwanie hasła będzie dostępne po podłączeniu serwera.";
+      return;
+    }
+
     let method = "email";
-    if (x >= 0 && inRect(AUTH_SOCIAL, x, y)) method = this.applePlatform() ? "apple" : "google";
-    else if (x >= 0 && inRect(AUTH_FORGOT, x, y)) return; // zamarkowane
-    else if (x >= 0 && !inRect(AUTH_LOGIN, x, y) && !inRect(AUTH_CREATE, x, y)) return;
-    // ZALOGUJ / ZAŁÓŻ KONTO / social → „zalogowano" (zamarkowane)
-    saveAccount({ nick: "", marketing: this.authMarketing, method });
+    if (inRect(AUTH_SOCIAL, x, y)) method = this.applePlatform() ? "apple" : "google";
+    else if (!inRect(AUTH_LOGIN, x, y) && !inRect(AUTH_CREATE, x, y)) return;
+
+    // wymagana akceptacja regulaminu i polityki prywatności
+    if (!this.authTerms) {
+      this.authError = "Zaznacz akceptację Regulaminu i Polityki prywatności.";
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    saveAccount({
+      nick: "",
+      terms: true,
+      termsAt: nowIso,
+      marketing: this.authMarketing,
+      marketingAt: this.authMarketing ? nowIso : undefined,
+      method,
+    });
+    this.authError = "";
     this.scene = "nick";
   }
 
@@ -638,7 +722,38 @@ export class Game {
       this.scene = "hits";
       return;
     }
-    if (inRect(PROF_NICK, x, y)) this.promptNick();
+    if (inRect(SET_NICK, x, y)) return this.promptNick();
+    if (inRect(SET_SFX, x, y)) {
+      this.settings.sfx = !this.settings.sfx;
+      this.audio.setSfxEnabled(this.settings.sfx);
+      saveSettings(this.settings);
+      return;
+    }
+    if (inRect(SET_MKT, x, y)) return setMarketing(!accountMarketing());
+    if (inRect(SET_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
+    if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
+    if (inRect(SET_CONTACT, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
+    if (inRect(SET_LOGOUT, x, y)) {
+      deleteAccount(); // bez backendu wylogowanie = usunięcie lokalnego konta
+      this.hitIndex = 0;
+      this.gotoStart();
+      return;
+    }
+    if (inRect(SET_DELETE, x, y)) {
+      let sure = false;
+      try {
+        sure = !!window.confirm?.(
+          "Usunąć konto oraz cały postęp i wyniki na tym urządzeniu? Tej operacji nie można cofnąć.",
+        );
+      } catch {
+        sure = false;
+      }
+      if (sure) {
+        deleteAccount();
+        this.hitIndex = 0;
+        this.gotoStart();
+      }
+    }
   }
 
   private handleResultsTap(x: number, y: number) {
@@ -832,14 +947,25 @@ export class Game {
       }
       this.resultRank = submitScore(this.trackId, this.score);
       recordStars(this.trackId, Math.floor(this.starFill()));
+      // brak internetu → wynik nie trafił do bazy (info na podsumowaniu)
+      let online = true;
+      try {
+        online = navigator.onLine !== false;
+      } catch {
+        /* ignore */
+      }
+      this.offlineNotice = !online;
     }
     this.scene = "results";
   }
 
   // ---- logika rytmiczna -------------------------------------------
 
+  /** Automatyczna kalibracja: opóźnienie wyjścia audio (BT, bufor OS). Bez ręcznego ustawiania. */
   private offsetSec() {
-    return this.settings.offsetMs / 1000;
+    const c = this.audio.ctx as (AudioContext & { outputLatency?: number }) | null;
+    const l = c?.outputLatency ?? c?.baseLatency ?? 0.03;
+    return typeof l === "number" && isFinite(l) ? clamp(l, 0, 0.4) : 0.03;
   }
 
   private pressLane(lane: number) {
@@ -1156,93 +1282,124 @@ export class Game {
     });
   }
 
-  private drawAuth(ctx: CanvasRenderingContext2D) {
-    this.drawStage(ctx, 0.5, this.beatPulse() * 0.25);
+  /** Kwadratowy checkbox z etykietą w wierszu `r`. */
+  private checkboxRow(
+    ctx: CanvasRenderingContext2D,
+    r: Rect,
+    on: boolean,
+    lines: string[],
+  ) {
+    const cs = 28;
+    const cx0 = r.x + 2;
+    const cy0 = r.y + 6;
+    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.1)";
+    roundRect(ctx, cx0, cy0, cs, cs, 7);
+    ctx.fill();
+    ctx.strokeStyle = on ? "#ff9f43" : "rgba(255,255,255,0.28)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx0, cy0, cs, cs, 7);
+    ctx.stroke();
+    if (on) {
+      ctx.strokeStyle = "#1a0d12";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(cx0 + 6, cy0 + 15);
+      ctx.lineTo(cx0 + 12, cy0 + 21);
+      ctx.lineTo(cx0 + 23, cy0 + 7);
+      ctx.stroke();
+    }
+    lines.forEach((ln, i) =>
+      text(ctx, ln, cx0 + cs + 14, r.y + 12 + i * 22, {
+        size: 15,
+        align: "left",
+        color: "#c9b7a6",
+      }),
+    );
+  }
 
-    text(ctx, "DENIS", VW / 2, 150, {
-      size: 90,
-      weight: "800",
+  private drawAuth(ctx: CanvasRenderingContext2D) {
+    this.drawUiBg(ctx);
+
+    text(ctx, "DENIS", VW / 2, 110, {
+      size: 76,
+      weight: "900",
+      font: HEAD_FONT,
       color: "#fff7ec",
-      glow: "#ffb457",
-      glowBlur: 28,
-      letterSpacing: "6px",
-    });
-    text(ctx, "ZAŁÓŻ KONTO / ZALOGUJ SIĘ", VW / 2, 232, {
-      size: 20,
-      color: "#ffce8a",
+      shadows: HEAD_SHADOWS,
       letterSpacing: "4px",
     });
-
-    this.field(ctx, { x: VW / 2 - 260, y: 300, w: 520, h: 76 }, "E-MAIL", "twoj@email.pl");
-    this.field(ctx, { x: VW / 2 - 260, y: 392, w: 520, h: 76 }, "HASŁO", "••••••••");
-
-    // ZALOGUJ
-    const g = ctx.createLinearGradient(AUTH_LOGIN.x, 0, AUTH_LOGIN.x + AUTH_LOGIN.w, 0);
-    g.addColorStop(0, "#ff9f43");
-    g.addColorStop(1, "#ff5e7e");
-    ctx.fillStyle = g;
-    roundRect(ctx, AUTH_LOGIN.x, AUTH_LOGIN.y, AUTH_LOGIN.w, AUTH_LOGIN.h, AUTH_LOGIN.h / 2);
-    ctx.fill();
-    text(ctx, "ZALOGUJ", VW / 2, AUTH_LOGIN.y + AUTH_LOGIN.h / 2, {
-      size: 30,
-      weight: "800",
-      color: "#1a0d12",
+    text(ctx, "ZAŁÓŻ KONTO / ZALOGUJ SIĘ", VW / 2, 176, {
+      size: 18,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffce8a",
+      letterSpacing: "3px",
     });
 
+    this.field(ctx, AUTH_EMAIL, "E-MAIL", "twoj@email.pl");
+    this.field(ctx, AUTH_PASS, "HASŁO", "••••••••");
+
+    // wymagana zgoda: regulamin + polityka
+    this.checkboxRow(ctx, AUTH_TERMS, this.authTerms, [
+      "Akceptuję Regulamin i Politykę prywatności",
+    ]);
+    // dobrowolna zgoda marketingowa
+    this.checkboxRow(ctx, AUTH_MARKETING, this.authMarketing, [
+      "Chcę dostawać informacje o nowościach",
+      "i promocjach na e-mail (dobrowolne)",
+    ]);
+
+    // odnośniki do dokumentów
+    text(ctx, "» Regulamin", AUTH_DOC_TERMS.x + AUTH_DOC_TERMS.w / 2, AUTH_DOC_TERMS.y + 20, {
+      size: 16,
+      weight: "700",
+      color: "#ff9f43",
+    });
+    text(ctx, "» Polityka prywatności", AUTH_DOC_PRIV.x + AUTH_DOC_PRIV.w / 2, AUTH_DOC_PRIV.y + 20, {
+      size: 16,
+      weight: "700",
+      color: "#ff9f43",
+    });
+
+    // ZALOGUJ / ZAŁÓŻ KONTO
+    this.styledBtn(ctx, AUTH_LOGIN, "ZALOGUJ / ZAŁÓŻ", "gold");
+
     text(ctx, "Zapomniałem hasła", AUTH_FORGOT.x + AUTH_FORGOT.w / 2, AUTH_FORGOT.y + 20, {
-      size: 17,
+      size: 16,
       color: "#c9b7a6",
     });
     text(ctx, "Załóż konto", AUTH_CREATE.x + AUTH_CREATE.w / 2, AUTH_CREATE.y + 20, {
-      size: 17,
+      size: 16,
       color: "#ffce8a",
       weight: "700",
     });
 
-    text(ctx, "lub zaloguj przez:", VW / 2, 792, { size: 15, color: "#8a7c6e" });
-    ctx.fillStyle = "rgba(255,255,255,0.1)";
+    text(ctx, "lub kontynuuj z:", VW / 2, AUTH_SOCIAL.y - 18, { size: 14, color: "#8a7c6e" });
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
     roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
     ctx.lineWidth = 2;
     roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
     ctx.stroke();
     text(
       ctx,
-      this.applePlatform() ? " App Store / Apple ID" : "▶ Google Play",
+      this.applePlatform() ? "Apple ID" : "Google",
       VW / 2,
       AUTH_SOCIAL.y + AUTH_SOCIAL.h / 2,
-      { size: 22, weight: "700", color: "#fff7ec" },
+      { size: 22, weight: "800", font: HEAD_FONT, color: "#fff7ec" },
     );
 
-    // zgoda marketingowa
-    const cs = 26;
-    const cx0 = AUTH_MARKETING.x + 4;
-    const cy0 = AUTH_MARKETING.y + AUTH_MARKETING.h / 2 - cs / 2;
-    ctx.fillStyle = this.authMarketing ? "#ff9f43" : "rgba(255,255,255,0.1)";
-    roundRect(ctx, cx0, cy0, cs, cs, 6);
-    ctx.fill();
-    if (this.authMarketing) {
-      ctx.strokeStyle = "#1a0d12";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cx0 + 5, cy0 + 13);
-      ctx.lineTo(cx0 + 11, cy0 + 19);
-      ctx.lineTo(cx0 + 21, cy0 + 6);
-      ctx.stroke();
+    if (this.authError) {
+      wrapText(this.authError, 44).forEach((ln, i) =>
+        text(ctx, ln, VW / 2, VH - 60 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
+      );
+    } else {
+      text(ctx, "wersja demo, logowanie jeszcze niepodłączone", VW / 2, VH - 44, {
+        size: 13,
+        color: "#6b6055",
+      });
     }
-    text(
-      ctx,
-      "Chcę dostawać informacje o nowościach i promocjach (e-mail)",
-      cx0 + cs + 14,
-      AUTH_MARKETING.y + AUTH_MARKETING.h / 2,
-      { size: 14, align: "left", color: "#b9a999" },
-    );
-
-    text(ctx, "wersja demo, logowanie jeszcze niepodłączone", VW / 2, VH - 40, {
-      size: 14,
-      color: "#6b6055",
-    });
   }
 
   private drawNick(ctx: CanvasRenderingContext2D) {
@@ -1363,13 +1520,15 @@ export class Game {
 
   // ---- modal „włącz dźwięk" ----------------------------------
 
-  private drawSoundModal(ctx: CanvasRenderingContext2D) {
+  /** Uniwersalny modal (ikona + tytuł + treść + przycisk ROZUMIEM). */
+  private drawModal(ctx: CanvasRenderingContext2D, icon: string, title: string, body: string) {
     ctx.fillStyle = "rgba(4,4,10,0.82)";
     ctx.fillRect(0, 0, VW, VH);
     const pw = VW - 120;
     const px = 60;
-    const py = 420;
-    const ph = 420;
+    const lines = wrapText(body, 30);
+    const ph = 300 + lines.length * 32;
+    const py = (VH - ph) / 2;
     ctx.fillStyle = "#15121c";
     roundRect(ctx, px, py, pw, ph, 26);
     ctx.fill();
@@ -1378,19 +1537,32 @@ export class Game {
     roundRect(ctx, px, py, pw, ph, 26);
     ctx.stroke();
 
-    text(ctx, "🔊", VW / 2, py + 78, { size: 66 });
-    text(ctx, "WŁĄCZ DŹWIĘK", VW / 2, py + 158, {
-      size: 40,
+    text(ctx, icon, VW / 2, py + 74, { size: 62 });
+    text(ctx, title, VW / 2, py + 150, {
+      size: 38,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
     });
-    wrapText("Ustaw telefon na dźwięk i wyłącz tryb cichy, gra działa w rytm muzyki.", 32).forEach(
-      (ln, i) =>
-        text(ctx, ln, VW / 2, py + 214 + i * 32, { size: 20, color: "#c9b7a6" }),
+    lines.forEach((ln, i) =>
+      text(ctx, ln, VW / 2, py + 204 + i * 32, { size: 20, color: "#c9b7a6" }),
     );
-    this.uiButton(ctx, MODAL_OK, "rozumiem", { fallback: "ROZUMIEM" });
+    this.uiButton(
+      ctx,
+      { x: MODAL_OK.x, y: py + ph - 116, w: MODAL_OK.w, h: MODAL_OK.h },
+      "rozumiem",
+      { fallback: "ROZUMIEM" },
+    );
+  }
+
+  private drawSoundModal(ctx: CanvasRenderingContext2D) {
+    this.drawModal(
+      ctx,
+      "🔊",
+      "WŁĄCZ DŹWIĘK",
+      "Ustaw telefon na dźwięk i wyłącz tryb cichy, gra działa w rytm muzyki.",
+    );
   }
 
   // ---- wspólne elementy UI ----------------------------------
@@ -1698,6 +1870,49 @@ export class Game {
 
   // ---- ekran: PROFIL ---------------------------------------
 
+  private toggleRow(ctx: CanvasRenderingContext2D, r: Rect, lines: string[], on: boolean) {
+    ctx.fillStyle = "rgba(18,14,24,0.7)";
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,90,0.3)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.stroke();
+    const top = r.y + r.h / 2 - (lines.length - 1) * 11;
+    lines.forEach((ln, i) =>
+      text(ctx, ln, r.x + 22, top + i * 22, { size: 15, align: "left", color: "#c9b7a6" }),
+    );
+    const tw = 60;
+    const tx = r.x + r.w - tw - 20;
+    const ty = r.y + r.h / 2;
+    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.16)";
+    roundRect(ctx, tx, ty - 16, tw, 32, 16);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(on ? tx + tw - 16 : tx + 16, ty, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private linkRow(
+    ctx: CanvasRenderingContext2D,
+    r: Rect,
+    label: string,
+    color = "#ffce8a",
+  ) {
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+    ctx.stroke();
+    text(ctx, label, r.x + 22, r.y + r.h / 2, {
+      size: 18,
+      align: "left",
+      weight: "700",
+      color,
+    });
+    text(ctx, "›", r.x + r.w - 24, r.y + r.h / 2, { size: 24, align: "right", color });
+  }
+
   private drawProfile(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
@@ -1706,42 +1921,71 @@ export class Game {
       color: "#ffce8a",
       weight: "700",
     });
-    text(ctx, "PROFIL", VW / 2, 150, {
-      size: 46,
+    text(ctx, "USTAWIENIA", VW / 2, 116, {
+      size: 40,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
     });
 
+    // nick
     ctx.fillStyle = "rgba(18,14,24,0.7)";
-    roundRect(ctx, PROF_NICK.x, PROF_NICK.y, PROF_NICK.w, PROF_NICK.h, 18);
+    roundRect(ctx, SET_NICK.x, SET_NICK.y, SET_NICK.w, SET_NICK.h, 16);
     ctx.fill();
     ctx.strokeStyle = "rgba(255,180,90,0.4)";
     ctx.lineWidth = 2;
-    roundRect(ctx, PROF_NICK.x, PROF_NICK.y, PROF_NICK.w, PROF_NICK.h, 18);
+    roundRect(ctx, SET_NICK.x, SET_NICK.y, SET_NICK.w, SET_NICK.h, 16);
     ctx.stroke();
-    text(ctx, "TWÓJ NICK", PROF_NICK.x + 24, PROF_NICK.y + 32, {
-      size: 14,
+    text(ctx, "TWÓJ NICK", SET_NICK.x + 22, SET_NICK.y + 30, {
+      size: 13,
       align: "left",
       color: "#8a7c6e",
       letterSpacing: "3px",
     });
-    text(ctx, accountNick(), PROF_NICK.x + 24, PROF_NICK.y + 66, {
-      size: 28,
+    text(ctx, accountNick(), SET_NICK.x + 22, SET_NICK.y + 64, {
+      size: 26,
       align: "left",
       weight: "700",
       color: "#fff",
     });
-    text(ctx, "ZMIEŃ ›", PROF_NICK.x + PROF_NICK.w - 24, PROF_NICK.y + PROF_NICK.h / 2, {
-      size: 20,
+    text(ctx, "ZMIEŃ ›", SET_NICK.x + SET_NICK.w - 22, SET_NICK.y + SET_NICK.h / 2, {
+      size: 18,
       align: "right",
       weight: "800",
       color: "#ffce8a",
     });
 
-    text(ctx, "Więcej opcji (zgody marketingowe itp.) wkrótce.", VW / 2, PROF_NICK.y + PROF_NICK.h + 60, {
-      size: 17,
+    this.toggleRow(ctx, SET_SFX, ["Efekty dźwiękowe"], this.settings.sfx);
+    this.toggleRow(
+      ctx,
+      SET_MKT,
+      ["Newsletter i promocje na e-mail", "(zgoda dobrowolna)"],
+      accountMarketing(),
+    );
+
+    this.linkRow(ctx, SET_TERMS, "Regulamin");
+    this.linkRow(ctx, SET_PRIV, "Polityka prywatności");
+    this.linkRow(ctx, SET_CONTACT, "Kontakt i pomoc");
+
+    this.linkRow(ctx, SET_LOGOUT, "Wyloguj się", "#c9b7a6");
+
+    ctx.strokeStyle = "rgba(255,107,125,0.5)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, SET_DELETE.x, SET_DELETE.y, SET_DELETE.w, SET_DELETE.h, 12);
+    ctx.stroke();
+    text(ctx, "Usuń konto i dane", SET_DELETE.x + SET_DELETE.w / 2, SET_DELETE.y + SET_DELETE.h / 2, {
+      size: 18,
+      weight: "800",
+      color: "#ff8a97",
+    });
+
+    text(ctx, "Kalibracja opóźnienia dźwięku jest automatyczna.", VW / 2, VH - 84, {
+      size: 13,
+      color: "#6b6055",
+    });
+    text(ctx, `DENIS Impulsywni Live · wersja ${APP_VERSION}`, VW / 2, VH - 56, {
+      size: 13,
       color: "#6b6055",
     });
   }

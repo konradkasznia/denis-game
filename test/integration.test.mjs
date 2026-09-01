@@ -180,8 +180,13 @@ localStorage.removeItem("denis.account");
 const ga = new Game();
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth", "bez konta start na ekranie rejestracji");
-ga.onPress(-1, 360, 620); // ZALOGUJ
-ok(ga.scene === "nick", "po zalogowaniu ekran 'Twój nick'");
+ga.onPress(1, 360, 665); // ZALOGUJ bez zgody -> blokada
+ok(ga.scene === "auth" && !!ga.authError, "bez zgody na regulamin logowanie zablokowane");
+ga.onPress(1, 360, 442); // checkbox: akceptuję regulamin
+ga.onPress(1, 360, 665); // ZALOGUJ
+ok(ga.scene === "nick", "po akceptacji regulaminu i zalogowaniu ekran 'Twój nick'");
+const savedAcc = JSON.parse(localStorage.getItem("denis.account"));
+ok(savedAcc.terms === true && !!savedAcc.termsAt, "akceptacja regulaminu zapisana z datą");
 
 // ranking: wynik trafia do tablicy, liczy się miejsce
 const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");
