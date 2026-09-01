@@ -39,9 +39,17 @@ export function plusDaysIso(days: number): string {
 export function validLogin(s: string): boolean {
   return /^[\p{L}\p{N}._-]{3,18}$/u.test(String(s).trim());
 }
+/** Hasło: 8–200 znaków, przynajmniej jedna wielka litera i jeden znak specjalny. */
 export function validPassword(p: string): boolean {
-  return typeof p === "string" && p.length >= 8 && p.length <= 200;
+  return (
+    typeof p === "string" &&
+    p.length >= 8 &&
+    p.length <= 200 &&
+    /\p{Lu}/u.test(p) &&
+    /[^\p{L}\p{N}]/u.test(p)
+  );
 }
+export const PW_RULE = "Hasło musi mieć min. 8 znaków, wielką literę i znak specjalny.";
 
 // ---- HTTP ----------------------------------------------------------
 

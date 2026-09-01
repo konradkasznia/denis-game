@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "../_lib/db.js";
+import { limitReq } from "../_lib/ratelimit.js";
 import {
   allow,
   body,
@@ -7,6 +8,7 @@ import {
   hashPassword,
   json,
   nowIso,
+  PW_RULE,
   validLogin,
   validPassword,
 } from "../_lib/util.js";
@@ -15,6 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
   try {
     await ensureSchema();
+    if (!(await limitReq(req, "register", 6, 3600)))
+      return json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za jakiś czas." });
     const b = body<{
       login?: string;
       password?: string;
@@ -26,8 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!validLogin(login))
       return json(res, 400, { error: "Login: 3–18 znaków (litery, cyfry, . _ -)." });
-    if (!validPassword(password))
-      return json(res, 400, { error: "Hasło musi mieć co najmniej 8 znaków." });
+    if (!validPassword(password)) return json(res, 400, { error: PW_RULE });
     if (b.password2 != null && password !== String(b.password2))
       return json(res, 400, { error: "Hasła nie są takie same." });
     if (!b.terms)

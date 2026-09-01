@@ -49,9 +49,11 @@ function mask(s: string): string {
 export function validLogin(s: string): boolean {
   return /^[\p{L}\p{N}._-]{3,18}$/u.test(s.trim());
 }
+/** Hasło: min. 8 znaków, przynajmniej jedna wielka litera i jeden znak specjalny. */
 export function validPassword(p: string): boolean {
-  return p.length >= 8;
+  return p.length >= 8 && p.length <= 200 && /\p{Lu}/u.test(p) && /[^\p{L}\p{N}]/u.test(p);
 }
+export const PW_RULE = "Hasło musi mieć min. 8 znaków, wielką literę i znak specjalny.";
 
 function startSession(login: string) {
   saveAccount({
@@ -85,8 +87,7 @@ export async function register(
   const l = login.trim();
   if (!validLogin(l))
     return { ok: false, error: "Login: 3–18 znaków (litery, cyfry, . _ -)." };
-  if (!validPassword(password))
-    return { ok: false, error: "Hasło musi mieć co najmniej 8 znaków." };
+  if (!validPassword(password)) return { ok: false, error: PW_RULE };
   if (password !== password2) return { ok: false, error: "Hasła nie są takie same." };
   if (!opts.terms)
     return { ok: false, error: "Zaznacz akceptację Regulaminu i Polityki prywatności." };

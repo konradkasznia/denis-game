@@ -126,9 +126,14 @@ const DOC_TERMS_URL = "/regulamin.html";
 const DOC_PRIVACY_URL = "/polityka-prywatnosci.html";
 function openDoc(url: string) {
   try {
-    window.open(url, "_blank", "noopener");
+    const w = window.open(url, "_blank", "noopener");
+    if (!w) window.location.href = url; // popup zablokowany (częste na iOS) → nawigacja
   } catch {
-    /* ignore */
+    try {
+      window.location.href = url;
+    } catch {
+      /* ignore */
+    }
   }
 }
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
@@ -567,35 +572,34 @@ export class Game {
     if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
   }
 
-  /** Rozkład pól/przycisków ekranu „PIERWSZY RAZ?" / „ZALOGUJ SIĘ". */
+  /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
   private authRects() {
     const reg = this.authMode === "register";
-    const f1: Rect = { x: A_X, y: 268, w: A_W, h: 82 };
-    const f2: Rect = { x: A_X, y: 366, w: A_W, h: 82 };
-    // oczko podglądu hasła — po prawej, POZA polem <input> (żeby dało się kliknąć)
-    const eye: Rect = { x: f2.x + f2.w - 66, y: f2.y + 9, w: 64, h: 64 };
+    // oba przyciski identycznych rozmiarów (jak w makiecie)
+    const btnW = VW - 112;
+    const btnX = 56;
+    const btnH = 104;
     if (reg) {
       return {
-        f1,
-        f2,
-        eye,
-        terms: { x: A_X, y: 470, w: A_W, h: 64 } as Rect,
-        primary: { x: A_X, y: 566, w: A_W, h: 104 } as Rect,
-        altLabel: { x: A_X, y: 726, w: A_W, h: 30 } as Rect, // "Masz już konto?"
-        alt1: { x: A_X + 30, y: 762, w: A_W - 60, h: 92 } as Rect, // ZALOGUJ SIĘ
-        docT: { x: A_X, y: 900, w: A_W, h: 42 } as Rect,
-        docP: { x: A_X, y: 950, w: A_W, h: 42 } as Rect,
+        f1: { x: A_X, y: 258, w: A_W, h: 84 } as Rect,
+        f2: { x: A_X, y: 392, w: A_W, h: 84 } as Rect,
+        hint: { x: A_X, y: 486, w: A_W, h: 52 } as Rect, // 2 linie pod hasłem
+        terms: { x: A_X, y: 552, w: A_W, h: 64 } as Rect,
+        primary: { x: btnX, y: 638, w: btnW, h: btnH } as Rect, // STWÓRZ KONTO
+        altLabel: { x: A_X, y: 774, w: A_W, h: 30 } as Rect,
+        alt1: { x: btnX, y: 810, w: btnW, h: btnH } as Rect, // ZALOGUJ SIĘ
+        docT: { x: A_X, y: 952, w: A_W, h: 50 } as Rect,
+        docP: { x: A_X, y: 1010, w: A_W, h: 50 } as Rect,
       };
     }
     return {
-      f1,
-      f2,
-      eye,
-      primary: { x: A_X, y: 500, w: A_W, h: 104 } as Rect,
-      altLabel: { x: A_X, y: 660, w: A_W, h: 30 } as Rect, // "Nie masz jeszcze konta?"
-      alt1: { x: A_X + 30, y: 696, w: A_W - 60, h: 92 } as Rect, // STWÓRZ KONTO
-      docT: { x: A_X, y: 850, w: A_W, h: 42 } as Rect,
-      docP: { x: A_X, y: 900, w: A_W, h: 42 } as Rect,
+      f1: { x: A_X, y: 300, w: A_W, h: 84 } as Rect,
+      f2: { x: A_X, y: 398, w: A_W, h: 84 } as Rect,
+      primary: { x: btnX, y: 530, w: btnW, h: btnH } as Rect, // ZALOGUJ SIĘ
+      altLabel: { x: A_X, y: 676, w: A_W, h: 30 } as Rect,
+      alt1: { x: btnX, y: 712, w: btnW, h: btnH } as Rect, // STWÓRZ KONTO
+      docT: { x: A_X, y: 862, w: A_W, h: 50 } as Rect,
+      docP: { x: A_X, y: 920, w: A_W, h: 50 } as Rect,
     };
   }
 
@@ -636,7 +640,7 @@ export class Game {
         key: "loginname",
         type: "text",
         value: this.authLogin,
-        placeholder: "np. WeselnyKrol",
+        placeholder: "Twój nick",
         autocomplete: "username",
         maxLength: 18,
         enterKeyHint: "next",
@@ -653,15 +657,21 @@ export class Game {
         key: "pw",
         type: this.authShowPw ? "text" : "password",
         value: this.authPassword,
-        placeholder: reg ? "min. 8 znaków" : "hasło",
+        placeholder: reg ? "Ustaw hasło" : "Hasło",
         autocomplete: reg ? "new-password" : "current-password",
         enterKeyHint: "go",
-        x: R.f2.x, y: R.f2.y, w: R.f2.w - 62, h: R.f2.h, // miejsce na oczko
+        x: R.f2.x, y: R.f2.y, w: R.f2.w, h: R.f2.h,
         onInput: (v) => {
           this.authPassword = v;
           this.authError = "";
         },
         onEnter: () => this.submitAuth(),
+        reveal: {
+          revealed: this.authShowPw,
+          onToggle: () => {
+            this.authShowPw = !this.authShowPw;
+          },
+        },
       });
     }
     return specs;
@@ -710,15 +720,9 @@ export class Game {
 
   private handleAuthTap(x: number, y: number) {
     if (x < 0) return; // klawiatura / spacja — nic nie rób
-    const R = this.authRects() as Record<string, Rect | undefined>;
-
-    // oczko podglądu hasła — nie zabiera focusu polu
-    if (R.eye && inRect(R.eye, x, y)) {
-      this.authShowPw = !this.authShowPw;
-      return;
-    }
-    // pozostałe stuknięcia = interakcja z UI poza polami → chowamy klawiaturę
+    // stuknięcie w canvas = poza polami (pola i oczko to elementy DOM) → chowamy klawiaturę
     this.fields.blur();
+    const R = this.authRects() as Record<string, Rect | undefined>;
 
     if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
     if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
@@ -1382,22 +1386,9 @@ export class Game {
     text(ctx, "wczytywanie…", VW / 2, VH / 2, { size: 34, color: "#ffce8a" });
   }
 
-  // ---- ekran: rejestracja / logowanie (zamarkowane) -------------
-
-  /**
-   * Etykieta nad polem. Ramkę i wartość rysuje prawdziwy <input> z nakładki
-   * (`FieldOverlay`) ułożony na tym prostokącie — dzięki temu na telefonie wysuwa
-   * się natywna klawiatura. Tło pola jest półprzezroczyste (czytelne).
-   */
-  private field(ctx: CanvasRenderingContext2D, r: Rect, label: string) {
-    text(ctx, label, r.x + 4, r.y - 14, {
-      size: 14,
-      align: "left",
-      color: "#c9b7a6",
-      weight: "700",
-      letterSpacing: "2px",
-    });
-  }
+  // ---- ekran: rejestracja / logowanie --------------------------
+  // Pola (ramka + wartość + oczko) to elementy DOM z `FieldOverlay` ułożone na
+  // prostokątach f1/f2 — dzięki temu na telefonie wysuwa się natywna klawiatura.
 
   /** Kwadratowy checkbox z etykietą w wierszu `r`. */
   private checkboxRow(
@@ -1436,40 +1427,12 @@ export class Game {
 
   private authLink(ctx: CanvasRenderingContext2D, r: Rect, label: string, color = "#ffce8a") {
     text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, {
-      size: 17,
+      size: 21,
       weight: "900",
       font: HEAD_FONT,
       color,
       letterSpacing: "2px",
     });
-  }
-
-  /** Ikona „oczko" do podglądu hasła. `open` = pokazuj otwarte oko (hasło ukryte). */
-  private drawEye(ctx: CanvasRenderingContext2D, r: Rect, open: boolean) {
-    const cx = r.x + r.w / 2;
-    const cy = r.y + r.h / 2;
-    ctx.save();
-    ctx.strokeStyle = "#ffce8a";
-    ctx.lineWidth = 2.6;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(cx - 16, cy);
-    ctx.quadraticCurveTo(cx, cy - 12, cx + 16, cy);
-    ctx.quadraticCurveTo(cx, cy + 12, cx - 16, cy);
-    ctx.stroke();
-    ctx.fillStyle = "#ffce8a";
-    ctx.beginPath();
-    ctx.arc(cx, cy, 4.6, 0, Math.PI * 2);
-    ctx.fill();
-    if (!open) {
-      ctx.strokeStyle = "#ff8a97";
-      ctx.beginPath();
-      ctx.moveTo(cx - 17, cy - 13);
-      ctx.lineTo(cx + 17, cy + 13);
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   private drawAuth(ctx: CanvasRenderingContext2D) {
@@ -1486,27 +1449,38 @@ export class Game {
       letterSpacing: "2px",
     });
 
-    // pola (ramkę + wartość rysuje prawdziwy <input> z nakładki)
-    if (R.f1) {
-      this.field(ctx, R.f1, "NICK");
-      if (reg && this.authLogin.length >= 3) {
-        const s = this.authLoginState;
-        const msg =
-          s === "checking" ? "sprawdzam…" : s === "free" ? "✓ wolny" : s === "taken" ? "✗ zajęty" : "";
-        const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#8a7c6e";
-        if (msg) {
-          text(ctx, msg, R.f1.x + R.f1.w - 4, R.f1.y - 14, {
-            size: 13,
-            align: "right",
-            weight: "700",
-            color: col,
-          });
-        }
+    // dostępność loginu — pod polem nicku
+    if (R.f1 && reg && this.authLogin.length >= 3) {
+      const s = this.authLoginState;
+      const msg =
+        s === "checking" ? "sprawdzam…" : s === "free" ? "✓ nick wolny" : s === "taken" ? "✗ nick zajęty" : "";
+      const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#9a8c7c";
+      if (msg) {
+        text(ctx, msg, R.f1.x + 6, R.f1.y + R.f1.h + 20, {
+          size: 14,
+          align: "left",
+          weight: "700",
+          color: col,
+        });
       }
     }
-    if (R.f2) {
-      this.field(ctx, R.f2, "HASŁO");
-      if (R.eye) this.drawEye(ctx, R.eye, !this.authShowPw);
+
+    // info pod hasłem (rejestracja): wymagania + brak odzyskiwania
+    if (R.hint) {
+      text(
+        ctx,
+        "Min. 8 znaków, wielka litera i znak specjalny.",
+        R.hint.x + 6,
+        R.hint.y + 6,
+        { size: 14, align: "left", color: "#c9b7a6" },
+      );
+      text(
+        ctx,
+        "Hasła nie da się odzyskać — zapisz je w bezpiecznym miejscu.",
+        R.hint.x + 6,
+        R.hint.y + 30,
+        { size: 14, align: "left", color: "#b7a291" },
+      );
     }
 
     // zgoda (rejestracja)
@@ -1516,24 +1490,12 @@ export class Game {
       ]);
     }
 
-    // przycisk główny — grafika PNG
+    // przyciski — oba z PNG, identycznych rozmiarów
     if (R.primary) {
       this.uiButton(ctx, R.primary, reg ? "stworz-konto" : "zaloguj-sie", {
         fallback: reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ",
       });
     }
-
-    if (reg && R.primary) {
-      text(
-        ctx,
-        "Zapamiętaj hasło — nie da się go odzyskać.",
-        VW / 2,
-        R.primary.y + R.primary.h + 22,
-        { size: 13, color: "#b7a291" },
-      );
-    }
-
-    // przełączenie trybu
     if (R.altLabel) {
       text(ctx, reg ? "Masz już konto?" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 16, {
         size: 18,
@@ -1542,7 +1504,9 @@ export class Game {
       });
     }
     if (R.alt1) {
-      this.styledBtn(ctx, R.alt1, reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO", "dark-gold");
+      this.uiButton(ctx, R.alt1, reg ? "zaloguj-sie" : "stworz-konto", {
+        fallback: reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO",
+      });
     }
 
     // dokumenty

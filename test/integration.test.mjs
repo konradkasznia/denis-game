@@ -183,12 +183,12 @@ const ga = new Game();
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && ga.authMode === "register", "bez konta start na ekranie PIERWSZY RAZ");
 ga.authLogin = "TestGracz";
-ga.authPassword = "haslo12345";
-ga.onPress(1, 360, 618); // STWÓRZ KONTO bez zgody -> blokada
+ga.authPassword = "Haslo123!";
+ga.onPress(1, 360, 690); // STWÓRZ KONTO bez zgody -> blokada
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && !!ga.authError, "rejestracja bez zgody na regulamin zablokowana");
-ga.onPress(1, 360, 500); // checkbox: akceptuję regulamin
-ga.onPress(1, 360, 618); // STWÓRZ KONTO
+ga.onPress(1, 360, 584); // checkbox: akceptuję regulamin
+ga.onPress(1, 360, 690); // STWÓRZ KONTO
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "hits", "po rejestracji z akceptacją -> od razu WYBIERZ HIT");
 const savedAcc = JSON.parse(localStorage.getItem("denis.account"));
@@ -196,7 +196,7 @@ ok(savedAcc.terms === true && savedAcc.login === "TestGracz", "konto zapisane z 
 const { login: apiLogin2 } = await import("../src/authApi.ts");
 const bad = await apiLogin2("TestGracz", "zlehaslo1");
 ok(bad.ok === false, "logowanie ze złym hasłem odrzucone");
-const good = await apiLogin2("testgracz", "haslo12345");
+const good = await apiLogin2("testgracz", "Haslo123!");
 ok(good.ok === true, "logowanie z poprawnym hasłem OK (login bez rozróżniania wielkości liter)");
 
 // ranking: wynik trafia do tablicy, liczy się miejsce

@@ -26,7 +26,14 @@ export interface FieldSpec {
   h: number;
   onInput: (v: string) => void;
   onEnter?: () => void;
+  /** ikonka „oczko" w polu (podgląd hasła). `revealed` = hasło widoczne. */
+  reveal?: { revealed: boolean; onToggle: () => void };
 }
+
+const EYE_OPEN =
+  '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffce8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
+const EYE_OFF =
+  '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#c9b7a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.7 9.7 0 0 1 12 6c7 0 10.5 6 10.5 6a17 17 0 0 1-3.4 4M6.2 8.2A16.7 16.7 0 0 0 1.5 12S5 18 12 18a10 10 0 0 0 4-.8"/><path d="M9.8 9.8a3.2 3.2 0 0 0 4.4 4.4"/></svg>';
 
 const BASE_CSS = [
   "position:fixed",
@@ -51,6 +58,7 @@ export class FieldOverlay {
   private canvas: HTMLCanvasElement | null;
   private root: HTMLDivElement | null = null;
   private inputs = new Map<string, HTMLInputElement>();
+  private eyes = new Map<string, HTMLButtonElement>();
   private specs = new Map<string, FieldSpec>();
   private styleInjected = false;
   private sig = "";
@@ -84,7 +92,13 @@ export class FieldOverlay {
     const rect = this.canvas ? this.canvas.getBoundingClientRect() : ({ left: 0, top: 0 } as DOMRect);
     const sc = Math.round((viewport.scale || 1) * 1000);
     const base = `${Math.round(rect.left)},${Math.round(rect.top)},${sc}`;
-    return base + "|" + specs.map((s) => `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}`).join(";");
+    return (
+      base +
+      "|" +
+      specs
+        .map((s) => `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}:${s.reveal ? +s.reveal.revealed : "n"}`)
+        .join(";")
+    );
   }
 
   /** Ustawia zestaw pól. DOM ruszamy tylko gdy zmieni się układ (sygnatura). */
@@ -101,6 +115,13 @@ export class FieldOverlay {
         el.remove();
         this.inputs.delete(k);
         this.specs.delete(k);
+      }
+    }
+    for (const [k, btn] of this.eyes) {
+      const spec = specs.find((s) => s.key === k);
+      if (!spec || !spec.reveal) {
+        btn.remove();
+        this.eyes.delete(k);
       }
     }
     for (const s of specs) {
@@ -136,6 +157,32 @@ export class FieldOverlay {
       }
       // wartość z zewnątrz podmieniamy tylko gdy pole nie jest edytowane
       if (document.activeElement !== el && el.value !== s.value) el.value = s.value;
+
+      // oczko w polu
+      if (s.reveal) {
+        let btn = this.eyes.get(s.key);
+        if (!btn) {
+          btn = document.createElement("button");
+          btn.type = "button";
+          btn.tabIndex = -1;
+          btn.setAttribute("aria-label", "Pokaż lub ukryj hasło");
+          btn.style.cssText =
+            "position:fixed;display:flex;align-items:center;justify-content:center;" +
+            "background:transparent;border:0;padding:0;margin:0;cursor:pointer;" +
+            "pointer-events:auto;-webkit-tap-highlight-color:transparent";
+          const key = s.key;
+          // pointerdown + preventDefault -> nie zabiera focusu polu (klawiatura zostaje)
+          btn.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.specs.get(key)?.reveal?.onToggle();
+          });
+          this.root!.appendChild(btn);
+          this.eyes.set(key, btn);
+        }
+        btn.innerHTML = s.reveal.revealed ? EYE_OFF : EYE_OPEN;
+      }
+
       this.specs.set(s.key, s);
     }
     this.reposition();
@@ -149,15 +196,34 @@ export class FieldOverlay {
     for (const [k, el] of this.inputs) {
       const s = this.specs.get(k);
       if (!s) continue;
-      el.style.left = `${Math.round(rect.left + s.x * sc)}px`;
-      el.style.top = `${Math.round(rect.top + s.y * sc)}px`;
-      el.style.width = `${Math.round(s.w * sc)}px`;
-      el.style.height = `${Math.round(s.h * sc)}px`;
+      const left = Math.round(rect.left + s.x * sc);
+      const top = Math.round(rect.top + s.y * sc);
+      const w = Math.round(s.w * sc);
+      const h = Math.round(s.h * sc);
+      const eyeW = s.reveal ? Math.round(52 * sc) : 0;
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
       el.style.fontSize = `${Math.max(16, Math.round(20 * sc))}px`;
       el.style.paddingLeft = `${Math.round(18 * sc)}px`;
-      el.style.paddingRight = `${Math.round(18 * sc)}px`;
+      el.style.paddingRight = `${Math.round(18 * sc) + eyeW}px`;
       el.style.paddingTop = "0px";
       el.style.paddingBottom = "0px";
+      const btn = this.eyes.get(k);
+      if (btn) {
+        const bs = Math.round(44 * sc);
+        btn.style.left = `${left + w - eyeW - Math.round(4 * sc)}px`;
+        btn.style.top = `${top + (h - bs) / 2}px`;
+        btn.style.width = `${bs}px`;
+        btn.style.height = `${bs}px`;
+        const svg = btn.querySelector("svg");
+        if (svg) {
+          const iss = Math.max(18, Math.round(24 * sc));
+          svg.setAttribute("width", `${iss}`);
+          svg.setAttribute("height", `${iss}`);
+        }
+      }
     }
   }
 
@@ -177,9 +243,11 @@ export class FieldOverlay {
   /** Usuwa wszystkie pola (wyjście z ekranu logowania). */
   clear() {
     this.sig = "";
-    if (this.inputs.size === 0) return;
+    if (this.inputs.size === 0 && this.eyes.size === 0) return;
     for (const el of this.inputs.values()) el.remove();
+    for (const btn of this.eyes.values()) btn.remove();
     this.inputs.clear();
+    this.eyes.clear();
     this.specs.clear();
   }
 }

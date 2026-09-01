@@ -31,6 +31,11 @@ export const SCHEMA_SQL: string[] = [
     PRIMARY KEY (user_id, song_id)
   )`,
   `CREATE INDEX IF NOT EXISTS scores_song_idx ON scores (song_id, score DESC)`,
+  `CREATE TABLE IF NOT EXISTS rate_limits (
+    k TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS rate_limits_k_idx ON rate_limits (k, ts)`,
 ];
 
 /**

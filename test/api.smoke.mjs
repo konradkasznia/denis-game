@@ -42,7 +42,7 @@ ok(true, "schemat utworzony");
 const now = new Date().toISOString();
 
 // --- rejestracja ---
-const pw = await hashPassword("haslo12345");
+const pw = await hashPassword("Haslo123!");
 const ins = await c.execute({
   sql: `INSERT INTO users (login, pw_hash, nick, terms, terms_at, created_at)
         VALUES (?, ?, '', 1, ?, ?)`,
@@ -70,7 +70,7 @@ const lookup = await c.execute({
 ok(lookup.rows.length === 1, "wyszukanie po loginie bez rozróżniania wielkości liter");
 
 // --- logowanie ---
-ok(await verifyPassword("haslo12345", String(lookup.rows[0].pw_hash)), "poprawne hasło przechodzi");
+ok(await verifyPassword("Haslo123!", String(lookup.rows[0].pw_hash)), "poprawne hasło przechodzi");
 ok(!(await verifyPassword("zle", String(lookup.rows[0].pw_hash))), "złe hasło odrzucone");
 
 // --- sesja ---

@@ -3,12 +3,15 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "../_lib/db.js";
+import { limitReq } from "../_lib/ratelimit.js";
 import { allow, json, validLogin } from "../_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET"])) return;
   try {
     await ensureSchema();
+    if (!(await limitReq(req, "check", 80, 60)))
+      return json(res, 200, { ok: true, available: true, reason: "rate" });
     const login = String(req.query.login || "").trim();
     if (!validLogin(login))
       return json(res, 200, { ok: true, available: false, reason: "format" });
