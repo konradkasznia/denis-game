@@ -37,7 +37,6 @@ type Scene =
   | "loading"
   | "auth"
   | "nick"
-  | "menu"
   | "hits"
   | "board"
   | "rewards"
@@ -75,21 +74,24 @@ const MAX_FLOW_TIER = 4; // mnożnik x1..x5
 const STAR_MARKS = [0.22, 0.44, 0.7, 0.86, 0.97];
 const PASS_RATING = 0.7;
 
-// --- strefy dotyku menu ---
-const MENU_START: Rect = { x: VW / 2 - 210, y: 600, w: 420, h: 116 };
+// --- strefy dotyku ---
 const BACK: Rect = { x: 16, y: 36, w: 170, h: 62 };
 
 // --- modal „włącz dźwięk" (nad ekranem startowym) ---
 const MODAL_OK: Rect = { x: VW / 2 - 170, y: 792, w: 340, h: 92 };
 
 // --- karuzela WYBIERZ HIT (makieta 1080×1920 -> 720×1280) ---
-const HIT_GEAR: Rect = { x: VW - 84, y: 32, w: 66, h: 72 };
-const HIT_LOGO: Rect = { x: VW / 2 - 285, y: 72, w: 570, h: 190 };
-const HIT_ARROW_L: Rect = { x: VW / 2 - 214, y: 232, w: 60, h: 60 };
-const HIT_ARROW_R: Rect = { x: VW / 2 + 154, y: 232, w: 60, h: 60 };
-const HIT_GRAJ: Rect = { x: MARGIN, y: 988, w: VW - MARGIN * 2, h: 102 };
-const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
-const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
+const HIT_GEAR: Rect = { x: VW - 82, y: 30, w: 62, h: 68 };
+const HIT_LOGO: Rect = { x: VW / 2 - 280, y: 64, w: 560, h: 190 };
+// strzałki przy krawędziach ekranu — nigdy pod tekstem
+const HIT_ARROW_L: Rect = { x: 18, y: 250, w: 66, h: 66 };
+const HIT_ARROW_R: Rect = { x: VW - 84, y: 250, w: 66, h: 66 };
+const HIT_LEVEL_Y = 284; // środek napisu „POZIOM N"
+const HIT_TITLE_Y = 352;
+const HIT_STARS_Y = 408;
+const HIT_GRAJ: Rect = { x: MARGIN, y: 980, w: VW - MARGIN * 2, h: 104 };
+const HIT_RES: Rect = { x: MARGIN, y: 1098, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
+const HIT_REW: Rect = { x: VW / 2 + 9, y: 1098, w: (VW - MARGIN * 2) / 2 - 9, h: 96 };
 
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
@@ -244,13 +246,30 @@ export class Game {
     this.audio.setSfxEnabled(this.settings.sfx);
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
+    // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
+    for (const n of [
+      "stage-bg.png", "wybierz-hit.png", "gear.png",
+      "star-full.png", "star-half.png", "star-empty.png",
+      "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
+      "reward-denis.png",
+      ...SONGS.map((s) => `select-${s.id}.png`),
+    ]) {
+      loadImg(`assets/ui/${n}`);
+    }
   }
 
-  /** Pierwszy ekran po wczytaniu: rejestracja → nick → menu. */
+  /** Pierwszy ekran po wczytaniu: rejestracja → nick → WYBIERZ HIT. */
   private gotoStart() {
     if (!hasAccount()) this.scene = "auth";
     else if (needsNick()) this.scene = "nick";
-    else this.scene = "menu";
+    else this.enterHitsFresh();
+  }
+
+  /** Wejście do karuzeli od zera — z modalem „włącz dźwięk" (raz na sesję). */
+  private enterHitsFresh() {
+    this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
+    if (!this.soundHintDone) this.soundModal = true;
+    this.scene = "hits";
   }
 
   private async preloadChart() {
@@ -395,9 +414,6 @@ export class Game {
       case "nick":
         this.drawNick(ctx);
         break;
-      case "menu":
-        this.drawMenu(ctx);
-        break;
       case "hits":
         this.drawHits(ctx);
         break;
@@ -417,6 +433,8 @@ export class Game {
         this.drawResults(ctx);
         break;
     }
+
+    if (this.soundModal) this.drawSoundModal(ctx);
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -439,7 +457,7 @@ export class Game {
         });
         text(ctx, "stuknij, aby przerwać", VW / 2, VH / 2 + 90, { size: 18, color: "#6b6055" });
       }
-    } else if (this.loadError && (this.scene === "menu" || this.scene === "hits")) {
+    } else if (this.loadError && this.scene === "hits") {
       const lines = wrapText(this.loadError, 46);
       lines.forEach((ln, i) =>
         text(ctx, ln, VW / 2, VH - 150 + i * 26, { size: 18, color: "#ff8a97" }),
@@ -457,9 +475,15 @@ export class Game {
 
   onPress(lane: number, x: number, y: number) {
     if (this.preparing) return this.cancelPrepare();
+    if (this.soundModal) {
+      if (x < 0 || inRect(MODAL_OK, x, y)) {
+        this.soundModal = false;
+        this.soundHintDone = true;
+      }
+      return;
+    }
     if (this.scene === "auth") return this.handleAuthTap(x, y);
     if (this.scene === "nick") return this.handleNickTap(x, y);
-    if (this.scene === "menu") return this.handleMenuTap(x, y);
     if (this.scene === "hits") return this.handleHitsTap(x, y);
     if (this.scene === "board") return this.handleBoardTap(x, y);
     if (this.scene === "rewards") return this.handleRewardsTap(x, y);
@@ -513,27 +537,12 @@ export class Game {
     }
     if (n && n.trim()) {
       setNick(n);
-      this.scene = "menu";
+      if (this.scene === "nick") this.enterHitsFresh();
     }
   }
 
   private handleNickTap(x: number, y: number) {
     if (x < 0 || inRect(NICK_FIELD, x, y) || inRect(NICK_SAVE, x, y)) this.promptNick();
-  }
-
-  private handleMenuTap(x: number, y: number) {
-    if (this.soundModal) {
-      if (x < 0 || inRect(MODAL_OK, x, y)) {
-        this.soundModal = false;
-        this.soundHintDone = true;
-        this.enterHits();
-      }
-      return;
-    }
-    if (x < 0 || inRect(MENU_START, x, y)) {
-      if (this.soundHintDone) this.enterHits();
-      else this.soundModal = true;
-    }
   }
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
@@ -656,6 +665,7 @@ export class Game {
 
   private async startPlay() {
     if (this.preparing) return;
+    this.soundModal = false;
     const myId = ++this.prepId;
     this.preparing = true;
     this.prepStep = "przygotowanie";
@@ -771,7 +781,7 @@ export class Game {
     if (inRect(PZ_MENU, x, y)) {
       this.audio.stop();
       this.paused = false;
-      this.scene = "menu";
+      this.scene = "hits";
     }
   }
 
@@ -1276,8 +1286,8 @@ export class Game {
       weight: "700",
     });
     // strzałki między utworami
-    this.arrowBtn(ctx, BOARD_ARROW_L, "‹", i > 0);
-    this.arrowBtn(ctx, BOARD_ARROW_R, "›", i < SONGS.length - 1);
+    this.arrowBtn(ctx, BOARD_ARROW_L, "left", i > 0);
+    this.arrowBtn(ctx, BOARD_ARROW_R, "right", i < SONGS.length - 1);
     text(ctx, "INNY UTWÓR", VW / 2, 1218, { size: 15, color: "#8a7c6e", letterSpacing: "3px" });
     text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 100, {
       size: 34,
@@ -1341,72 +1351,6 @@ export class Game {
         color: "#8affc1",
       });
     }
-  }
-
-  // ---- ekran: menu --------------------------------------------
-
-  private drawMenu(ctx: CanvasRenderingContext2D) {
-    const pulse = this.beatPulse();
-    this.drawStage(ctx, 0.22, pulse);
-
-    // --- powitanie ---
-    text(ctx, "DENIS", VW / 2, 156, {
-      size: 112,
-      weight: "800",
-      color: "#fff7ec",
-      glow: "#ffb457",
-      glowBlur: 34,
-      letterSpacing: "6px",
-    });
-    text(ctx, "IMPULSYWNI", VW / 2, 238, {
-      size: 36,
-      weight: "700",
-      color: "#ffce8a",
-      letterSpacing: "16px",
-    });
-    // plakietka LIVE
-    const lw = 150;
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,180,90,0.7)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, VW / 2 - lw / 2, 276, lw, 46, 23);
-    ctx.stroke();
-    const dot = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-    ctx.fillStyle = `rgba(255,94,110,${0.5 + dot * 0.5})`;
-    ctx.beginPath();
-    ctx.arc(VW / 2 - 34, 299, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    text(ctx, "LIVE", VW / 2 + 8, 300, { size: 22, weight: "800", color: "#fff7ec", letterSpacing: "4px" });
-
-    text(ctx, "gra rytmiczna", VW / 2, 372, { size: 20, color: "#8a7c6e", letterSpacing: "8px" });
-
-    // --- STARTUJEMY! ---
-    const bs = 1 + pulse * 0.035;
-    ctx.save();
-    ctx.translate(VW / 2, MENU_START.y + MENU_START.h / 2);
-    ctx.scale(bs, bs);
-    const grad = ctx.createLinearGradient(-MENU_START.w / 2, 0, MENU_START.w / 2, 0);
-    grad.addColorStop(0, "#ff9f43");
-    grad.addColorStop(1, "#ff5e7e");
-    ctx.fillStyle = grad;
-    ctx.shadowColor = "rgba(255,120,90,0.6)";
-    ctx.shadowBlur = 34;
-    roundRect(ctx, -MENU_START.w / 2, -MENU_START.h / 2, MENU_START.w, MENU_START.h, MENU_START.h / 2);
-    ctx.fill();
-    ctx.restore();
-    text(ctx, "STARTUJEMY!", VW / 2, MENU_START.y + MENU_START.h / 2, {
-      size: 42,
-      weight: "800",
-      color: "#1a0d12",
-    });
-
-    text(ctx, `Najlepszy wynik: ${bestScore().toLocaleString("pl-PL")}`, VW / 2, 1090, {
-      size: 19,
-      color: "#ffce8a",
-    });
-
-    if (this.soundModal) this.drawSoundModal(ctx);
   }
 
   // ---- modal „włącz dźwięk" ----------------------------------
@@ -1498,8 +1442,13 @@ export class Game {
     });
   }
 
-  /** Okrągła złota strzałka nawigacji. `on` = aktywna. */
-  private arrowBtn(ctx: CanvasRenderingContext2D, r: Rect, glyph: string, on: boolean) {
+  /** Strzałka nawigacji (grafika z assets/ui). `dir` = "left" | "right", `on` = aktywna. */
+  private arrowBtn(ctx: CanvasRenderingContext2D, r: Rect, dir: "left" | "right", on: boolean) {
+    const img = this.uiImg(`arrow-${dir}${on ? "" : "-disabled"}.png`);
+    if (imgReady(img)) {
+      ctx.drawImage(img, r.x, r.y, r.w, r.h);
+      return;
+    }
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
     ctx.save();
@@ -1507,10 +1456,7 @@ export class Game {
     ctx.arc(cx, cy, r.w / 2, 0, Math.PI * 2);
     ctx.fillStyle = on ? "#f2a51e" : "rgba(120,120,128,0.35)";
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = on ? "rgba(255,220,120,0.9)" : "rgba(255,255,255,0.15)";
-    ctx.stroke();
-    text(ctx, glyph, cx, cy - 1, {
+    text(ctx, dir === "left" ? "‹" : "›", cx, cy - 1, {
       size: 34,
       weight: "900",
       font: HEAD_FONT,
@@ -1568,22 +1514,32 @@ export class Game {
       });
     }
 
-    // POZIOM N + strzałki
-    text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_ARROW_L.y + 30, {
-      size: 26,
+    // POZIOM N + strzałki (przy krawędziach, nigdy pod tekstem)
+    text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
+      size: 28,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffd24c",
       letterSpacing: "4px",
       shadows: HEAD_SHADOWS,
     });
-    this.arrowBtn(ctx, HIT_ARROW_L, "‹", idx > 0);
-    this.arrowBtn(ctx, HIT_ARROW_R, "›", idx < this.maxHitIndex());
+    this.arrowBtn(ctx, HIT_ARROW_L, "left", idx > 0);
+    this.arrowBtn(ctx, HIT_ARROW_R, "right", idx < this.maxHitIndex());
 
-    // tytuł
+    // tytuł (auto-zmniejszanie, żeby zmieścił się między strzałkami)
     const title = meta ? meta.title.toUpperCase() : "JUŻ WKRÓTCE!";
-    text(ctx, title, VW / 2, 306, {
-      size: title.length > 12 ? 44 : 56,
+    const maxTitleW = HIT_ARROW_R.x - (HIT_ARROW_L.x + HIT_ARROW_L.w) - 24;
+    let tSize = 58;
+    ctx.save();
+    const measure = () => {
+      ctx.font = `900 ${tSize}px ${HEAD_FONT}`;
+      const w = ctx.measureText(title)?.width;
+      return typeof w === "number" ? w : 0;
+    };
+    while (tSize > 30 && measure() > maxTitleW) tSize -= 2;
+    ctx.restore();
+    text(ctx, title, VW / 2, HIT_TITLE_Y, {
+      size: tSize,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
@@ -1591,7 +1547,7 @@ export class Game {
     });
 
     // gwiazdki (najlepszy wynik dla tego utworu)
-    if (meta) this.starRow(ctx, VW / 2, 360, 20, bestStars(meta.id));
+    if (meta) this.starRow(ctx, VW / 2, HIT_STARS_Y, 20, bestStars(meta.id));
 
     // postać
     this.drawSelectChar(ctx, idx, unlocked);
@@ -1633,7 +1589,7 @@ export class Game {
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
-    const box: Rect = { x: 110, y: 392, w: VW - 220, h: 560 };
+    const box: Rect = { x: 90, y: 436, w: VW - 180, h: 520 };
     let src: HTMLImageElement | null = null;
     if (meta) {
       const named = this.uiImg(`select-${meta.id}.png`);

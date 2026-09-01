@@ -165,10 +165,13 @@ ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 console.log("\n· render wszystkich ekranów:");
 const gr = new Game();
 await new Promise((r) => setTimeout(r, 5));
-for (const sc of ["loading", "auth", "nick", "menu", "hits", "board", "rewards", "profile", "results", "play"]) {
+for (const sc of ["loading", "auth", "nick", "hits", "board", "rewards", "profile", "results", "play"]) {
   gr.scene = sc;
   gr.render(ctx);
 }
+gr.soundModal = true;
+gr.render(ctx);
+gr.soundModal = false;
 ok(true, "wszystkie ekrany renderują się bez błędu");
 
 // rejestracja → nick
@@ -191,21 +194,20 @@ ok(gapToTop("pogrzebowka", 10) >= 0, "policzony dystans do top 10");
 const rank2 = submitScore("pogrzebowka", 1500000);
 ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 
-// nawigacja: menu → modal dźwięku → WYBIERZ HIT → tablica → z powrotem
+// nawigacja: modal dźwięku → WYBIERZ HIT → tablica / nagrody / profil
+localStorage.setItem("denis.account", JSON.stringify({ nick: "Test", marketing: false }));
 const gn = new Game();
 await new Promise((r) => setTimeout(r, 5));
-gn.scene = "menu";
-gn.onPress(-1, -1, -1); // STARTUJEMY! → modal
-ok(gn.soundModal === true, "STARTUJEMY! pokazuje modal dźwięku");
+ok(gn.scene === "hits" && gn.soundModal === true, "po wczytaniu: modal dźwięku nad karuzelą");
 gn.onPress(-1, -1, -1); // ROZUMIEM
-ok(gn.scene === "hits", "po modalu wchodzi w WYBIERZ HIT");
-gn.onPress(1, 80, 1150); // WYNIKI (lewy przycisk dolnego rzędu)
+ok(gn.soundModal === false && gn.scene === "hits", "modal zamyka się, zostaje WYBIERZ HIT");
+gn.onPress(1, 80, 1140); // WYNIKI (lewy przycisk dolnego rzędu)
 ok(gn.scene === "board", "WYNIKI otwiera tablicę utworu");
 gn.onPress(-1, 60, 66); // WRÓĆ
 ok(gn.scene === "hits", "WRÓĆ z tablicy wraca do karuzeli");
-gn.onPress(1, 640, 1150); // NAGRODY (prawy przycisk)
+gn.onPress(1, 640, 1140); // NAGRODY (prawy przycisk)
 ok(gn.scene === "rewards", "NAGRODY otwiera ekran nagród");
-gn.onPress(-1, 60, 1130); // POWRÓT
+gn.onPress(-1, 60, 1120); // POWRÓT
 ok(gn.scene === "hits", "POWRÓT z nagród wraca do karuzeli");
 gn.onPress(1, 665, 60); // zębatka (prawy górny róg)
 ok(gn.scene === "profile", "zębatka otwiera profil");
