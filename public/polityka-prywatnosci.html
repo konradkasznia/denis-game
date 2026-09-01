@@ -13,16 +13,18 @@
         background: #0b0b12;
         color: #e7e2da;
         font: 16px/1.65 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
-        padding: 28px 20px 80px;
+        padding: 28px 20px 96px;
       }
       main { max-width: 760px; margin: 0 auto; }
-      h1 { font-size: 26px; color: #ffce8a; margin: 0 0 4px; }
+      h1 { font-size: 26px; color: #ffce8a; margin: 8px 0 4px; }
       h2 { font-size: 19px; color: #ffce8a; margin: 34px 0 10px; }
+      h3 { font-size: 16px; color: #ffe0b0; margin: 20px 0 6px; }
       p, li { margin: 8px 0; }
       ol { padding-left: 22px; }
       ol > li { margin: 10px 0; }
       a { color: #ff9f43; }
-      .meta { color: #8a7c6e; font-size: 14px; margin-bottom: 24px; }
+      .back { font-size: 14px; }
+      .meta { color: #8a7c6e; font-size: 14px; margin-bottom: 20px; }
       .note {
         background: #17131d;
         border: 1px solid #3a2f22;
@@ -33,7 +35,7 @@
         margin: 18px 0;
       }
       .scroll { overflow-x: auto; }
-      table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; min-width: 620px; }
+      table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; min-width: 640px; }
       td, th { border: 1px solid #2c2636; padding: 8px 10px; text-align: left; vertical-align: top; }
       th { background: #17131d; color: #ffe0b0; }
       code { background: #17131d; padding: 1px 5px; border-radius: 4px; color: #ffce8a; }
@@ -42,147 +44,213 @@
   </head>
   <body>
     <main>
-      <p><a href="/">&larr; Wróć do gry</a></p>
+      <p class="back"><a href="/">&larr; Wróć do gry</a></p>
       <h1>Polityka Prywatności aplikacji „DENIS Impulsywni Live”</h1>
-      <p class="meta">Wersja 1.0 &nbsp;·&nbsp; obowiązuje od dnia <code>[[DATA WEJŚCIA W ŻYCIE]]</code></p>
+      <p class="meta">Wersja 2.0 &nbsp;·&nbsp; obowiązuje od dnia <code>[[DATA WEJŚCIA W ŻYCIE]]</code></p>
 
       <div class="note">
-        Miejsca oznaczone <code>[[...]]</code> uzupełnij przed publikacją. Listę dostawców
-        (hosting, analityka) dostosuj do faktycznie używanych narzędzi. Aplikacja nie
-        zbiera adresu e-mail — Konto zakłada się na login i hasło. Dokument to projekt —
-        przed udostępnieniem zweryfikuj go z prawnikiem / IOD.
+        Przed publikacją uzupełnij dane oznaczone <code>[[...]]</code> (dane
+        administratora, adres e-mail do kontaktu w sprawach danych, data wejścia w
+        życie). Pozostała treść jest kompletną klauzulą informacyjną w rozumieniu
+        art. 13 RODO, dostosowaną do modelu konta login + hasło (bez e-maila).
       </div>
 
       <h2>1. Administrator danych</h2>
       <p>
-        Administratorem danych osobowych jest <strong>[[NAZWA / IMIĘ I NAZWISKO]]</strong>,
-        <span>[[FORMA PRAWNA, ADRES]]</span>, <span>[[NIP / REGON, jeśli dotyczy]]</span>
-        (dalej: <strong>Administrator</strong>).
+        Administratorem Twoich danych osobowych jest <strong>[[NAZWA / IMIĘ I
+        NAZWISKO]]</strong>, <span>[[FORMA PRAWNA I ADRES]]</span>,
+        <span>[[NIP / REGON, jeśli dotyczy]]</span> (dalej: <strong>Administrator</strong>).
       </p>
-      <p>Kontakt w sprawach danych osobowych: <strong>[[E-MAIL DO SPRAW RODO]]</strong>.</p>
-      <p><span>[[Jeśli powołano Inspektora Ochrony Danych — podać dane kontaktowe IOD.]]</span></p>
+      <p>
+        We wszystkich sprawach dotyczących danych osobowych i realizacji Twoich praw
+        możesz kontaktować się pod adresem: <strong>[[E-MAIL DO SPRAW DANYCH /
+        E-MAIL KONTAKTOWY]]</strong>.
+      </p>
+      <p>Administrator nie wyznaczył Inspektora Ochrony Danych.</p>
 
       <h2>2. Jakie dane przetwarzamy, w jakim celu i na jakiej podstawie</h2>
+      <p>
+        Aplikacja <strong>nie zbiera adresu e-mail ani numeru telefonu</strong>.
+        Konto zakłada się na login (nazwę użytkownika) i hasło.
+      </p>
       <div class="scroll">
       <table>
-        <tr><th>Cel</th><th>Dane</th><th>Podstawa prawna (RODO)</th><th>Okres przechowywania</th></tr>
+        <tr><th>Cel przetwarzania</th><th>Kategorie danych</th><th>Podstawa prawna (RODO)</th><th>Okres przechowywania</th></tr>
         <tr>
-          <td>Założenie i prowadzenie Konta, umożliwienie gry</td>
-          <td>login (nazwa użytkownika), hasło (w postaci skrótu kryptograficznego), opcjonalna nazwa wyświetlana, identyfikator Konta, token sesji</td>
-          <td>art. 6 ust. 1 lit. b — wykonanie umowy</td>
+          <td>Założenie i prowadzenie Konta, umożliwienie gry i uwierzytelnianie</td>
+          <td>login, hasło w postaci skrótu kryptograficznego (scrypt z solą), opcjonalna nazwa wyświetlana, identyfikator Konta, token sesji, data i fakt akceptacji Regulaminu</td>
+          <td>art. 6 ust. 1 lit. b — wykonanie umowy o świadczenie usług drogą elektroniczną</td>
           <td>do usunięcia Konta</td>
         </tr>
         <tr>
-          <td>Prowadzenie Rankingu (tablic wyników)</td>
-          <td>login lub nazwa wyświetlana, wyniki punktowe, poziom, liczba gwiazdek</td>
-          <td>art. 6 ust. 1 lit. b oraz art. 6 ust. 1 lit. f — prezentacja rywalizacji między graczami</td>
-          <td>do usunięcia Konta lub wyniku</td>
+          <td>Prowadzenie Rankingu (tablic wyników) i rywalizacji między graczami</td>
+          <td>login lub nazwa wyświetlana, wyniki punktowe, poziom, liczba gwiazdek, data aktualizacji wyniku</td>
+          <td>art. 6 ust. 1 lit. b oraz art. 6 ust. 1 lit. f — prawnie uzasadniony interes polegający na udostępnianiu funkcji rywalizacji</td>
+          <td>do usunięcia Konta lub danego wyniku</td>
         </tr>
         <tr>
           <td>Zapisywanie postępu gry</td>
-          <td>ukończone poziomy, najlepsze wyniki, ustawienia</td>
+          <td>ukończone poziomy, najlepsze wyniki, ustawienia w Aplikacji</td>
           <td>art. 6 ust. 1 lit. b</td>
           <td>do usunięcia Konta</td>
         </tr>
         <tr>
-          <td>Bezpieczeństwo, przeciwdziałanie oszustwom (anty-cheat), diagnostyka błędów</td>
-          <td>dane techniczne urządzenia, logi zdarzeń, identyfikatory instalacji</td>
-          <td>art. 6 ust. 1 lit. f — prawnie uzasadniony interes (zapewnienie integralności gry)</td>
-          <td><span>[[np. do 12 miesięcy]]</span></td>
+          <td>Bezpieczeństwo, przeciwdziałanie nadużyciom i botom (m.in. ograniczanie liczby zapytań), diagnostyka błędów</td>
+          <td>adres IP, znacznik czasu żądania, podstawowe dane techniczne żądania i urządzenia, identyfikatory zdarzeń w logach serwera</td>
+          <td>art. 6 ust. 1 lit. f — prawnie uzasadniony interes polegający na zapewnieniu bezpieczeństwa i integralności usługi</td>
+          <td>do 12 miesięcy; logi diagnostyczne — do 90 dni</td>
         </tr>
         <tr>
-          <td>Obsługa reklamacji i kontaktu</td>
-          <td>dane z korespondencji, adres e-mail</td>
-          <td>art. 6 ust. 1 lit. c oraz f</td>
+          <td>Rozpatrywanie reklamacji i kontakt z Użytkownikiem</td>
+          <td>treść korespondencji, adres podany przez Użytkownika, login Konta (jeśli podany)</td>
+          <td>art. 6 ust. 1 lit. c (obowiązek rozpatrzenia reklamacji) oraz art. 6 ust. 1 lit. f</td>
           <td>do 3 lat po zakończeniu sprawy</td>
         </tr>
         <tr>
           <td>Ustalenie, dochodzenie lub obrona roszczeń</td>
-          <td>dane niezbędne do prowadzenia sprawy</td>
+          <td>dane niezbędne do prowadzenia konkretnej sprawy</td>
           <td>art. 6 ust. 1 lit. f</td>
-          <td>do przedawnienia roszczeń</td>
+          <td>do upływu terminu przedawnienia roszczeń</td>
         </tr>
       </table>
       </div>
-
-      <h2>3. Odbiorcy danych</h2>
-      <p>Dane mogą być powierzane lub udostępniane:</p>
-      <ol type="a">
-        <li>dostawcy infrastruktury, hostingu i bazy danych — <strong>Vercel Inc.</strong> oraz <strong>Turso (ChiselStrike, Inc.)</strong>;</li>
-        <li>Apple Inc. i Google LLC — w zakresie dystrybucji Aplikacji przez sklepy z aplikacjami;</li>
-        <li>dostawcy narzędzi analitycznych i do zgłaszania błędów — <strong>[[nazwy narzędzi, jeśli używane]]</strong>;</li>
-        <li>podmiotom świadczącym Administratorowi obsługę prawną, księgową lub IT;</li>
-        <li>organom publicznym — gdy obowiązek wynika z przepisów prawa.</li>
-      </ol>
-
-      <h2>4. Przekazywanie danych poza EOG</h2>
       <p>
-        Część dostawców może przetwarzać dane poza Europejskim Obszarem Gospodarczym
-        (m.in. w USA). W takich przypadkach przekazanie odbywa się na podstawie decyzji
-        Komisji Europejskiej o odpowiednim stopniu ochrony (np. EU–US Data Privacy
-        Framework) lub standardowych klauzul umownych. Kopię zabezpieczeń można uzyskać,
-        kontaktując się z Administratorem.
+        Jeżeli w przyszłości Aplikacja wprowadzi funkcje płatne, komunikację
+        marketingową (newsletter, powiadomienia push) lub narzędzia analityczne,
+        odpowiednie informacje zostaną dodane do niniejszej Polityki, a przetwarzanie
+        oparte na zgodzie rozpocznie się dopiero po jej wyrażeniu.
+      </p>
+
+      <h2>3. Odbiorcy danych i podmioty przetwarzające</h2>
+      <p>Dane mogą być powierzane lub udostępniane następującym kategoriom podmiotów:</p>
+      <ol type="a">
+        <li>dostawcy infrastruktury, hostingu i funkcji serwerowych —
+          <strong>Vercel Inc.</strong> (USA);</li>
+        <li>dostawca bazy danych (Turso) — <strong>ChiselStrike, Inc.</strong> (USA);
+          serwery bazy zlokalizowane w Unii Europejskiej;</li>
+        <li>Apple Inc. i Google LLC — w zakresie dystrybucji Aplikacji przez sklepy
+          z aplikacjami oraz ewentualnej obsługi płatności w Aplikacji (jeśli zostaną
+          wprowadzone);</li>
+        <li>dostawcy narzędzi do zgłaszania błędów i analityki —
+          <strong>[[nazwy narzędzi, jeśli używane; jeśli nie — usuń tę pozycję]]</strong>;</li>
+        <li>podmioty świadczące Administratorowi obsługę prawną, księgową lub
+          informatyczną — w niezbędnym zakresie;</li>
+        <li>organy publiczne — wyłącznie gdy obowiązek udostępnienia wynika z
+          przepisów prawa.</li>
+      </ol>
+      <p>Administrator nie sprzedaje danych osobowych.</p>
+
+      <h2>4. Przekazywanie danych poza Europejski Obszar Gospodarczy</h2>
+      <p>
+        Część dostawców (m.in. Vercel Inc., ChiselStrike, Inc.) ma siedzibę w Stanach
+        Zjednoczonych i może przetwarzać dane poza EOG. Przekazywanie odbywa się na
+        podstawie decyzji Komisji Europejskiej stwierdzającej odpowiedni stopień
+        ochrony (EU–US Data Privacy Framework — dla podmiotów certyfikowanych) lub na
+        podstawie standardowych klauzul umownych zatwierdzonych przez Komisję
+        Europejską, uzupełnionych o dodatkowe zabezpieczenia. Kopię lub informację o
+        zastosowanych zabezpieczeniach możesz uzyskać, kontaktując się z Administratorem.
       </p>
 
       <h2>5. Twoje prawa</h2>
-      <p>Przysługuje Ci prawo do:</p>
+      <p>W związku z przetwarzaniem danych przysługują Ci następujące prawa:</p>
       <ol type="a">
-        <li>dostępu do danych oraz uzyskania ich kopii;</li>
-        <li>sprostowania danych;</li>
-        <li>usunięcia danych („prawo do bycia zapomnianym”);</li>
-        <li>ograniczenia przetwarzania;</li>
-        <li>przenoszenia danych;</li>
-        <li>sprzeciwu wobec przetwarzania opartego na prawnie uzasadnionym interesie;</li>
-        <li>cofnięcia zgody w dowolnym momencie — bez wpływu na zgodność z prawem
-          przetwarzania sprzed cofnięcia;</li>
-        <li>wniesienia skargi do Prezesa Urzędu Ochrony Danych Osobowych
-          (ul. Stawki 2, 00-193 Warszawa).</li>
+        <li>prawo dostępu do danych oraz uzyskania ich kopii (art. 15 RODO);</li>
+        <li>prawo do sprostowania danych (art. 16 RODO);</li>
+        <li>prawo do usunięcia danych — „prawo do bycia zapomnianym” (art. 17 RODO);</li>
+        <li>prawo do ograniczenia przetwarzania (art. 18 RODO);</li>
+        <li>prawo do przenoszenia danych przetwarzanych na podstawie umowy lub zgody,
+          w ustrukturyzowanym, powszechnie używanym formacie (art. 20 RODO);</li>
+        <li>prawo do wniesienia sprzeciwu wobec przetwarzania opartego na prawnie
+          uzasadnionym interesie Administratora — z przyczyn związanych z Twoją
+          szczególną sytuacją (art. 21 RODO);</li>
+        <li>prawo do wniesienia skargi do organu nadzorczego — Prezesa Urzędu Ochrony
+          Danych Osobowych, ul. Stawki 2, 00-193 Warszawa
+          (<a href="https://uodo.gov.pl" target="_blank" rel="noopener">uodo.gov.pl</a>).</li>
       </ol>
       <p>
-        Konto wraz z lokalnym postępem możesz usunąć samodzielnie w ustawieniach Aplikacji.
-        Pozostałe żądania kieruj na adres <strong>[[E-MAIL DO SPRAW RODO]]</strong>.
+        Konto wraz z zapisanym postępem i wynikami możesz usunąć samodzielnie w
+        ustawieniach Aplikacji („Usuń konto i dane”) — usunięcie jest natychmiastowe i
+        nieodwracalne. Pozostałe żądania kieruj na adres <strong>[[E-MAIL DO SPRAW
+        DANYCH]]</strong>; odpowiadamy bez zbędnej zwłoki, najpóźniej w terminie
+        miesiąca.
       </p>
 
       <h2>6. Dobrowolność podania danych</h2>
       <p>
         Podanie loginu i ustawienie hasła jest dobrowolne, ale niezbędne do założenia
-        Konta i korzystania z Rankingu online. Aplikacja nie zbiera adresu e-mail ani
-        numeru telefonu. Ze względu na brak adresu e-mail nie jest możliwe odzyskanie
-        utraconego hasła — hasło należy zapisać w bezpiecznym miejscu.
+        Konta oraz korzystania z Rankingu online i zapisu postępu na serwerze.
+        Przetwarzanie adresu IP w celach bezpieczeństwa jest niezbędne do świadczenia
+        usługi w sposób bezpieczny i wynika z prawnie uzasadnionego interesu
+        Administratora. Ze względu na brak adresu e-mail nie jest możliwe odzyskanie
+        utraconego hasła.
       </p>
 
       <h2>7. Profilowanie i decyzje automatyczne</h2>
       <p>
-        Administrator nie podejmuje wobec Ciebie decyzji opartych wyłącznie na
-        zautomatyzowanym przetwarzaniu, które wywoływałyby skutki prawne lub w podobny
-        sposób istotnie na Ciebie wpływały.
+        Administrator nie podejmuje wobec Ciebie decyzji opierających się wyłącznie na
+        zautomatyzowanym przetwarzaniu, w tym profilowaniu, które wywoływałyby wobec
+        Ciebie skutki prawne lub w podobny sposób istotnie na Ciebie wpływały.
+        Automatyczne mechanizmy (np. ograniczanie liczby zapytań, wykrywanie
+        nieprawidłowych wyników) służą wyłącznie zapewnieniu bezpieczeństwa i
+        uczciwości gry.
       </p>
 
       <h2>8. Dzieci</h2>
       <p>
-        Aplikacja nie jest kierowana do osób poniżej 16. roku życia. Jeżeli osoba taka
-        korzysta z Aplikacji, powinno się to odbywać za zgodą i pod nadzorem rodzica lub
-        opiekuna prawnego. W razie stwierdzenia, że konto założyła osoba poniżej 16 lat
-        bez wymaganej zgody, dane zostaną usunięte.
+        Aplikacja jest przeznaczona dla osób, które ukończyły 16 lat. Jeżeli z
+        Aplikacji korzysta osoba młodsza, powinno się to odbywać za zgodą i pod
+        nadzorem rodzica lub opiekuna prawnego. W razie stwierdzenia, że Konto
+        założyła osoba poniżej 16 lat bez wymaganej zgody, dane zostaną usunięte.
       </p>
 
-      <h2>9. Dane przechowywane na urządzeniu</h2>
+      <h2>9. Bezpieczeństwo danych</h2>
       <p>
-        Aplikacja przechowuje część danych lokalnie na Twoim urządzeniu (m.in. w pamięci
-        <code>localStorage</code>): login, token sesji, ustawienia, postęp gry i datę
-        akceptacji Regulaminu. Dane te są niezbędne do działania gry i pozostają na
-        urządzeniu do czasu wylogowania, usunięcia Konta lub odinstalowania Aplikacji.
-        Aplikacja nie wykorzystuje plików cookie do celów marketingowych.
-        <span>[[Jeśli używana jest analityka — opisać zakres i narzędzie.]]</span>
+        Administrator stosuje środki techniczne i organizacyjne odpowiednie do ryzyka,
+        w szczególności: transmisję danych szyfrowaną protokołem HTTPS/TLS,
+        przechowywanie haseł wyłącznie w postaci skrótu kryptograficznego (scrypt z
+        indywidualną solą — hasło nie jest nigdzie zapisywane jawnie), tokeny sesji
+        o ograniczonym czasie życia unieważniane przy zmianie hasła oraz mechanizmy
+        ograniczające liczbę zapytań (ochrona przed atakami automatycznymi).
       </p>
 
-      <h2>10. Zmiany Polityki Prywatności</h2>
+      <h2>10. Dane przechowywane na urządzeniu</h2>
       <p>
-        Polityka może być aktualizowana. O istotnych zmianach poinformujemy komunikatem
-        w Aplikacji. Aktualna wersja jest zawsze dostępna w Aplikacji.
+        Aplikacja przechowuje część danych lokalnie na Twoim urządzeniu (w pamięci
+        <code>localStorage</code> przeglądarki lub środowiska Aplikacji): login, token
+        sesji, ustawienia, postęp gry oraz datę akceptacji Regulaminu. Dane te są
+        niezbędne do działania gry i pozostają na urządzeniu do czasu wylogowania,
+        usunięcia Konta lub odinstalowania Aplikacji. Możesz je również usunąć,
+        czyszcząc dane Aplikacji w ustawieniach systemu lub przeglądarki.
       </p>
 
-      <footer>© [[ROK]] [[NAZWA WYDAWCY]].</footer>
+      <h2>11. Pliki cookie i podobne technologie</h2>
+      <p>
+        Aplikacja nie wykorzystuje plików cookie ani innych technologii śledzących do
+        celów marketingowych lub profilowania reklamowego. Wykorzystywana jest
+        wyłącznie pamięć lokalna urządzenia (<code>localStorage</code>) w celach
+        technicznych opisanych w pkt 10.
+      </p>
+
+      <h2>12. Zmiany Polityki Prywatności</h2>
+      <p>
+        Polityka może być aktualizowana, w szczególności w razie zmiany przepisów,
+        zakresu przetwarzanych danych, listy dostawców lub funkcji Aplikacji. O
+        istotnych zmianach poinformujemy komunikatem w Aplikacji z odpowiednim
+        wyprzedzeniem. Aktualna wersja jest zawsze dostępna w Aplikacji, a data jej
+        obowiązywania wskazana jest na wstępie dokumentu.
+      </p>
+
+      <h2>13. Kontakt</h2>
+      <p>
+        W sprawach dotyczących niniejszej Polityki oraz przetwarzania danych
+        osobowych: <strong>[[E-MAIL DO SPRAW DANYCH / E-MAIL KONTAKTOWY]]</strong>.
+        Zasady korzystania z Aplikacji określa
+        <a href="regulamin.html">Regulamin</a>.
+      </p>
+
+      <footer>© [[ROK]] [[NAZWA WYDAWCY]].
+        &nbsp;·&nbsp; <a href="regulamin.html">Regulamin</a>
+        &nbsp;·&nbsp; <a href="/">Wróć do gry</a></footer>
     </main>
   </body>
 </html>
