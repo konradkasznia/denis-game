@@ -1,80 +1,75 @@
-# Backend gry (konta, ranking, reset hasła)
+# Backend gry (konta + ranking)
 
 Funkcje serverless w katalogu `api/` (Vercel, Node 24). Baza: **Turso / libSQL**.
-Maile: **Resend**. Front (`src/`) rozmawia z backendem przez `src/net.ts`; gdy
-backendu nie ma (test, `file://`, brak sieci) działa lokalna atrapa na
-`localStorage`, więc gra nie przestaje działać offline.
+Model kont: **login + hasło** (bez e-maila, bez odzyskiwania hasła — świadoma
+decyzja, patrz `regulamin.html` § 4). Front (`src/`) rozmawia z backendem przez
+`src/net.ts`; gdy backendu nie ma (test, `file://`, brak sieci, brak konfiguracji)
+działa lokalna atrapa na `localStorage`, więc gra nie przestaje działać offline.
 
 ## Endpointy
 
-| Metoda | Ścieżka                 | Opis                                             |
-| ------ | ----------------------- | ------------------------------------------------ |
-| POST   | `/api/auth/register`    | `{email,password,password2,terms,marketing}` → `{token}` |
-| POST   | `/api/auth/login`       | `{email,password}` → `{token,nick}`              |
-| GET    | `/api/auth/me`          | Bearer → dane konta                              |
-| POST   | `/api/auth/forgot`      | `{email}` → zawsze `{ok:true}` (wysyła mail)     |
-| POST   | `/api/auth/reset`       | `{token,password}` → `{ok:true}` (z linka w mailu) |
-| POST   | `/api/account`          | Bearer `{action:"nick"\|"marketing"\|"delete"}`  |
-| GET    | `/api/scores?songId=`   | top 50 + moje miejsce                            |
-| POST   | `/api/scores`           | Bearer `{songId,score,stars}` → `{best,rank}`    |
+| Metoda | Ścieżka                | Opis                                              |
+| ------ | ---------------------- | ------------------------------------------------- |
+| POST   | `/api/auth/register`   | `{login,password,password2,terms}` → `{token}`    |
+| POST   | `/api/auth/login`      | `{login,password}` → `{token,login,nick}`         |
+| GET    | `/api/auth/check?login=` | `{available: bool}` — podpowiedź „login zajęty"  |
+| GET    | `/api/auth/me`         | Bearer → dane konta                               |
+| POST   | `/api/account`         | Bearer `{action:"nick"\|"delete"}`                |
+| GET    | `/api/scores?songId=`  | top 50 + moje miejsce                             |
+| POST   | `/api/scores`          | Bearer `{songId,score,stars}` → `{best,rank}`     |
 
-Schemat bazy tworzy się sam przy pierwszym żądaniu (`CREATE TABLE IF NOT EXISTS`).
+- Schemat bazy tworzy się sam przy pierwszym żądaniu (`CREATE TABLE IF NOT EXISTS`,
+  `api/_lib/schema.ts`), łącznie z lekką migracją ze starego modelu (email → login).
+- Hasła: `scrypt` + sól (`api/_lib/util.ts`). Sesje: token w tabeli `sessions`
+  (180 dni). Login jest unikalny bez rozróżniania wielkości liter
+  (`CREATE UNIQUE INDEX ON users(lower(login))`).
+- `login` jest zarazem nazwą w rankingu; `users.nick` to opcjonalna nazwa
+  wyświetlana (na przyszłość) — ranking pokazuje `COALESCE(NULLIF(nick,''), login)`.
 
 ## Konfiguracja — kroki jednorazowe
 
 ### 1. Baza Turso
 
+Na koncie Turso, na którym stoją bazy `koncerty` itd. (`konradkasznia`):
+
 ```bash
 turso db create denis-game
-turso db show denis-game --url          # -> TURSO_DATABASE_URL
-turso db tokens create denis-game       # -> TURSO_AUTH_TOKEN
+turso db show denis-game --url        # -> TURSO_DATABASE_URL
+turso db tokens create denis-game     # -> TURSO_AUTH_TOKEN
 ```
 
-(Bez CLI: to samo z panelu https://turso.tech → Create Database → Create Token.)
+(Bez CLI: panel https://turso.tech → Create Database → Create Token.)
 
-### 2. Resend (maile)
-
-1. Załóż konto na https://resend.com (darmowy plan: 3000 maili/mies.).
-2. https://resend.com/api-keys → **Create API Key** (uprawnienie *Sending*) → `RESEND_API_KEY`.
-3. **Tryb testowy (teraz):** bez własnej domeny Resend dostarcza maile **tylko na
-   adres właściciela konta** (czyli e-mail, na który założono Resend). Do testów
-   resetu hasła używaj tego adresu.
-4. **Docelowo:** w Resend → Domains dodaj np. `impulsywni.pl` (3 rekordy DNS),
-   a potem ustaw `MAIL_FROM="Denis Impulsywni Live <no-reply@impulsywni.pl>"`.
-   Dopiero wtedy maile dojdą do dowolnego użytkownika.
-
-### 3. Zmienne środowiskowe na Vercel
+### 2. Zmienne środowiskowe na Vercel
 
 ```bash
 cd "D:/Projekty/denis-game"
 npx vercel env add TURSO_DATABASE_URL production
 npx vercel env add TURSO_AUTH_TOKEN production
-npx vercel env add RESEND_API_KEY production
-npx vercel env add APP_URL production          # https://denis-game.vercel.app
-# opcjonalnie, po weryfikacji domeny:
-npx vercel env add MAIL_FROM production
 ```
 
-Powtórz dla `preview` i `development`, jeśli chcesz testować lokalnie przez
-`vercel dev`. Do lokalnego dev-a (`npm run dev`) backend nie działa — front sam
-przełącza się na atrapę offline. Żeby lokalnie uderzać w produkcyjne API:
-ustaw `VITE_API_BASE=https://denis-game.vercel.app` w `.env.local`.
+Powtórz dla `preview`, jeśli chcesz testować przez `vercel dev`. Do lokalnego dev
+(`npm run dev`) backend nie działa — front sam przełącza się na atrapę offline.
+Żeby lokalnie uderzać w produkcyjne API: ustaw
+`VITE_API_BASE=https://denis-game.vercel.app` w `.env.local`.
 
-### 4. Deploy
+### 3. Deploy
 
 ```bash
 npx vercel deploy --prod --yes
 ```
 
-## Bezpieczeństwo / TODO
+Status obecny: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` ustawione, backend
+przetestowany end-to-end na produkcji.
 
-- Hasła: `scrypt` z solą (Node crypto). OK na start.
-- Sesje: nieprzezroczysty token w tabeli `sessions`, ważny 180 dni, kasowany
-  przy zmianie hasła. Brak rotacji / rate-limitu logowania — do dodania.
-- `forgot` nie ujawnia, czy adres istnieje. Token resetu: 1h, jednorazowy,
-  trzymany jako SHA-256.
-- Brak weryfikacji adresu e-mail przy rejestracji (double opt-in) — do dodania
-  razem z domeną Resend.
-- Sign in with Apple / Google: `loginSocial()` to wciąż atrapa; docelowo osobny
-  endpoint wymieniający token dostawcy.
-- Rozważyć rate-limit (np. Upstash) na `login` / `forgot` / `register`.
+## Do zrobienia / świadomie pominięte
+
+- **Brak odzyskiwania hasła** — rozważyć jednorazowy kod odzyskiwania pokazany raz
+  przy rejestracji.
+- **Tryb gościa** — gra powinna dać się odpalić bez konta (App Store 5.1.1).
+- Rate-limit na `login` / `register` / `check` (np. Upstash).
+- Usuwanie konta przez WWW (wymóg Google Play, obok usuwania w apce).
+- Sign in with Apple / Google — świadomie NIE wprowadzane (brak social = brak
+  wymogu Sign in with Apple wg wytycznej 4.8).
+- Dokumenty `regulamin.html` / `polityka-prywatnosci.html` — projekty z
+  `[[PLACEHOLDER]]`, wymagają uzupełnienia i przeglądu prawnika.

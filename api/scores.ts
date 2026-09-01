@@ -27,7 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const songId = String(req.query.songId || "").trim();
       if (!songId) return json(res, 400, { error: "Brak songId." });
       const rows = await c.execute({
-        sql: `SELECT u.nick AS nick, s.score AS score, s.user_id AS uid
+        sql: `SELECT COALESCE(NULLIF(u.nick, ''), u.login) AS nick, s.score AS score, s.user_id AS uid
               FROM scores s JOIN users u ON u.id = s.user_id
               WHERE s.song_id = ? ORDER BY s.score DESC, s.updated_at ASC LIMIT ?`,
         args: [songId, TOP_N],

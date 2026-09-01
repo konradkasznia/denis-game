@@ -2,21 +2,12 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
+import { deleteAccount, hasAccount, nick as accountNick, setNick } from "./account.ts";
 import {
-  deleteAccount,
-  hasAccount,
-  marketing as accountMarketing,
-  needsNick,
-  nick as accountNick,
-  setMarketing,
-  setNick,
-} from "./account.ts";
-import {
+  checkLogin as apiCheckLogin,
   fetchMe,
   login as apiLogin,
-  loginSocial as apiLoginSocial,
   register as apiRegister,
-  requestPasswordReset as apiResetPassword,
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
@@ -52,7 +43,6 @@ import {
 type Scene =
   | "loading"
   | "auth"
-  | "nick"
   | "hits"
   | "board"
   | "rewards"
@@ -115,14 +105,13 @@ const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 // --- ekran PROFIL ---
 // --- ekran USTAWIENIA ---
 const SET_W = VW - MARGIN * 2;
-const SET_NICK: Rect = { x: MARGIN, y: 172, w: SET_W, h: 96 };
-const SET_SFX: Rect = { x: MARGIN, y: 282, w: SET_W, h: 68 };
-const SET_MKT: Rect = { x: MARGIN, y: 360, w: SET_W, h: 88 };
-const SET_TERMS: Rect = { x: MARGIN, y: 470, w: SET_W, h: 64 };
-const SET_PRIV: Rect = { x: MARGIN, y: 542, w: SET_W, h: 64 };
-const SET_CONTACT: Rect = { x: MARGIN, y: 614, w: SET_W, h: 64 };
-const SET_LOGOUT: Rect = { x: MARGIN, y: 712, w: SET_W, h: 64 };
-const SET_DELETE: Rect = { x: MARGIN, y: 784, w: SET_W, h: 64 };
+const SET_NICK: Rect = { x: MARGIN, y: 180, w: SET_W, h: 96 };
+const SET_SFX: Rect = { x: MARGIN, y: 300, w: SET_W, h: 68 };
+const SET_TERMS: Rect = { x: MARGIN, y: 404, w: SET_W, h: 64 };
+const SET_PRIV: Rect = { x: MARGIN, y: 476, w: SET_W, h: 64 };
+const SET_CONTACT: Rect = { x: MARGIN, y: 548, w: SET_W, h: 64 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 648, w: SET_W, h: 64 };
+const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
 
 // --- strzałki na tablicy wyników (między utworami) ---
 const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
@@ -142,9 +131,6 @@ function openDoc(url: string) {
     /* ignore */
   }
 }
-// nick
-const NICK_FIELD: Rect = { x: VW / 2 - 260, y: 452, w: 520, h: 90 };
-const NICK_SAVE: Rect = { x: VW / 2 - 260, y: 576, w: 520, h: 92 };
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
@@ -269,16 +255,17 @@ export class Game {
   private shake = 0;
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
-  private authMode: "login" | "register" | "forgot" = "login";
-  private authEmail = "";
+  private authMode: "login" | "register" = "register";
+  private authLogin = "";
   private authPassword = "";
-  private authPassword2 = "";
-  private authMarketing = false;
   private authTerms = false;
+  private authShowPw = false;
   private authError = "";
-  private authInfo = "";
   private authBusy = false;
-  private nickDraft = "";
+  /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
+  private authLoginState = "";
+  private authCheckSeq = 0;
+  private authCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private fields: FieldOverlay;
   private boardSongId = DEFAULT_TRACK;
   private resultRank = 0;
@@ -313,22 +300,20 @@ export class Game {
     }
   }
 
-  /** Weryfikuje token sesji na serwerze i synchronizuje nick / zgodę marketingową. */
+  /** Weryfikuje token sesji na serwerze i synchronizuje nazwę wyświetlaną. */
   private async syncSession() {
     try {
       const me = await fetchMe();
       if (!me) return;
       if (me.nick && accountNick() !== me.nick) setNick(me.nick);
-      if (accountMarketing() !== me.marketing) setMarketing(me.marketing);
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
   }
 
-  /** Pierwszy ekran po wczytaniu: rejestracja → nick → WYBIERZ HIT. */
+  /** Pierwszy ekran po wczytaniu: logowanie/rejestracja → WYBIERZ HIT. */
   private gotoStart() {
     if (!hasAccount()) this.scene = "auth";
-    else if (needsNick()) this.toNick();
     else this.enterHitsFresh();
   }
 
@@ -480,9 +465,6 @@ export class Game {
       case "auth":
         this.drawAuth(ctx);
         break;
-      case "nick":
-        this.drawNick(ctx);
-        break;
       case "hits":
         this.drawHits(ctx);
         break;
@@ -564,7 +546,6 @@ export class Game {
       return;
     }
     if (this.scene === "auth") return this.handleAuthTap(x, y);
-    if (this.scene === "nick") return this.handleNickTap(x, y);
     if (this.scene === "hits") return this.handleHitsTap(x, y);
     if (this.scene === "board") return this.handleBoardTap(x, y);
     if (this.scene === "rewards") return this.handleRewardsTap(x, y);
@@ -586,51 +567,41 @@ export class Game {
     if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
   }
 
-  /** Rozkład pól/przycisków ekranu logowania zależny od trybu. */
+  /** Rozkład pól/przycisków ekranu „PIERWSZY RAZ?" / „ZALOGUJ SIĘ". */
   private authRects() {
-    const m = this.authMode;
-    const f1: Rect = { x: A_X, y: 214, w: A_W, h: 78 };
-    const f2: Rect = { x: A_X, y: 302, w: A_W, h: 78 };
-    const f3: Rect = { x: A_X, y: 390, w: A_W, h: 78 }; // powtórz hasło (register)
-    if (m === "forgot") {
-      return {
-        f1,
-        primary: { x: A_X, y: 336, w: A_W, h: 90 } as Rect,
-        alt1: { x: A_X, y: 452, w: A_W, h: 44 } as Rect, // wróć do logowania
-      };
-    }
-    if (m === "register") {
+    const reg = this.authMode === "register";
+    const f1: Rect = { x: A_X, y: 250, w: A_W, h: 80 };
+    const f2: Rect = { x: A_X, y: 346, w: A_W, h: 80 };
+    const showpw: Rect = { x: A_X, y: 442, w: 280, h: 44 };
+    if (reg) {
       return {
         f1,
         f2,
-        f3,
-        terms: { x: A_X, y: 484, w: A_W, h: 50 } as Rect,
-        mkt: { x: A_X, y: 540, w: A_W, h: 72 } as Rect,
-        docT: { x: A_X, y: 626, w: 250, h: 38 } as Rect,
-        docP: { x: A_X + 270, y: 626, w: 250, h: 38 } as Rect,
-        primary: { x: A_X, y: 680, w: A_W, h: 90 } as Rect,
-        alt1: { x: A_X, y: 786, w: A_W, h: 44 } as Rect, // masz konto? zaloguj
+        showpw,
+        terms: { x: A_X, y: 502, w: A_W, h: 68 } as Rect,
+        primary: { x: A_X, y: 592, w: A_W, h: 96 } as Rect,
+        alt1: { x: A_X, y: 726, w: A_W, h: 84 } as Rect, // "Masz juz konto -> ZALOGUJ SIE"
+        docT: { x: A_X, y: 840, w: A_W / 2 - 8, h: 44 } as Rect,
+        docP: { x: A_X + A_W / 2 + 8, y: 840, w: A_W / 2 - 8, h: 44 } as Rect,
       };
     }
-    // login
     return {
       f1,
       f2,
-      primary: { x: A_X, y: 404, w: A_W, h: 90 } as Rect,
-      alt1: { x: A_X, y: 512, w: A_W, h: 40 } as Rect, // nie pamiętasz hasła
-      alt2: { x: A_X, y: 556, w: A_W, h: 40 } as Rect, // nie masz konta? załóż
-      social: { x: A_X, y: 636, w: A_W, h: 84 } as Rect,
-      docT: { x: A_X, y: 760, w: 250, h: 38 } as Rect,
-      docP: { x: A_X + 270, y: 760, w: 250, h: 38 } as Rect,
+      showpw,
+      primary: { x: A_X, y: 512, w: A_W, h: 96 } as Rect,
+      alt1: { x: A_X, y: 646, w: A_W, h: 84 } as Rect, // "Nie masz konta -> STWORZ KONTO"
+      docT: { x: A_X, y: 760, w: A_W / 2 - 8, h: 44 } as Rect,
+      docP: { x: A_X + A_W / 2 + 8, y: 760, w: A_W / 2 - 8, h: 44 } as Rect,
     };
   }
 
-  private setAuthMode(m: "login" | "register" | "forgot") {
+  private setAuthMode(m: "login" | "register") {
     this.authMode = m;
     this.authError = "";
-    this.authInfo = "";
     this.authPassword = "";
-    this.authPassword2 = "";
+    this.authShowPw = false;
+    this.authLoginState = "";
     this.fields.blur();
   }
 
@@ -639,65 +610,47 @@ export class Game {
     this.fields.reposition();
   }
 
-  /** Nakładka z prawdziwymi <input> — zależnie od sceny i trybu logowania. */
+  /** Nakładka z prawdziwymi <input> — tylko na ekranie logowania. */
   private syncFields() {
-    if (this.soundModal || (this.scene !== "auth" && this.scene !== "nick")) {
+    if (this.soundModal || this.scene !== "auth") {
       this.fields.clear();
       return;
     }
-    this.fields.sync(this.scene === "nick" ? this.nickFieldSpecs() : this.authFieldSpecs());
+    this.fields.sync(this.authFieldSpecs());
   }
 
   private authFieldSpecs(): FieldSpec[] {
     const R = this.authRects() as Record<string, Rect | undefined>;
-    const specs: FieldSpec[] = [];
     const reg = this.authMode === "register";
-    const last = R.f3 ? "pass2" : R.f2 ? "pass" : "email";
-    const enter = (key: string): FieldSpec["enterKeyHint"] => (key === last ? "go" : "next");
-    const onEnter = (key: string) => (key === last ? () => this.submitAuth() : undefined);
+    const specs: FieldSpec[] = [];
     if (R.f1) {
       specs.push({
-        key: "email",
-        type: "email",
-        value: this.authEmail,
-        placeholder: "twoj@email.pl",
-        autocomplete: "email",
-        enterKeyHint: enter("email"),
+        key: "loginname",
+        type: "text",
+        value: this.authLogin,
+        placeholder: "np. WeselnyKrol",
+        autocomplete: "username",
+        maxLength: 18,
+        enterKeyHint: "next",
         x: R.f1.x, y: R.f1.y, w: R.f1.w, h: R.f1.h,
         onInput: (v) => {
-          this.authEmail = v.trim();
+          this.authLogin = v.replace(/\s/g, "").slice(0, 18);
           this.authError = "";
+          if (reg) this.queueLoginCheck();
         },
-        onEnter: onEnter("email"),
       });
     }
     if (R.f2) {
       specs.push({
-        key: "pass",
-        type: "password",
+        key: "pw",
+        type: this.authShowPw ? "text" : "password",
         value: this.authPassword,
         placeholder: reg ? "min. 8 znaków" : "hasło",
         autocomplete: reg ? "new-password" : "current-password",
-        enterKeyHint: enter("pass"),
+        enterKeyHint: "go",
         x: R.f2.x, y: R.f2.y, w: R.f2.w, h: R.f2.h,
         onInput: (v) => {
           this.authPassword = v;
-          this.authError = "";
-        },
-        onEnter: onEnter("pass"),
-      });
-    }
-    if (R.f3) {
-      specs.push({
-        key: "pass2",
-        type: "password",
-        value: this.authPassword2,
-        placeholder: "powtórz hasło",
-        autocomplete: "new-password",
-        enterKeyHint: "go",
-        x: R.f3.x, y: R.f3.y, w: R.f3.w, h: R.f3.h,
-        onInput: (v) => {
-          this.authPassword2 = v;
           this.authError = "";
         },
         onEnter: () => this.submitAuth(),
@@ -706,150 +659,78 @@ export class Game {
     return specs;
   }
 
-  private nickFieldSpecs(): FieldSpec[] {
-    return [
-      {
-        key: "nick",
-        type: "text",
-        value: this.nickDraft,
-        placeholder: "np. WeselnyKról",
-        autocomplete: "off",
-        maxLength: 18,
-        enterKeyHint: "go",
-        x: NICK_FIELD.x, y: NICK_FIELD.y, w: NICK_FIELD.w, h: NICK_FIELD.h,
-        onInput: (v) => (this.nickDraft = v.slice(0, 18)),
-        onEnter: () => this.saveNickDraft(),
-      },
-    ];
+  /** Debounce sprawdzenia, czy login jest wolny (podpowiedź przy rejestracji). */
+  private queueLoginCheck() {
+    this.authLoginState = "";
+    if (this.authCheckTimer) clearTimeout(this.authCheckTimer);
+    const login = this.authLogin;
+    if (!/^[\p{L}\p{N}._-]{3,18}$/u.test(login)) return;
+    const seq = ++this.authCheckSeq;
+    this.authLoginState = "checking";
+    this.authCheckTimer = setTimeout(() => {
+      void apiCheckLogin(login).then((free) => {
+        if (seq !== this.authCheckSeq || this.authLogin !== login) return;
+        this.authLoginState = free ? "free" : "taken";
+      });
+    }, 450);
   }
 
-  /** Wysyła formularz bieżącego trybu (przycisk główny albo Enter w polu). */
+  /** Wysyła formularz (przycisk główny albo Enter w polu hasła). */
   private submitAuth() {
     if (this.authBusy) return;
-    const m = this.authMode;
-
-    if (m === "forgot") {
-      this.authBusy = true;
-      this.authInfo = "";
-      void apiResetPassword(this.authEmail).then((r) => {
-        this.authBusy = false;
-        this.authError = r.ok ? "" : (r.error ?? "Spróbuj ponownie.");
-        this.authInfo = r.info ?? "";
-      });
-      return;
-    }
-
-    if (m === "register") {
-      this.authBusy = true;
-      void apiRegister(this.authEmail, this.authPassword, this.authPassword2, {
-        terms: this.authTerms,
-        marketing: this.authMarketing,
-      }).then((r) => {
-        this.authBusy = false;
-        if (r.ok) {
-          this.authError = "";
-          this.toNick();
-        } else {
-          this.authError = r.error ?? "Rejestracja nie powiodła się.";
-        }
-      });
-      return;
-    }
-
-    // login
+    this.fields.blur();
     this.authBusy = true;
-    void apiLogin(this.authEmail, this.authPassword).then((r) => {
+    const done = (r: { ok: boolean; error?: string }, fail: string) => {
       this.authBusy = false;
       if (r.ok) {
         this.authError = "";
-        if (needsNick()) this.toNick();
-        else this.enterHitsFresh();
+        this.enterHitsFresh();
       } else {
-        this.authError = r.error ?? "Logowanie nie powiodło się.";
+        this.authError = r.error ?? fail;
       }
-    });
+    };
+    if (this.authMode === "register") {
+      void apiRegister(this.authLogin, this.authPassword, this.authPassword, {
+        terms: this.authTerms,
+      }).then((r) => done(r, "Nie udało się utworzyć konta."));
+    } else {
+      void apiLogin(this.authLogin, this.authPassword).then((r) =>
+        done(r, "Logowanie nie powiodło się."),
+      );
+    }
   }
 
   private handleAuthTap(x: number, y: number) {
     if (x < 0) return this.fields.blur();
     this.fields.blur();
     const R = this.authRects() as Record<string, Rect | undefined>;
-    const m = this.authMode;
 
     if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
     if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
-
+    if (R.showpw && inRect(R.showpw, x, y)) {
+      this.authShowPw = !this.authShowPw;
+      return;
+    }
     if (R.terms && inRect(R.terms, x, y)) {
       this.authTerms = !this.authTerms;
       if (this.authTerms) this.authError = "";
       return;
     }
-    if (R.mkt && inRect(R.mkt, x, y)) {
-      this.authMarketing = !this.authMarketing;
-      return;
+    if (R.alt1 && inRect(R.alt1, x, y)) {
+      return this.setAuthMode(this.authMode === "login" ? "register" : "login");
     }
-    if (R.social && inRect(R.social, x, y)) {
-      void apiLoginSocial(this.applePlatform() ? "apple" : "google").then((r) => {
-        if (r.ok) this.toNick();
-        else this.authError = r.error ?? "Nie udało się zalogować.";
-      });
-      return;
-    }
-
-    if (m === "login") {
-      if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("forgot");
-      if (R.alt2 && inRect(R.alt2, x, y)) return this.setAuthMode("register");
-    } else if (R.alt1 && inRect(R.alt1, x, y)) {
-      return this.setAuthMode("login");
-    }
-
     if (R.primary && inRect(R.primary, x, y)) this.submitAuth();
   }
 
-  private applePlatform() {
-    try {
-      return /iP(hone|ad|od)|Mac/i.test(navigator.userAgent);
-    } catch {
-      return true;
-    }
-  }
-
-  /** Wejście na ekran nicku — wczytuje bieżący nick do pola edycji. */
-  private toNick() {
-    const n = accountNick();
-    this.nickDraft = n && n !== "Ty" ? n : "";
-    this.authError = "";
-    this.authInfo = "";
-    this.fields.blur();
-    this.scene = "nick";
-  }
-
-  private saveNickDraft() {
-    const n = this.nickDraft.trim();
-    if (!n) {
-      this.authError = "Wpisz nick.";
-      return;
-    }
-    setNick(n);
-    this.fields.clear();
-    this.enterHitsFresh();
-  }
-
-  /** Zmiana nicku z ekranu ustawień (window.prompt — ekran desktopowy). */
+  /** Zmiana nazwy wyświetlanej z ekranu ustawień (window.prompt). */
   private promptNick() {
     let n: string | null = null;
     try {
-      n = window.prompt?.("Twój nick:", accountNick() === "Ty" ? "" : accountNick()) ?? null;
+      n = window.prompt?.("Nazwa w rankingu:", accountNick()) ?? null;
     } catch {
       n = null;
     }
-    if (n && n.trim()) setNick(n);
-  }
-
-  private handleNickTap(x: number, y: number) {
-    if (x < 0) return this.fields.blur();
-    this.fields.blur();
-    if (inRect(NICK_SAVE, x, y)) this.saveNickDraft();
+    if (n !== null) setNick(n.trim());
   }
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
@@ -953,7 +834,6 @@ export class Game {
       saveSettings(this.settings);
       return;
     }
-    if (inRect(SET_MKT, x, y)) return setMarketing(!accountMarketing());
     if (inRect(SET_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
     if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
     if (inRect(SET_CONTACT, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
@@ -1548,138 +1428,138 @@ export class Game {
     text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, { size: 16, weight: "700", color });
   }
 
+  /** Przycisk drugorzędny (obramowany, dwie linie tekstu). */
+  private secondaryBtn(ctx: CanvasRenderingContext2D, r: Rect, top: string, main: string) {
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,206,138,0.5)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.stroke();
+    text(ctx, top, VW / 2, r.y + 24, { size: 14, color: "#8a7c6e" });
+    text(ctx, main, VW / 2, r.y + r.h - 24, {
+      size: 20,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffce8a",
+      letterSpacing: "2px",
+    });
+  }
+
   private drawAuth(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     const R = this.authRects() as Record<string, Rect | undefined>;
-    const m = this.authMode;
+    const reg = this.authMode === "register";
 
-    text(ctx, "DENIS", VW / 2, 100, {
-      size: 68,
+    text(ctx, "DENIS", VW / 2, 104, {
+      size: 66,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
       letterSpacing: "4px",
     });
-    const heading =
-      m === "register" ? "ZAŁÓŻ KONTO" : m === "forgot" ? "ODZYSKAJ HASŁO" : "ZALOGUJ SIĘ";
-    text(ctx, heading, VW / 2, 160, {
-      size: 22,
+    text(ctx, reg ? "PIERWSZY RAZ?" : "ZALOGUJ SIĘ", VW / 2, 168, {
+      size: 24,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffce8a",
       letterSpacing: "3px",
     });
+    text(ctx, reg ? "wymyśl nick i hasło" : "podaj swój nick i hasło", VW / 2, 202, {
+      size: 15,
+      color: "#c9b7a6",
+    });
 
-    if (m === "forgot") {
-      wrapText("Podaj adres e-mail, wyślemy link do ustawienia nowego hasła.", 40).forEach(
-        (ln, i) => text(ctx, ln, VW / 2, 196 + i * 22, { size: 15, color: "#c9b7a6" }),
-      );
+    // pola (wartości wpisuje prawdziwy <input> z nakładki)
+    if (R.f1) {
+      this.field(ctx, R.f1, "TWÓJ NICK");
+      if (reg && this.authLogin.length >= 3) {
+        const s = this.authLoginState;
+        const msg =
+          s === "checking" ? "sprawdzam…" : s === "free" ? "✓ wolny" : s === "taken" ? "✗ zajęty" : "";
+        const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#8a7c6e";
+        if (msg) {
+          text(ctx, msg, R.f1.x + R.f1.w - 18, R.f1.y + 22, {
+            size: 13,
+            align: "right",
+            weight: "700",
+            color: col,
+          });
+        }
+      }
+    }
+    if (R.f2) this.field(ctx, R.f2, reg ? "USTAW HASŁO" : "HASŁO");
+
+    // pokaż hasło
+    if (R.showpw) {
+      const b = R.showpw;
+      const cs = 24;
+      ctx.strokeStyle = this.authShowPw ? "#ff9f43" : "rgba(255,255,255,0.3)";
+      ctx.fillStyle = this.authShowPw ? "#ff9f43" : "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, b.x + 2, b.y + b.h / 2 - cs / 2, cs, cs, 6);
+      ctx.fill();
+      ctx.stroke();
+      if (this.authShowPw) {
+        ctx.strokeStyle = "#1a0d12";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(b.x + 8, b.y + b.h / 2);
+        ctx.lineTo(b.x + 12, b.y + b.h / 2 + 5);
+        ctx.lineTo(b.x + 20, b.y + b.h / 2 - 6);
+        ctx.stroke();
+      }
+      text(ctx, "Pokaż hasło", b.x + cs + 14, b.y + b.h / 2, {
+        size: 15,
+        align: "left",
+        color: "#c9b7a6",
+      });
     }
 
-    // pola
-    if (R.f1) this.field(ctx, R.f1, "E-MAIL");
-    if (R.f2) this.field(ctx, R.f2, "HASŁO");
-    if (R.f3) this.field(ctx, R.f3, "POWTÓRZ HASŁO");
-
-    // zgody (tylko rejestracja)
+    // zgoda (rejestracja)
     if (R.terms) {
       this.checkboxRow(ctx, R.terms, this.authTerms, [
-        "Akceptuję Regulamin i Politykę prywatności",
-      ]);
-    }
-    if (R.mkt) {
-      this.checkboxRow(ctx, R.mkt, this.authMarketing, [
-        "Chcę dostawać informacje o nowościach",
-        "i promocjach na e-mail (dobrowolne)",
+        "Akceptuję Regulamin i Politykę",
+        "prywatności (wymagane)",
       ]);
     }
 
     // przycisk główny
-    const primaryLabel =
-      m === "register" ? "ZAŁÓŻ KONTO" : m === "forgot" ? "WYŚLIJ LINK" : "ZALOGUJ";
-    if (R.primary) this.styledBtn(ctx, R.primary, primaryLabel, "gold");
+    if (R.primary) this.styledBtn(ctx, R.primary, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", "gold");
 
-    // odnośniki nawigacyjne
-    if (m === "login") {
-      if (R.alt1) this.authLink(ctx, R.alt1, "Nie pamiętasz hasła?", "#c9b7a6");
-      if (R.alt2) this.authLink(ctx, R.alt2, "Nie masz konta? Załóż konto");
-      if (R.social) {
-        text(ctx, "lub kontynuuj z:", VW / 2, R.social.y - 18, { size: 14, color: "#8a7c6e" });
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
-        roundRect(ctx, R.social.x, R.social.y, R.social.w, R.social.h, 16);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.22)";
-        ctx.lineWidth = 2;
-        roundRect(ctx, R.social.x, R.social.y, R.social.w, R.social.h, 16);
-        ctx.stroke();
-        text(ctx, this.applePlatform() ? "Apple ID" : "Google", VW / 2, R.social.y + R.social.h / 2, {
-          size: 22,
-          weight: "800",
-          font: HEAD_FONT,
-          color: "#fff7ec",
-        });
-      }
-    } else if (m === "register") {
-      if (R.alt1) this.authLink(ctx, R.alt1, "Masz już konto? Zaloguj się");
-    } else {
-      if (R.alt1) this.authLink(ctx, R.alt1, "‹ Wróć do logowania", "#c9b7a6");
+    if (reg && R.primary) {
+      text(
+        ctx,
+        "Zapamiętaj hasło — nie ma opcji jego odzyskania.",
+        VW / 2,
+        R.primary.y + R.primary.h + 24,
+        { size: 13, color: "#b7a291" },
+      );
     }
 
-    // odnośniki do dokumentów
-    if (R.docT) this.authLink(ctx, R.docT, "» Regulamin", "#ff9f43");
-    if (R.docP) this.authLink(ctx, R.docP, "» Polityka prywatności", "#ff9f43");
+    // przełączenie trybu
+    if (R.alt1) {
+      this.secondaryBtn(
+        ctx,
+        R.alt1,
+        reg ? "Masz już konto?" : "Nie masz jeszcze konta?",
+        reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO",
+      );
+    }
+
+    // dokumenty
+    if (R.docT) this.authLink(ctx, R.docT, "Regulamin", "#ff9f43");
+    if (R.docP) this.authLink(ctx, R.docP, "Polityka prywatności", "#ff9f43");
 
     // komunikaty
     if (this.authBusy) {
-      text(ctx, "Łączę z serwerem…", VW / 2, VH - 52, { size: 15, weight: "700", color: "#ffce8a" });
+      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 15, weight: "700", color: "#ffce8a" });
     } else if (this.authError) {
       wrapText(this.authError, 42).forEach((ln, i) =>
-        text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
+        text(ctx, ln, VW / 2, VH - 58 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
       );
-    } else if (this.authInfo) {
-      wrapText(this.authInfo, 42).forEach((ln, i) =>
-        text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#8affc1" }),
-      );
-    }
-  }
-
-  private drawNick(ctx: CanvasRenderingContext2D) {
-    this.drawStage(ctx, 0.55, this.beatPulse() * 0.25);
-    text(ctx, "TWÓJ NICK", VW / 2, 300, {
-      size: 44,
-      weight: "800",
-      color: "#fff7ec",
-      glow: "#ffb457",
-      glowBlur: 20,
-      letterSpacing: "4px",
-    });
-    text(ctx, "pod tą nazwą trafisz do tablic wyników", VW / 2, 356, {
-      size: 17,
-      color: "#c9b7a6",
-    });
-
-    this.field(ctx, NICK_FIELD, "NICK");
-
-    const ready = this.nickDraft.trim().length > 0;
-    const g = ctx.createLinearGradient(NICK_SAVE.x, 0, NICK_SAVE.x + NICK_SAVE.w, 0);
-    g.addColorStop(0, ready ? "#ff9f43" : "#6a5a4c");
-    g.addColorStop(1, ready ? "#ff5e7e" : "#8a7663");
-    ctx.fillStyle = g;
-    roundRect(ctx, NICK_SAVE.x, NICK_SAVE.y, NICK_SAVE.w, NICK_SAVE.h, NICK_SAVE.h / 2);
-    ctx.fill();
-    text(ctx, ready ? "ZAPISZ I GRAJ" : "WPISZ NICK", VW / 2, NICK_SAVE.y + NICK_SAVE.h / 2, {
-      size: 26,
-      weight: "800",
-      color: ready ? "#1a0d12" : "#2a2019",
-    });
-
-    if (this.authError) {
-      text(ctx, this.authError, VW / 2, NICK_SAVE.y + NICK_SAVE.h + 40, {
-        size: 15,
-        weight: "700",
-        color: "#ff8a97",
-      });
     }
   }
 
@@ -2182,7 +2062,7 @@ export class Game {
     ctx.lineWidth = 2;
     roundRect(ctx, SET_NICK.x, SET_NICK.y, SET_NICK.w, SET_NICK.h, 16);
     ctx.stroke();
-    text(ctx, "TWÓJ NICK", SET_NICK.x + 22, SET_NICK.y + 30, {
+    text(ctx, "NAZWA W RANKINGU", SET_NICK.x + 22, SET_NICK.y + 30, {
       size: 13,
       align: "left",
       color: "#8a7c6e",
@@ -2202,12 +2082,6 @@ export class Game {
     });
 
     this.toggleRow(ctx, SET_SFX, ["Efekty dźwiękowe"], this.settings.sfx);
-    this.toggleRow(
-      ctx,
-      SET_MKT,
-      ["Newsletter i promocje na e-mail", "(zgoda dobrowolna)"],
-      accountMarketing(),
-    );
 
     this.linkRow(ctx, SET_TERMS, "Regulamin");
     this.linkRow(ctx, SET_PRIV, "Polityka prywatności");

@@ -165,7 +165,7 @@ ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 console.log("\n· render wszystkich ekranów:");
 const gr = new Game();
 await new Promise((r) => setTimeout(r, 5));
-for (const sc of ["loading", "auth", "nick", "hits", "board", "rewards", "profile", "results", "play"]) {
+for (const sc of ["loading", "auth", "hits", "board", "rewards", "profile", "results", "play"]) {
   gr.scene = sc;
   gr.render(ctx);
 }
@@ -174,31 +174,30 @@ gr.render(ctx);
 gr.soundModal = false;
 ok(true, "wszystkie ekrany renderują się bez błędu");
 
-// rejestracja → nick
+// rejestracja: login + hasło (bez e-maila, bez ekranu nicku)
 console.log("\n· rejestracja / ranking:");
 localStorage.removeItem("denis.account");
 localStorage.removeItem("denis.users");
+localStorage.removeItem("denis.token");
 const ga = new Game();
 await new Promise((r) => setTimeout(r, 5));
-ok(ga.scene === "auth" && ga.authMode === "login", "bez konta start na ekranie logowania");
-ga.authMode = "register";
-ga.authEmail = "test@example.com";
+ok(ga.scene === "auth" && ga.authMode === "register", "bez konta start na ekranie PIERWSZY RAZ");
+ga.authLogin = "TestGracz";
 ga.authPassword = "haslo12345";
-ga.authPassword2 = "haslo12345";
-ga.onPress(1, 360, 725); // ZAŁÓŻ KONTO bez zgody -> blokada
+ga.onPress(1, 360, 640); // STWÓRZ KONTO bez zgody -> blokada
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && !!ga.authError, "rejestracja bez zgody na regulamin zablokowana");
-ga.onPress(1, 360, 505); // checkbox: akceptuję regulamin
-ga.onPress(1, 360, 725); // ZAŁÓŻ KONTO
+ga.onPress(1, 360, 536); // checkbox: akceptuję regulamin
+ga.onPress(1, 360, 640); // STWÓRZ KONTO
 await new Promise((r) => setTimeout(r, 5));
-ok(ga.scene === "nick", "po rejestracji z akceptacją -> ekran nicku");
+ok(ga.scene === "hits", "po rejestracji z akceptacją -> od razu WYBIERZ HIT");
 const savedAcc = JSON.parse(localStorage.getItem("denis.account"));
-ok(savedAcc.terms === true && !!savedAcc.termsAt, "akceptacja regulaminu zapisana z datą");
+ok(savedAcc.terms === true && savedAcc.login === "TestGracz", "konto zapisane z loginem i akceptacją");
 const { login: apiLogin2 } = await import("../src/authApi.ts");
-const bad = await apiLogin2("test@example.com", "zlehaslo1");
+const bad = await apiLogin2("TestGracz", "zlehaslo1");
 ok(bad.ok === false, "logowanie ze złym hasłem odrzucone");
-const good = await apiLogin2("test@example.com", "haslo12345");
-ok(good.ok === true, "logowanie z poprawnym hasłem OK");
+const good = await apiLogin2("testgracz", "haslo12345");
+ok(good.ok === true, "logowanie z poprawnym hasłem OK (login bez rozróżniania wielkości liter)");
 
 // ranking: wynik trafia do tablicy, liczy się miejsce
 const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");
@@ -212,7 +211,7 @@ const rank2 = submitScore("pogrzebowka", 1500000);
 ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 
 // nawigacja: modal dźwięku → WYBIERZ HIT → tablica / nagrody / profil
-localStorage.setItem("denis.account", JSON.stringify({ nick: "Test", marketing: false }));
+localStorage.setItem("denis.account", JSON.stringify({ login: "Test", nick: "", terms: true, method: "login" }));
 const gn = new Game();
 await new Promise((r) => setTimeout(r, 5));
 ok(gn.scene === "hits" && gn.soundModal === true, "po wczytaniu: modal dźwięku nad karuzelą");

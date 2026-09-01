@@ -8,14 +8,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await ensureSchema();
     const u = await sessionUser(req);
     if (!u) return json(res, 401, { error: "Brak sesji." });
-    return json(res, 200, {
-      ok: true,
-      email: u.email,
-      nick: u.nick,
-      marketing: u.marketing,
-      terms: u.terms,
-      method: u.method,
-    });
+    return json(res, 200, { ok: true, login: u.login, nick: u.nick, terms: u.terms });
   } catch (e) {
     console.error("me", e);
     return json(res, 500, { error: "Błąd serwera." });

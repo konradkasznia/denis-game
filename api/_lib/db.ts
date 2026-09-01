@@ -7,7 +7,7 @@
 // Lokalnie: te same zmienne w `.env.local` (plik jest w .gitignore).
 
 import { createClient, type Client } from "@libsql/client/web";
-import { SCHEMA_SQL } from "./schema.js";
+import { SCHEMA_SQL, MIGRATIONS_SQL } from "./schema.js";
 
 let _client: Client | null = null;
 let _schema: Promise<void> | null = null;
@@ -25,7 +25,19 @@ export function db(): Client {
 export function ensureSchema(): Promise<void> {
   if (_schema) return _schema;
   _schema = (async () => {
-    await db().batch(SCHEMA_SQL, "write");
+    const c = db();
+    // migracja ze starego modelu (email -> login), zanim powstaną indeksy
+    try {
+      const info = await c.execute("PRAGMA table_info(users)");
+      const cols = info.rows.map((r) => String(r.name));
+      if (cols.includes("email") && !cols.includes("login")) {
+        await c.execute("ALTER TABLE users RENAME COLUMN email TO login");
+      }
+    } catch {
+      /* users jeszcze nie istnieje — CREATE TABLE poniżej */
+    }
+    for (const sql of MIGRATIONS_SQL) await c.execute(sql);
+    await c.batch(SCHEMA_SQL, "write");
   })();
   return _schema;
 }

@@ -118,9 +118,12 @@ export class FieldOverlay {
         });
         this.root!.appendChild(el);
         this.inputs.set(key, el);
-      } else if (document.activeElement !== el && el.value !== s.value) {
-        // zewnętrzny reset (np. zmiana trybu czyści hasło)
-        el.value = s.value;
+      } else {
+        if (el.type !== s.type) el.type = s.type; // pokaż/ukryj hasło
+        if (document.activeElement !== el && el.value !== s.value) {
+          // zewnętrzny reset (np. zmiana trybu czyści hasło)
+          el.value = s.value;
+        }
       }
       this.specs.set(s.key, s);
     }

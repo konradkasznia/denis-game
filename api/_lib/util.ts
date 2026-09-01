@@ -1,6 +1,6 @@
 // Wspólne narzędzia dla funkcji API: hasła (scrypt), tokeny, sesje, odpowiedzi.
 
-import { randomBytes, scrypt as _scrypt, timingSafeEqual, createHash } from "node:crypto";
+import { randomBytes, scrypt as _scrypt, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "./db.js";
 
@@ -30,20 +30,14 @@ export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("hex");
 }
 
-export function sha256(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 export const nowIso = () => new Date().toISOString();
 export function plusDaysIso(days: number): string {
   return new Date(Date.now() + days * 86400_000).toISOString();
 }
-export function plusHoursIso(hours: number): string {
-  return new Date(Date.now() + hours * 3600_000).toISOString();
-}
 
-export function validEmail(e: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
+/** Login = 3–18 znaków: litery (też polskie), cyfry, kropka, podkreślnik, myślnik. */
+export function validLogin(s: string): boolean {
+  return /^[\p{L}\p{N}._-]{3,18}$/u.test(String(s).trim());
 }
 export function validPassword(p: string): boolean {
   return typeof p === "string" && p.length >= 8 && p.length <= 200;
@@ -86,11 +80,9 @@ export function allow(req: VercelRequest, res: VercelResponse, methods: string[]
 
 export interface SessionUser {
   id: number;
-  email: string;
+  login: string;
   nick: string;
-  marketing: boolean;
   terms: boolean;
-  method: string;
 }
 
 /** Odczytuje token z nagłówka Authorization i zwraca użytkownika albo null. */
@@ -110,18 +102,16 @@ export async function sessionUser(req: VercelRequest): Promise<SessionUser | nul
     return null;
   }
   const u = await c.execute({
-    sql: "SELECT id, email, nick, marketing, terms, method FROM users WHERE id = ?",
+    sql: "SELECT id, login, nick, terms FROM users WHERE id = ?",
     args: [Number(row.user_id)],
   });
   const ur = u.rows[0];
   if (!ur) return null;
   return {
     id: Number(ur.id),
-    email: String(ur.email),
+    login: String(ur.login),
     nick: String(ur.nick || ""),
-    marketing: !!Number(ur.marketing),
     terms: !!Number(ur.terms),
-    method: String(ur.method || "email"),
   };
 }
 

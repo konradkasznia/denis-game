@@ -47,8 +47,9 @@
 
       <div class="note">
         Miejsca oznaczone <code>[[...]]</code> uzupełnij przed publikacją. Listę dostawców
-        (hosting, wysyłka e-mail, analityka) dostosuj do faktycznie używanych narzędzi.
-        Dokument to projekt — przed udostępnieniem zweryfikuj go z prawnikiem / IOD.
+        (hosting, analityka) dostosuj do faktycznie używanych narzędzi. Aplikacja nie
+        zbiera adresu e-mail — Konto zakłada się na login i hasło. Dokument to projekt —
+        przed udostępnieniem zweryfikuj go z prawnikiem / IOD.
       </div>
 
       <h2>1. Administrator danych</h2>
@@ -66,19 +67,13 @@
         <tr><th>Cel</th><th>Dane</th><th>Podstawa prawna (RODO)</th><th>Okres przechowywania</th></tr>
         <tr>
           <td>Założenie i prowadzenie Konta, umożliwienie gry</td>
-          <td>adres e-mail, hasło (w postaci zaszyfrowanej / skrótu), nick, identyfikator Konta</td>
-          <td>art. 6 ust. 1 lit. b — wykonanie umowy</td>
-          <td>do usunięcia Konta</td>
-        </tr>
-        <tr>
-          <td>Logowanie przez Apple ID / Google</td>
-          <td>identyfikator użytkownika u dostawcy, adres e-mail przekazany przez dostawcę</td>
+          <td>login (nazwa użytkownika), hasło (w postaci skrótu kryptograficznego), opcjonalna nazwa wyświetlana, identyfikator Konta, token sesji</td>
           <td>art. 6 ust. 1 lit. b — wykonanie umowy</td>
           <td>do usunięcia Konta</td>
         </tr>
         <tr>
           <td>Prowadzenie Rankingu (tablic wyników)</td>
-          <td>nick, wyniki punktowe, poziom, liczba gwiazdek</td>
+          <td>login lub nazwa wyświetlana, wyniki punktowe, poziom, liczba gwiazdek</td>
           <td>art. 6 ust. 1 lit. b oraz art. 6 ust. 1 lit. f — prezentacja rywalizacji między graczami</td>
           <td>do usunięcia Konta lub wyniku</td>
         </tr>
@@ -87,18 +82,6 @@
           <td>ukończone poziomy, najlepsze wyniki, ustawienia</td>
           <td>art. 6 ust. 1 lit. b</td>
           <td>do usunięcia Konta</td>
-        </tr>
-        <tr>
-          <td>Newsletter / informacje handlowe e-mail</td>
-          <td>adres e-mail, status i data zgody</td>
-          <td>art. 6 ust. 1 lit. a — zgoda (oraz art. 10 uśude i art. 172 Prawa telekomunikacyjnego / PKE)</td>
-          <td>do cofnięcia zgody</td>
-        </tr>
-        <tr>
-          <td>Powiadomienia push o charakterze marketingowym</td>
-          <td>token urządzenia, status i data zgody</td>
-          <td>art. 6 ust. 1 lit. a — zgoda</td>
-          <td>do cofnięcia zgody lub wyłączenia powiadomień</td>
         </tr>
         <tr>
           <td>Bezpieczeństwo, przeciwdziałanie oszustwom (anty-cheat), diagnostyka błędów</td>
@@ -124,9 +107,8 @@
       <h2>3. Odbiorcy danych</h2>
       <p>Dane mogą być powierzane lub udostępniane:</p>
       <ol type="a">
-        <li>dostawcy infrastruktury i hostingu — <strong>[[np. Vercel Inc.]]</strong>;</li>
-        <li>dostawcy usługi wysyłki wiadomości e-mail — <strong>[[nazwa dostawcy]]</strong>;</li>
-        <li>Apple Inc. i Google LLC — w zakresie logowania oraz dystrybucji Aplikacji przez sklepy;</li>
+        <li>dostawcy infrastruktury, hostingu i bazy danych — <strong>Vercel Inc.</strong> oraz <strong>Turso (ChiselStrike, Inc.)</strong>;</li>
+        <li>Apple Inc. i Google LLC — w zakresie dystrybucji Aplikacji przez sklepy z aplikacjami;</li>
         <li>dostawcy narzędzi analitycznych i do zgłaszania błędów — <strong>[[nazwy narzędzi, jeśli używane]]</strong>;</li>
         <li>podmiotom świadczącym Administratorowi obsługę prawną, księgową lub IT;</li>
         <li>organom publicznym — gdy obowiązek wynika z przepisów prawa.</li>
@@ -162,10 +144,10 @@
 
       <h2>6. Dobrowolność podania danych</h2>
       <p>
-        Podanie adresu e-mail i ustawienie nicku jest dobrowolne, ale niezbędne do
-        założenia Konta i korzystania z Rankingu. Zgody na newsletter i marketingowe
-        powiadomienia push są w pełni dobrowolne, a ich brak nie wpływa na możliwość
-        grania.
+        Podanie loginu i ustawienie hasła jest dobrowolne, ale niezbędne do założenia
+        Konta i korzystania z Rankingu online. Aplikacja nie zbiera adresu e-mail ani
+        numeru telefonu. Ze względu na brak adresu e-mail nie jest możliwe odzyskanie
+        utraconego hasła — hasło należy zapisać w bezpiecznym miejscu.
       </p>
 
       <h2>7. Profilowanie i decyzje automatyczne</h2>
@@ -186,17 +168,17 @@
       <h2>9. Dane przechowywane na urządzeniu</h2>
       <p>
         Aplikacja przechowuje część danych lokalnie na Twoim urządzeniu (m.in. w pamięci
-        <code>localStorage</code>): ustawienia, postęp gry i status zgód. Dane te są
-        niezbędne do działania gry i pozostają na urządzeniu do czasu usunięcia Konta lub
-        odinstalowania Aplikacji. Aplikacja nie wykorzystuje plików cookie do celów
-        marketingowych. <span>[[Jeśli używana jest analityka — opisać zakres i narzędzie.]]</span>
+        <code>localStorage</code>): login, token sesji, ustawienia, postęp gry i datę
+        akceptacji Regulaminu. Dane te są niezbędne do działania gry i pozostają na
+        urządzeniu do czasu wylogowania, usunięcia Konta lub odinstalowania Aplikacji.
+        Aplikacja nie wykorzystuje plików cookie do celów marketingowych.
+        <span>[[Jeśli używana jest analityka — opisać zakres i narzędzie.]]</span>
       </p>
 
       <h2>10. Zmiany Polityki Prywatności</h2>
       <p>
-        Polityka może być aktualizowana. O istotnych zmianach poinformujemy w Aplikacji
-        lub na adres e-mail przypisany do Konta. Aktualna wersja jest zawsze dostępna
-        w Aplikacji.
+        Polityka może być aktualizowana. O istotnych zmianach poinformujemy komunikatem
+        w Aplikacji. Aktualna wersja jest zawsze dostępna w Aplikacji.
       </p>
 
       <footer>© [[ROK]] [[NAZWA WYDAWCY]].</footer>
