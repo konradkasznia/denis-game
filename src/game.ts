@@ -20,6 +20,7 @@ import {
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
+import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { gapToTop, myEntry, refreshBoard, submitScore, topN } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
@@ -276,11 +277,15 @@ export class Game {
   private authTerms = false;
   private authError = "";
   private authInfo = "";
+  private authBusy = false;
+  private nickDraft = "";
+  private fields: FieldOverlay;
   private boardSongId = DEFAULT_TRACK;
   private resultRank = 0;
   private resultsSavedBest = false;
 
-  constructor() {
+  constructor(canvas?: HTMLCanvasElement | null) {
+    this.fields = new FieldOverlay(canvas);
     this.bg.onload = () => {
       this.bgReady = true;
       if (this.scene === "loading") this.gotoStart();
@@ -323,7 +328,7 @@ export class Game {
   /** Pierwszy ekran po wczytaniu: rejestracja → nick → WYBIERZ HIT. */
   private gotoStart() {
     if (!hasAccount()) this.scene = "auth";
-    else if (needsNick()) this.scene = "nick";
+    else if (needsNick()) this.toNick();
     else this.enterHitsFresh();
   }
 
@@ -372,6 +377,7 @@ export class Game {
   // ---- pętla ----------------------------------------------------------
 
   update(dt: number, _nowMs: number) {
+    this.syncFields();
     if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
       this.paused = false;
       this.resumeAt = 0;
@@ -619,42 +625,160 @@ export class Game {
     };
   }
 
-  private promptField(label: string, current: string): string {
-    try {
-      const v = window.prompt?.(label, current) ?? current;
-      return v.trim();
-    } catch {
-      return current;
-    }
-  }
-
   private setAuthMode(m: "login" | "register" | "forgot") {
     this.authMode = m;
     this.authError = "";
     this.authInfo = "";
     this.authPassword = "";
     this.authPassword2 = "";
+    this.fields.blur();
+  }
+
+  /** Przelicza pozycje pól <input> (wołane przy resize / zmianie orientacji / klawiaturze). */
+  repositionFields() {
+    this.fields.reposition();
+  }
+
+  /** Nakładka z prawdziwymi <input> — zależnie od sceny i trybu logowania. */
+  private syncFields() {
+    if (this.soundModal || (this.scene !== "auth" && this.scene !== "nick")) {
+      this.fields.clear();
+      return;
+    }
+    this.fields.sync(this.scene === "nick" ? this.nickFieldSpecs() : this.authFieldSpecs());
+  }
+
+  private authFieldSpecs(): FieldSpec[] {
+    const R = this.authRects() as Record<string, Rect | undefined>;
+    const specs: FieldSpec[] = [];
+    const reg = this.authMode === "register";
+    const last = R.f3 ? "pass2" : R.f2 ? "pass" : "email";
+    const enter = (key: string): FieldSpec["enterKeyHint"] => (key === last ? "go" : "next");
+    const onEnter = (key: string) => (key === last ? () => this.submitAuth() : undefined);
+    if (R.f1) {
+      specs.push({
+        key: "email",
+        type: "email",
+        value: this.authEmail,
+        placeholder: "twoj@email.pl",
+        autocomplete: "email",
+        enterKeyHint: enter("email"),
+        x: R.f1.x, y: R.f1.y, w: R.f1.w, h: R.f1.h,
+        onInput: (v) => {
+          this.authEmail = v.trim();
+          this.authError = "";
+        },
+        onEnter: onEnter("email"),
+      });
+    }
+    if (R.f2) {
+      specs.push({
+        key: "pass",
+        type: "password",
+        value: this.authPassword,
+        placeholder: reg ? "min. 8 znaków" : "hasło",
+        autocomplete: reg ? "new-password" : "current-password",
+        enterKeyHint: enter("pass"),
+        x: R.f2.x, y: R.f2.y, w: R.f2.w, h: R.f2.h,
+        onInput: (v) => {
+          this.authPassword = v;
+          this.authError = "";
+        },
+        onEnter: onEnter("pass"),
+      });
+    }
+    if (R.f3) {
+      specs.push({
+        key: "pass2",
+        type: "password",
+        value: this.authPassword2,
+        placeholder: "powtórz hasło",
+        autocomplete: "new-password",
+        enterKeyHint: "go",
+        x: R.f3.x, y: R.f3.y, w: R.f3.w, h: R.f3.h,
+        onInput: (v) => {
+          this.authPassword2 = v;
+          this.authError = "";
+        },
+        onEnter: () => this.submitAuth(),
+      });
+    }
+    return specs;
+  }
+
+  private nickFieldSpecs(): FieldSpec[] {
+    return [
+      {
+        key: "nick",
+        type: "text",
+        value: this.nickDraft,
+        placeholder: "np. WeselnyKról",
+        autocomplete: "off",
+        maxLength: 18,
+        enterKeyHint: "go",
+        x: NICK_FIELD.x, y: NICK_FIELD.y, w: NICK_FIELD.w, h: NICK_FIELD.h,
+        onInput: (v) => (this.nickDraft = v.slice(0, 18)),
+        onEnter: () => this.saveNickDraft(),
+      },
+    ];
+  }
+
+  /** Wysyła formularz bieżącego trybu (przycisk główny albo Enter w polu). */
+  private submitAuth() {
+    if (this.authBusy) return;
+    const m = this.authMode;
+
+    if (m === "forgot") {
+      this.authBusy = true;
+      this.authInfo = "";
+      void apiResetPassword(this.authEmail).then((r) => {
+        this.authBusy = false;
+        this.authError = r.ok ? "" : (r.error ?? "Spróbuj ponownie.");
+        this.authInfo = r.info ?? "";
+      });
+      return;
+    }
+
+    if (m === "register") {
+      this.authBusy = true;
+      void apiRegister(this.authEmail, this.authPassword, this.authPassword2, {
+        terms: this.authTerms,
+        marketing: this.authMarketing,
+      }).then((r) => {
+        this.authBusy = false;
+        if (r.ok) {
+          this.authError = "";
+          this.toNick();
+        } else {
+          this.authError = r.error ?? "Rejestracja nie powiodła się.";
+        }
+      });
+      return;
+    }
+
+    // login
+    this.authBusy = true;
+    void apiLogin(this.authEmail, this.authPassword).then((r) => {
+      this.authBusy = false;
+      if (r.ok) {
+        this.authError = "";
+        if (needsNick()) this.toNick();
+        else this.enterHitsFresh();
+      } else {
+        this.authError = r.error ?? "Logowanie nie powiodło się.";
+      }
+    });
   }
 
   private handleAuthTap(x: number, y: number) {
-    if (x < 0) return;
+    if (x < 0) return this.fields.blur();
+    this.fields.blur();
     const R = this.authRects() as Record<string, Rect | undefined>;
+    const m = this.authMode;
 
     if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
     if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
 
-    if (R.f1 && inRect(R.f1, x, y)) {
-      this.authEmail = this.promptField("Adres e-mail:", this.authEmail);
-      return;
-    }
-    if (R.f2 && inRect(R.f2, x, y)) {
-      this.authPassword = this.promptField("Hasło (min. 8 znaków):", this.authPassword);
-      return;
-    }
-    if (R.f3 && inRect(R.f3, x, y)) {
-      this.authPassword2 = this.promptField("Powtórz hasło:", this.authPassword2);
-      return;
-    }
     if (R.terms && inRect(R.terms, x, y)) {
       this.authTerms = !this.authTerms;
       if (this.authTerms) this.authError = "";
@@ -666,55 +790,20 @@ export class Game {
     }
     if (R.social && inRect(R.social, x, y)) {
       void apiLoginSocial(this.applePlatform() ? "apple" : "google").then((r) => {
-        if (r.ok) this.scene = "nick";
+        if (r.ok) this.toNick();
         else this.authError = r.error ?? "Nie udało się zalogować.";
       });
       return;
     }
 
-    if (this.authMode === "login") {
+    if (m === "login") {
       if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("forgot");
       if (R.alt2 && inRect(R.alt2, x, y)) return this.setAuthMode("register");
-      if (R.primary && inRect(R.primary, x, y)) {
-        void apiLogin(this.authEmail, this.authPassword).then((r) => {
-          if (r.ok) {
-            this.authError = "";
-            this.scene = needsNick() ? "nick" : "hits";
-            if (!needsNick()) this.enterHitsFresh();
-          } else {
-            this.authError = r.error ?? "Logowanie nie powiodło się.";
-          }
-        });
-      }
-      return;
+    } else if (R.alt1 && inRect(R.alt1, x, y)) {
+      return this.setAuthMode("login");
     }
 
-    if (this.authMode === "register") {
-      if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("login");
-      if (R.primary && inRect(R.primary, x, y)) {
-        void apiRegister(this.authEmail, this.authPassword, this.authPassword2, {
-          terms: this.authTerms,
-          marketing: this.authMarketing,
-        }).then((r) => {
-          if (r.ok) {
-            this.authError = "";
-            this.scene = "nick";
-          } else {
-            this.authError = r.error ?? "Rejestracja nie powiodła się.";
-          }
-        });
-      }
-      return;
-    }
-
-    // forgot
-    if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("login");
-    if (R.primary && inRect(R.primary, x, y)) {
-      void apiResetPassword(this.authEmail).then((r) => {
-        this.authError = r.ok ? "" : (r.error ?? "Spróbuj ponownie.");
-        this.authInfo = r.info ?? "";
-      });
-    }
+    if (R.primary && inRect(R.primary, x, y)) this.submitAuth();
   }
 
   private applePlatform() {
@@ -725,6 +814,28 @@ export class Game {
     }
   }
 
+  /** Wejście na ekran nicku — wczytuje bieżący nick do pola edycji. */
+  private toNick() {
+    const n = accountNick();
+    this.nickDraft = n && n !== "Ty" ? n : "";
+    this.authError = "";
+    this.authInfo = "";
+    this.fields.blur();
+    this.scene = "nick";
+  }
+
+  private saveNickDraft() {
+    const n = this.nickDraft.trim();
+    if (!n) {
+      this.authError = "Wpisz nick.";
+      return;
+    }
+    setNick(n);
+    this.fields.clear();
+    this.enterHitsFresh();
+  }
+
+  /** Zmiana nicku z ekranu ustawień (window.prompt — ekran desktopowy). */
   private promptNick() {
     let n: string | null = null;
     try {
@@ -732,14 +843,13 @@ export class Game {
     } catch {
       n = null;
     }
-    if (n && n.trim()) {
-      setNick(n);
-      if (this.scene === "nick") this.enterHitsFresh();
-    }
+    if (n && n.trim()) setNick(n);
   }
 
   private handleNickTap(x: number, y: number) {
-    if (x < 0 || inRect(NICK_FIELD, x, y) || inRect(NICK_SAVE, x, y)) this.promptNick();
+    if (x < 0) return this.fields.blur();
+    this.fields.blur();
+    if (inRect(NICK_SAVE, x, y)) this.saveNickDraft();
   }
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
@@ -1383,7 +1493,12 @@ export class Game {
 
   // ---- ekran: rejestracja / logowanie (zamarkowane) -------------
 
-  private field(ctx: CanvasRenderingContext2D, r: Rect, label: string, value: string) {
+  /**
+   * Ramka pola + etykieta. Sama wartość i kursor to prawdziwy <input> z nakładki
+   * (`FieldOverlay`) ułożony dokładnie na tym prostokącie — dzięki temu na
+   * telefonie wysuwa się natywna klawiatura.
+   */
+  private field(ctx: CanvasRenderingContext2D, r: Rect, label: string) {
     ctx.fillStyle = "rgba(255,255,255,0.06)";
     roundRect(ctx, r.x, r.y, r.w, r.h, 14);
     ctx.fill();
@@ -1392,11 +1507,6 @@ export class Game {
     roundRect(ctx, r.x, r.y, r.w, r.h, 14);
     ctx.stroke();
     text(ctx, label, r.x + 20, r.y + 22, { size: 13, align: "left", color: "#8a7c6e", weight: "700" });
-    text(ctx, value, r.x + 20, r.y + r.h - 24, {
-      size: 20,
-      align: "left",
-      color: value ? "#fff" : "#5c5248",
-    });
   }
 
   /** Kwadratowy checkbox z etykietą w wierszu `r`. */
@@ -1468,9 +1578,9 @@ export class Game {
     }
 
     // pola
-    if (R.f1) this.field(ctx, R.f1, "E-MAIL", this.authEmail || "twoj@email.pl");
-    if (R.f2) this.field(ctx, R.f2, "HASŁO", this.authPassword ? "••••••••" : "");
-    if (R.f3) this.field(ctx, R.f3, "POWTÓRZ HASŁO", this.authPassword2 ? "••••••••" : "");
+    if (R.f1) this.field(ctx, R.f1, "E-MAIL");
+    if (R.f2) this.field(ctx, R.f2, "HASŁO");
+    if (R.f3) this.field(ctx, R.f3, "POWTÓRZ HASŁO");
 
     // zgody (tylko rejestracja)
     if (R.terms) {
@@ -1521,7 +1631,9 @@ export class Game {
     if (R.docP) this.authLink(ctx, R.docP, "» Polityka prywatności", "#ff9f43");
 
     // komunikaty
-    if (this.authError) {
+    if (this.authBusy) {
+      text(ctx, "Łączę z serwerem…", VW / 2, VH - 52, { size: 15, weight: "700", color: "#ffce8a" });
+    } else if (this.authError) {
       wrapText(this.authError, 42).forEach((ln, i) =>
         text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
       );
@@ -1529,11 +1641,6 @@ export class Game {
       wrapText(this.authInfo, 42).forEach((ln, i) =>
         text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#8affc1" }),
       );
-    } else {
-      text(ctx, "wersja demo, logowanie jeszcze niepodłączone", VW / 2, VH - 44, {
-        size: 13,
-        color: "#6b6055",
-      });
     }
   }
 
@@ -1552,25 +1659,28 @@ export class Game {
       color: "#c9b7a6",
     });
 
-    const n = accountNick();
-    this.field(ctx, NICK_FIELD, "NICK", n === "Ty" ? "" : n);
-    text(ctx, "stuknij, aby wpisać", NICK_FIELD.x + NICK_FIELD.w - 20, NICK_FIELD.y + 26, {
-      size: 12,
-      align: "right",
-      color: "#6b6055",
-    });
+    this.field(ctx, NICK_FIELD, "NICK");
 
+    const ready = this.nickDraft.trim().length > 0;
     const g = ctx.createLinearGradient(NICK_SAVE.x, 0, NICK_SAVE.x + NICK_SAVE.w, 0);
-    g.addColorStop(0, "#ff9f43");
-    g.addColorStop(1, "#ff5e7e");
+    g.addColorStop(0, ready ? "#ff9f43" : "#6a5a4c");
+    g.addColorStop(1, ready ? "#ff5e7e" : "#8a7663");
     ctx.fillStyle = g;
     roundRect(ctx, NICK_SAVE.x, NICK_SAVE.y, NICK_SAVE.w, NICK_SAVE.h, NICK_SAVE.h / 2);
     ctx.fill();
-    text(ctx, n && n !== "Ty" ? "ZAPISZ I GRAJ" : "WPISZ NICK", VW / 2, NICK_SAVE.y + NICK_SAVE.h / 2, {
+    text(ctx, ready ? "ZAPISZ I GRAJ" : "WPISZ NICK", VW / 2, NICK_SAVE.y + NICK_SAVE.h / 2, {
       size: 26,
       weight: "800",
-      color: "#1a0d12",
+      color: ready ? "#1a0d12" : "#2a2019",
     });
+
+    if (this.authError) {
+      text(ctx, this.authError, VW / 2, NICK_SAVE.y + NICK_SAVE.h + 40, {
+        size: 15,
+        weight: "700",
+        color: "#ff8a97",
+      });
+    }
   }
 
   // ---- ekran: tablica wyników (per utwór, wejście z karuzeli) ----------

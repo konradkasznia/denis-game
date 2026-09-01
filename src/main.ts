@@ -30,10 +30,19 @@ function resize() {
   ctx.imageSmoothingQuality = "high";
 }
 
-window.addEventListener("resize", resize);
-resize();
+const game = new Game(canvas);
 
-const game = new Game();
+function onViewportChange() {
+  resize();
+  game.repositionFields();
+}
+window.addEventListener("resize", onViewportChange);
+window.addEventListener("scroll", () => game.repositionFields(), { passive: true });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => game.repositionFields());
+  window.visualViewport.addEventListener("scroll", () => game.repositionFields());
+}
+resize();
 initInput(canvas, {
   laneAt: (x) => game.laneAtX(x),
   onPress: (lane, x, y) => game.onPress(lane, x, y),
