@@ -1,9 +1,6 @@
-# Ujecie 3 - wahadlo, kazda klatka po 3f (100 ms). Petla 1-2-3-4-5-4-3-2.
+# Ujecie 3 - nowa animacja (klatka - czas w klatkach osi czasu, 30 fps)
 1 - 3f
 2 - 3f
-3 - 3f
+3 - 6f
 4 - 3f
-5 - 3f
-4 - 3f
-3 - 3f
-2 - 3f
+5 - 6f
