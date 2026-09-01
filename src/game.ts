@@ -1408,7 +1408,7 @@ export class Game {
     ctx.fillRect(0, 0, VW, VH);
   }
 
-  /** Przycisk 3D: krawędź + gradientowa twarz + etykieta (styl makiety). */
+  /** Przycisk 3D w stylu makiety: gruba dolna krawędź + gradientowa twarz + bevel. */
   private button3d(
     ctx: CanvasRenderingContext2D,
     r: Rect,
@@ -1416,29 +1416,78 @@ export class Game {
     opts: { disabled?: boolean; size?: number } = {},
   ) {
     const { disabled = false, size = 30 } = opts;
-    const rad = Math.min(r.h / 2, 26);
-    // krawędź (ciemniejsza podstawa)
-    ctx.fillStyle = disabled ? "#3a3a42" : "#8a5a12";
-    roundRect(ctx, r.x, r.y + 8, r.w, r.h, rad);
+    const rad = Math.min(r.h / 2, 30);
+    const lip = Math.round(r.h * 0.16); // wysokość „lipu" 3D
+    const faceH = r.h - lip;
+
+    ctx.save();
+
+    // cień pod całością
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = "#000";
+    roundRect(ctx, r.x, r.y, r.w, r.h, rad);
     ctx.fill();
-    // twarz z gradientem
-    const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+    ctx.restore();
+
+    // dolna krawędź (ciemniejszy „bok" bryły)
+    const edge = ctx.createLinearGradient(0, r.y + faceH - 6, 0, r.y + r.h);
     if (disabled) {
-      g.addColorStop(0, "#6c6c74");
-      g.addColorStop(1, "#4a4a52");
+      edge.addColorStop(0, "#3f3f46");
+      edge.addColorStop(1, "#2b2b31");
     } else {
-      g.addColorStop(0, "#ffd968");
-      g.addColorStop(1, "#f2a51e");
+      edge.addColorStop(0, "#c9791a");
+      edge.addColorStop(1, "#9a5410");
+    }
+    ctx.fillStyle = edge;
+    roundRect(ctx, r.x, r.y + lip, r.w, r.h - lip, rad);
+    ctx.fill();
+
+    // twarz z gradientem
+    const g = ctx.createLinearGradient(0, r.y, 0, r.y + faceH);
+    if (disabled) {
+      g.addColorStop(0, "#7c7c85");
+      g.addColorStop(0.55, "#63636c");
+      g.addColorStop(1, "#54545c");
+    } else {
+      g.addColorStop(0, "#ffe27e");
+      g.addColorStop(0.5, "#ffc63c");
+      g.addColorStop(1, "#f5a81c");
     }
     ctx.fillStyle = g;
-    roundRect(ctx, r.x, r.y, r.w, r.h - 4, rad);
+    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
     ctx.fill();
-    text(ctx, label, r.x + r.w / 2, r.y + (r.h - 4) / 2, {
+
+    // jasny bevel u góry
+    ctx.save();
+    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+    ctx.clip();
+    ctx.strokeStyle = disabled ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(r.x + rad, r.y + 3);
+    ctx.lineTo(r.x + r.w - rad, r.y + 3);
+    ctx.stroke();
+    ctx.restore();
+
+    // obrys
+    ctx.strokeStyle = disabled ? "rgba(0,0,0,0.35)" : "rgba(120,64,8,0.55)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, rad);
+    ctx.stroke();
+
+    ctx.restore();
+
+    text(ctx, label, r.x + r.w / 2, r.y + faceH / 2 + 2, {
       size,
       weight: "900",
       font: HEAD_FONT,
-      color: disabled ? "#d8d8dc" : "#3a1e05",
-      shadows: disabled ? [] : [{ dx: 0, dy: 2, color: "rgba(255,255,255,0.35)" }],
+      color: disabled ? "#e2e2e6" : "#4a2600",
+      shadows: disabled
+        ? [{ dx: 0, dy: -1, color: "rgba(0,0,0,0.2)" }]
+        : [{ dx: 0, dy: 1.5, color: "rgba(255,240,200,0.55)" }],
     });
   }
 
