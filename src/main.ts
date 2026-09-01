@@ -32,15 +32,26 @@ function resize() {
 
 const game = new Game(canvas);
 
+let vpRaf = 0;
 function onViewportChange() {
-  resize();
-  game.repositionFields();
+  if (vpRaf) return;
+  vpRaf = requestAnimationFrame(() => {
+    vpRaf = 0;
+    // gdy user pisze w polu, klawiatura zmienia tylko wysokość okna — nie
+    // przeskalowujemy całej gry (to powodowało „skakanie" i mruganie klawiatury),
+    // jedynie korygujemy pozycję pól
+    if (game.textInputActive()) {
+      game.repositionFields();
+      return;
+    }
+    resize();
+    game.repositionFields();
+  });
 }
 window.addEventListener("resize", onViewportChange);
-window.addEventListener("scroll", () => game.repositionFields(), { passive: true });
+window.addEventListener("orientationchange", onViewportChange);
 if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", () => game.repositionFields());
-  window.visualViewport.addEventListener("scroll", () => game.repositionFields());
+  window.visualViewport.addEventListener("resize", onViewportChange);
 }
 resize();
 initInput(canvas, {

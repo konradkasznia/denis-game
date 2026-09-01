@@ -570,29 +570,32 @@ export class Game {
   /** Rozkład pól/przycisków ekranu „PIERWSZY RAZ?" / „ZALOGUJ SIĘ". */
   private authRects() {
     const reg = this.authMode === "register";
-    const f1: Rect = { x: A_X, y: 250, w: A_W, h: 80 };
-    const f2: Rect = { x: A_X, y: 346, w: A_W, h: 80 };
-    const showpw: Rect = { x: A_X, y: 442, w: 280, h: 44 };
+    const f1: Rect = { x: A_X, y: 268, w: A_W, h: 82 };
+    const f2: Rect = { x: A_X, y: 366, w: A_W, h: 82 };
+    // oczko podglądu hasła — po prawej, POZA polem <input> (żeby dało się kliknąć)
+    const eye: Rect = { x: f2.x + f2.w - 66, y: f2.y + 9, w: 64, h: 64 };
     if (reg) {
       return {
         f1,
         f2,
-        showpw,
-        terms: { x: A_X, y: 502, w: A_W, h: 68 } as Rect,
-        primary: { x: A_X, y: 592, w: A_W, h: 96 } as Rect,
-        alt1: { x: A_X, y: 726, w: A_W, h: 84 } as Rect, // "Masz juz konto -> ZALOGUJ SIE"
-        docT: { x: A_X, y: 840, w: A_W / 2 - 8, h: 44 } as Rect,
-        docP: { x: A_X + A_W / 2 + 8, y: 840, w: A_W / 2 - 8, h: 44 } as Rect,
+        eye,
+        terms: { x: A_X, y: 470, w: A_W, h: 64 } as Rect,
+        primary: { x: A_X, y: 566, w: A_W, h: 104 } as Rect,
+        altLabel: { x: A_X, y: 726, w: A_W, h: 30 } as Rect, // "Masz już konto?"
+        alt1: { x: A_X + 30, y: 762, w: A_W - 60, h: 92 } as Rect, // ZALOGUJ SIĘ
+        docT: { x: A_X, y: 900, w: A_W, h: 42 } as Rect,
+        docP: { x: A_X, y: 950, w: A_W, h: 42 } as Rect,
       };
     }
     return {
       f1,
       f2,
-      showpw,
-      primary: { x: A_X, y: 512, w: A_W, h: 96 } as Rect,
-      alt1: { x: A_X, y: 646, w: A_W, h: 84 } as Rect, // "Nie masz konta -> STWORZ KONTO"
-      docT: { x: A_X, y: 760, w: A_W / 2 - 8, h: 44 } as Rect,
-      docP: { x: A_X + A_W / 2 + 8, y: 760, w: A_W / 2 - 8, h: 44 } as Rect,
+      eye,
+      primary: { x: A_X, y: 500, w: A_W, h: 104 } as Rect,
+      altLabel: { x: A_X, y: 660, w: A_W, h: 30 } as Rect, // "Nie masz jeszcze konta?"
+      alt1: { x: A_X + 30, y: 696, w: A_W - 60, h: 92 } as Rect, // STWÓRZ KONTO
+      docT: { x: A_X, y: 850, w: A_W, h: 42 } as Rect,
+      docP: { x: A_X, y: 900, w: A_W, h: 42 } as Rect,
     };
   }
 
@@ -602,12 +605,17 @@ export class Game {
     this.authPassword = "";
     this.authShowPw = false;
     this.authLoginState = "";
-    this.fields.blur();
+    this.fields.clear(); // pola powstaną od nowa z właściwymi wartościami
   }
 
   /** Przelicza pozycje pól <input> (wołane przy resize / zmianie orientacji / klawiaturze). */
   repositionFields() {
     this.fields.reposition();
+  }
+
+  /** Czy użytkownik pisze teraz w polu tekstowym (klawiatura otwarta). */
+  textInputActive(): boolean {
+    return this.fields.isFocused();
   }
 
   /** Nakładka z prawdziwymi <input> — tylko na ekranie logowania. */
@@ -648,7 +656,7 @@ export class Game {
         placeholder: reg ? "min. 8 znaków" : "hasło",
         autocomplete: reg ? "new-password" : "current-password",
         enterKeyHint: "go",
-        x: R.f2.x, y: R.f2.y, w: R.f2.w, h: R.f2.h,
+        x: R.f2.x, y: R.f2.y, w: R.f2.w - 62, h: R.f2.h, // miejsce na oczko
         onInput: (v) => {
           this.authPassword = v;
           this.authError = "";
@@ -701,16 +709,19 @@ export class Game {
   }
 
   private handleAuthTap(x: number, y: number) {
-    if (x < 0) return this.fields.blur();
-    this.fields.blur();
+    if (x < 0) return; // klawiatura / spacja — nic nie rób
     const R = this.authRects() as Record<string, Rect | undefined>;
 
-    if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
-    if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
-    if (R.showpw && inRect(R.showpw, x, y)) {
+    // oczko podglądu hasła — nie zabiera focusu polu
+    if (R.eye && inRect(R.eye, x, y)) {
       this.authShowPw = !this.authShowPw;
       return;
     }
+    // pozostałe stuknięcia = interakcja z UI poza polami → chowamy klawiaturę
+    this.fields.blur();
+
+    if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
+    if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
     if (R.terms && inRect(R.terms, x, y)) {
       this.authTerms = !this.authTerms;
       if (this.authTerms) this.authError = "";
@@ -1374,19 +1385,18 @@ export class Game {
   // ---- ekran: rejestracja / logowanie (zamarkowane) -------------
 
   /**
-   * Ramka pola + etykieta. Sama wartość i kursor to prawdziwy <input> z nakładki
-   * (`FieldOverlay`) ułożony dokładnie na tym prostokącie — dzięki temu na
-   * telefonie wysuwa się natywna klawiatura.
+   * Etykieta nad polem. Ramkę i wartość rysuje prawdziwy <input> z nakładki
+   * (`FieldOverlay`) ułożony na tym prostokącie — dzięki temu na telefonie wysuwa
+   * się natywna klawiatura. Tło pola jest półprzezroczyste (czytelne).
    */
   private field(ctx: CanvasRenderingContext2D, r: Rect, label: string) {
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.12)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.stroke();
-    text(ctx, label, r.x + 20, r.y + 22, { size: 13, align: "left", color: "#8a7c6e", weight: "700" });
+    text(ctx, label, r.x + 4, r.y - 14, {
+      size: 14,
+      align: "left",
+      color: "#c9b7a6",
+      weight: "700",
+      letterSpacing: "2px",
+    });
   }
 
   /** Kwadratowy checkbox z etykietą w wierszu `r`. */
@@ -1425,26 +1435,41 @@ export class Game {
   }
 
   private authLink(ctx: CanvasRenderingContext2D, r: Rect, label: string, color = "#ffce8a") {
-    text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, { size: 16, weight: "700", color });
-  }
-
-  /** Przycisk drugorzędny (obramowany, dwie linie tekstu). */
-  private secondaryBtn(ctx: CanvasRenderingContext2D, r: Rect, top: string, main: string) {
-    ctx.fillStyle = "rgba(255,255,255,0.05)";
-    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,206,138,0.5)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
-    ctx.stroke();
-    text(ctx, top, VW / 2, r.y + 24, { size: 14, color: "#8a7c6e" });
-    text(ctx, main, VW / 2, r.y + r.h - 24, {
-      size: 20,
+    text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, {
+      size: 17,
       weight: "900",
       font: HEAD_FONT,
-      color: "#ffce8a",
+      color,
       letterSpacing: "2px",
     });
+  }
+
+  /** Ikona „oczko" do podglądu hasła. `open` = pokazuj otwarte oko (hasło ukryte). */
+  private drawEye(ctx: CanvasRenderingContext2D, r: Rect, open: boolean) {
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    ctx.save();
+    ctx.strokeStyle = "#ffce8a";
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, cy);
+    ctx.quadraticCurveTo(cx, cy - 12, cx + 16, cy);
+    ctx.quadraticCurveTo(cx, cy + 12, cx - 16, cy);
+    ctx.stroke();
+    ctx.fillStyle = "#ffce8a";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (!open) {
+      ctx.strokeStyle = "#ff8a97";
+      ctx.beginPath();
+      ctx.moveTo(cx - 17, cy - 13);
+      ctx.lineTo(cx + 17, cy + 13);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawAuth(ctx: CanvasRenderingContext2D) {
@@ -1452,36 +1477,25 @@ export class Game {
     const R = this.authRects() as Record<string, Rect | undefined>;
     const reg = this.authMode === "register";
 
-    text(ctx, "DENIS", VW / 2, 104, {
-      size: 66,
+    text(ctx, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", VW / 2, 150, {
+      size: 58,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
-      letterSpacing: "4px",
-    });
-    text(ctx, reg ? "PIERWSZY RAZ?" : "ZALOGUJ SIĘ", VW / 2, 168, {
-      size: 24,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#ffce8a",
-      letterSpacing: "3px",
-    });
-    text(ctx, reg ? "wymyśl nick i hasło" : "podaj swój nick i hasło", VW / 2, 202, {
-      size: 15,
-      color: "#c9b7a6",
+      letterSpacing: "2px",
     });
 
-    // pola (wartości wpisuje prawdziwy <input> z nakładki)
+    // pola (ramkę + wartość rysuje prawdziwy <input> z nakładki)
     if (R.f1) {
-      this.field(ctx, R.f1, "TWÓJ NICK");
+      this.field(ctx, R.f1, "NICK");
       if (reg && this.authLogin.length >= 3) {
         const s = this.authLoginState;
         const msg =
           s === "checking" ? "sprawdzam…" : s === "free" ? "✓ wolny" : s === "taken" ? "✗ zajęty" : "";
         const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#8a7c6e";
         if (msg) {
-          text(ctx, msg, R.f1.x + R.f1.w - 18, R.f1.y + 22, {
+          text(ctx, msg, R.f1.x + R.f1.w - 4, R.f1.y - 14, {
             size: 13,
             align: "right",
             weight: "700",
@@ -1490,68 +1504,50 @@ export class Game {
         }
       }
     }
-    if (R.f2) this.field(ctx, R.f2, reg ? "USTAW HASŁO" : "HASŁO");
-
-    // pokaż hasło
-    if (R.showpw) {
-      const b = R.showpw;
-      const cs = 24;
-      ctx.strokeStyle = this.authShowPw ? "#ff9f43" : "rgba(255,255,255,0.3)";
-      ctx.fillStyle = this.authShowPw ? "#ff9f43" : "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 2;
-      roundRect(ctx, b.x + 2, b.y + b.h / 2 - cs / 2, cs, cs, 6);
-      ctx.fill();
-      ctx.stroke();
-      if (this.authShowPw) {
-        ctx.strokeStyle = "#1a0d12";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(b.x + 8, b.y + b.h / 2);
-        ctx.lineTo(b.x + 12, b.y + b.h / 2 + 5);
-        ctx.lineTo(b.x + 20, b.y + b.h / 2 - 6);
-        ctx.stroke();
-      }
-      text(ctx, "Pokaż hasło", b.x + cs + 14, b.y + b.h / 2, {
-        size: 15,
-        align: "left",
-        color: "#c9b7a6",
-      });
+    if (R.f2) {
+      this.field(ctx, R.f2, "HASŁO");
+      if (R.eye) this.drawEye(ctx, R.eye, !this.authShowPw);
     }
 
     // zgoda (rejestracja)
     if (R.terms) {
       this.checkboxRow(ctx, R.terms, this.authTerms, [
-        "Akceptuję Regulamin i Politykę",
-        "prywatności (wymagane)",
+        "Akceptuję Regulamin i Politykę prywatności",
       ]);
     }
 
-    // przycisk główny
-    if (R.primary) this.styledBtn(ctx, R.primary, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", "gold");
+    // przycisk główny — grafika PNG
+    if (R.primary) {
+      this.uiButton(ctx, R.primary, reg ? "stworz-konto" : "zaloguj-sie", {
+        fallback: reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ",
+      });
+    }
 
     if (reg && R.primary) {
       text(
         ctx,
-        "Zapamiętaj hasło — nie ma opcji jego odzyskania.",
+        "Zapamiętaj hasło — nie da się go odzyskać.",
         VW / 2,
-        R.primary.y + R.primary.h + 24,
+        R.primary.y + R.primary.h + 22,
         { size: 13, color: "#b7a291" },
       );
     }
 
     // przełączenie trybu
+    if (R.altLabel) {
+      text(ctx, reg ? "Masz już konto?" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 16, {
+        size: 18,
+        weight: "700",
+        color: "#e7d9c8",
+      });
+    }
     if (R.alt1) {
-      this.secondaryBtn(
-        ctx,
-        R.alt1,
-        reg ? "Masz już konto?" : "Nie masz jeszcze konta?",
-        reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO",
-      );
+      this.styledBtn(ctx, R.alt1, reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO", "dark-gold");
     }
 
     // dokumenty
-    if (R.docT) this.authLink(ctx, R.docT, "Regulamin", "#ff9f43");
-    if (R.docP) this.authLink(ctx, R.docP, "Polityka prywatności", "#ff9f43");
+    if (R.docT) this.authLink(ctx, R.docT, "REGULAMIN", "#ffb64a");
+    if (R.docP) this.authLink(ctx, R.docP, "POLITYKA PRYWATNOŚCI", "#ffb64a");
 
     // komunikaty
     if (this.authBusy) {
@@ -1805,12 +1801,12 @@ export class Game {
 
     this.drawUiBg(ctx, locked);
 
-    // logo — szeroko, ale z miejscem na zębatkę po prawej
+    // logo — wyśrodkowane (zębatka rysowana wyżej, z własnym ciemnym kołem)
     const logo = this.uiImg("wybierz-hit.png");
     if (imgReady(logo)) {
-      const w = VW - 96;
+      const w = VW - 150;
       const h = (logo.naturalHeight / logo.naturalWidth) * w;
-      ctx.drawImage(logo, (VW - 88) / 2 - w / 2, HIT_LOGO.y, w, h);
+      ctx.drawImage(logo, (VW - w) / 2, HIT_LOGO.y + 8, w, h);
     } else {
       text(ctx, "WYBIERZ HIT", VW / 2, HIT_LOGO.y + 90, {
         size: 64,
