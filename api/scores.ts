@@ -3,8 +3,8 @@
 //   POST /api/scores  { songId, score, stars }  (Bearer)  → { ok, best, stars, rank }
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ensureSchema, db } from "./_lib/db.ts";
-import { allow, body, json, nowIso, sessionUser } from "./_lib/util.ts";
+import { ensureSchema, db } from "./_lib/db.js";
+import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
 
 const TOP_N = 50;
 

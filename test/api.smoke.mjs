@@ -6,8 +6,25 @@
 
 import { createClient } from "@libsql/client/node";
 import { existsSync, rmSync } from "node:fs";
+import { randomBytes, scrypt as _scrypt, timingSafeEqual, createHash } from "node:crypto";
 import { SCHEMA_SQL } from "../api/_lib/schema.ts";
-import { hashPassword, verifyPassword, sha256, randomToken } from "../api/_lib/util.ts";
+
+// odpowiedniki helperów z api/_lib/util.ts (bez importu — util.ts ciągnie db.js)
+const scrypt = (pw, salt) =>
+  new Promise((res, rej) => _scrypt(pw, salt, 32, (e, dk) => (e ? rej(e) : res(dk))));
+async function hashPassword(pw) {
+  const salt = randomBytes(16).toString("hex");
+  return `scrypt$${salt}$${(await scrypt(pw, salt)).toString("hex")}`;
+}
+async function verifyPassword(pw, stored) {
+  const [tag, salt, hex] = String(stored).split("$");
+  if (tag !== "scrypt") return false;
+  const dk = await scrypt(pw, salt);
+  const a = Buffer.from(hex, "hex");
+  return a.length === dk.length && timingSafeEqual(a, dk);
+}
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+const randomToken = (n = 32) => randomBytes(n).toString("hex");
 
 const DB = "test/.smoke.db";
 for (const f of [DB, DB + "-wal", DB + "-shm"]) if (existsSync(f)) rmSync(f);

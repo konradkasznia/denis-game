@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ensureSchema, db } from "../_lib/db.ts";
+import { ensureSchema, db } from "../_lib/db.js";
 import {
   allow,
   body,
@@ -9,7 +9,7 @@ import {
   nowIso,
   validEmail,
   validPassword,
-} from "../_lib/util.ts";
+} from "../_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;

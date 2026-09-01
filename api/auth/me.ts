@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ensureSchema } from "../_lib/db.ts";
-import { allow, json, sessionUser } from "../_lib/util.ts";
+import { ensureSchema } from "../_lib/db.js";
+import { allow, json, sessionUser } from "../_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET"])) return;

@@ -2,7 +2,7 @@
 
 import { randomBytes, scrypt as _scrypt, timingSafeEqual, createHash } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { db } from "./db.ts";
+import { db } from "./db.js";
 
 function scrypt(pw: string, salt: string): Promise<Buffer> {
   return new Promise((res, rej) => {

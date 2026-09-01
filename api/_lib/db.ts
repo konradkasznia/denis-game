@@ -7,7 +7,7 @@
 // Lokalnie: te same zmienne w `.env.local` (plik jest w .gitignore).
 
 import { createClient, type Client } from "@libsql/client/web";
-import { SCHEMA_SQL } from "./schema.ts";
+import { SCHEMA_SQL } from "./schema.js";
 
 let _client: Client | null = null;
 let _schema: Promise<void> | null = null;

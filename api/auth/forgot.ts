@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ensureSchema, db } from "../_lib/db.ts";
-import { allow, body, json, nowIso, plusHoursIso, randomToken, sha256, validEmail } from "../_lib/util.ts";
-import { sendResetEmail } from "../_lib/email.ts";
+import { ensureSchema, db } from "../_lib/db.js";
+import { allow, body, json, nowIso, plusHoursIso, randomToken, sha256, validEmail } from "../_lib/util.js";
+import { sendResetEmail } from "../_lib/email.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
