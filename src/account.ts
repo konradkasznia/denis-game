@@ -69,10 +69,11 @@ export function marketing(): boolean {
   return !!getAccount()?.marketing;
 }
 
-/** Usunięcie konta i całego lokalnego postępu (żądanie „usuń moje dane”). */
-export function deleteAccount() {
+/** Kończy sesję (wylogowanie): usuwa konto i lokalny postęp na tym urządzeniu. */
+export function clearSession() {
   for (const k of [
     KEY,
+    "denis.email",
     "denis.stars",
     "denis.best",
     "denis.discovered",
@@ -84,7 +85,6 @@ export function deleteAccount() {
       /* ignore */
     }
   }
-  // wyczyść też tablice wyników trzymane lokalnie
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
@@ -93,4 +93,23 @@ export function deleteAccount() {
   } catch {
     /* ignore */
   }
+}
+
+/** Usunięcie konta i wszystkich danych (żądanie „usuń moje dane”). */
+export function deleteAccount() {
+  // usuń też „rekord użytkownika” w lokalnej bazie mock (docelowo: żądanie do API)
+  try {
+    const email = localStorage.getItem("denis.email");
+    if (email) {
+      const raw = localStorage.getItem("denis.users");
+      if (raw) {
+        const u = JSON.parse(raw);
+        delete u[email];
+        localStorage.setItem("denis.users", JSON.stringify(u));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  clearSession();
 }

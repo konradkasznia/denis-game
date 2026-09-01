@@ -177,16 +177,28 @@ ok(true, "wszystkie ekrany renderują się bez błędu");
 // rejestracja → nick
 console.log("\n· rejestracja / ranking:");
 localStorage.removeItem("denis.account");
+localStorage.removeItem("denis.users");
 const ga = new Game();
 await new Promise((r) => setTimeout(r, 5));
-ok(ga.scene === "auth", "bez konta start na ekranie rejestracji");
-ga.onPress(1, 360, 665); // ZALOGUJ bez zgody -> blokada
-ok(ga.scene === "auth" && !!ga.authError, "bez zgody na regulamin logowanie zablokowane");
-ga.onPress(1, 360, 442); // checkbox: akceptuję regulamin
-ga.onPress(1, 360, 665); // ZALOGUJ
-ok(ga.scene === "nick", "po akceptacji regulaminu i zalogowaniu ekran 'Twój nick'");
+ok(ga.scene === "auth" && ga.authMode === "login", "bez konta start na ekranie logowania");
+ga.authMode = "register";
+ga.authEmail = "test@example.com";
+ga.authPassword = "haslo12345";
+ga.authPassword2 = "haslo12345";
+ga.onPress(1, 360, 725); // ZAŁÓŻ KONTO bez zgody -> blokada
+await new Promise((r) => setTimeout(r, 5));
+ok(ga.scene === "auth" && !!ga.authError, "rejestracja bez zgody na regulamin zablokowana");
+ga.onPress(1, 360, 505); // checkbox: akceptuję regulamin
+ga.onPress(1, 360, 725); // ZAŁÓŻ KONTO
+await new Promise((r) => setTimeout(r, 5));
+ok(ga.scene === "nick", "po rejestracji z akceptacją -> ekran nicku");
 const savedAcc = JSON.parse(localStorage.getItem("denis.account"));
 ok(savedAcc.terms === true && !!savedAcc.termsAt, "akceptacja regulaminu zapisana z datą");
+const { login: apiLogin2 } = await import("../src/authApi.ts");
+const bad = await apiLogin2("test@example.com", "zlehaslo1");
+ok(bad.ok === false, "logowanie ze złym hasłem odrzucone");
+const good = await apiLogin2("test@example.com", "haslo12345");
+ok(good.ok === true, "logowanie z poprawnym hasłem OK");
 
 // ranking: wynik trafia do tablicy, liczy się miejsce
 const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");

@@ -8,10 +8,15 @@ import {
   marketing as accountMarketing,
   needsNick,
   nick as accountNick,
-  saveAccount,
   setMarketing,
   setNick,
 } from "./account.ts";
+import {
+  login as apiLogin,
+  loginSocial as apiLoginSocial,
+  register as apiRegister,
+  requestPasswordReset as apiResetPassword,
+} from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { gapToTop, myEntry, submitScore, topN } from "./leaderboard.ts";
@@ -121,17 +126,9 @@ const SET_DELETE: Rect = { x: MARGIN, y: 784, w: SET_W, h: 64 };
 const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
 const BOARD_ARROW_R: Rect = { x: VW - 104, y: 1188, w: 60, h: 60 };
 
-// rejestracja / logowanie (zamarkowane)
-const AUTH_EMAIL: Rect = { x: VW / 2 - 260, y: 238, w: 520, h: 74 };
-const AUTH_PASS: Rect = { x: VW / 2 - 260, y: 324, w: 520, h: 74 };
-const AUTH_TERMS: Rect = { x: VW / 2 - 260, y: 420, w: 520, h: 52 };
-const AUTH_MARKETING: Rect = { x: VW / 2 - 260, y: 480, w: 520, h: 74 };
-const AUTH_DOC_TERMS: Rect = { x: VW / 2 - 260, y: 566, w: 250, h: 40 };
-const AUTH_DOC_PRIV: Rect = { x: VW / 2 + 10, y: 566, w: 250, h: 40 };
-const AUTH_LOGIN: Rect = { x: VW / 2 - 260, y: 622, w: 520, h: 90 };
-const AUTH_FORGOT: Rect = { x: VW / 2 - 260, y: 726, w: 250, h: 42 };
-const AUTH_CREATE: Rect = { x: VW / 2 + 10, y: 726, w: 250, h: 42 };
-const AUTH_SOCIAL: Rect = { x: VW / 2 - 260, y: 800, w: 520, h: 86 };
+// logowanie / rejestracja / odzyskiwanie — layout liczony w Game.authRects()
+const A_X = VW / 2 - 260;
+const A_W = 520;
 
 // dokumenty prawne (strony HTML w public/)
 const DOC_TERMS_URL = "/regulamin.html";
@@ -270,9 +267,14 @@ export class Game {
   private shake = 0;
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
+  private authMode: "login" | "register" | "forgot" = "login";
+  private authEmail = "";
+  private authPassword = "";
+  private authPassword2 = "";
   private authMarketing = false;
   private authTerms = false;
   private authError = "";
+  private authInfo = "";
   private boardSongId = DEFAULT_TRACK;
   private resultRank = 0;
   private resultsSavedBest = false;
@@ -564,44 +566,141 @@ export class Game {
     if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
   }
 
+  /** Rozkład pól/przycisków ekranu logowania zależny od trybu. */
+  private authRects() {
+    const m = this.authMode;
+    const f1: Rect = { x: A_X, y: 214, w: A_W, h: 78 };
+    const f2: Rect = { x: A_X, y: 302, w: A_W, h: 78 };
+    const f3: Rect = { x: A_X, y: 390, w: A_W, h: 78 }; // powtórz hasło (register)
+    if (m === "forgot") {
+      return {
+        f1,
+        primary: { x: A_X, y: 336, w: A_W, h: 90 } as Rect,
+        alt1: { x: A_X, y: 452, w: A_W, h: 44 } as Rect, // wróć do logowania
+      };
+    }
+    if (m === "register") {
+      return {
+        f1,
+        f2,
+        f3,
+        terms: { x: A_X, y: 484, w: A_W, h: 50 } as Rect,
+        mkt: { x: A_X, y: 540, w: A_W, h: 72 } as Rect,
+        docT: { x: A_X, y: 626, w: 250, h: 38 } as Rect,
+        docP: { x: A_X + 270, y: 626, w: 250, h: 38 } as Rect,
+        primary: { x: A_X, y: 680, w: A_W, h: 90 } as Rect,
+        alt1: { x: A_X, y: 786, w: A_W, h: 44 } as Rect, // masz konto? zaloguj
+      };
+    }
+    // login
+    return {
+      f1,
+      f2,
+      primary: { x: A_X, y: 404, w: A_W, h: 90 } as Rect,
+      alt1: { x: A_X, y: 512, w: A_W, h: 40 } as Rect, // nie pamiętasz hasła
+      alt2: { x: A_X, y: 556, w: A_W, h: 40 } as Rect, // nie masz konta? załóż
+      social: { x: A_X, y: 636, w: A_W, h: 84 } as Rect,
+      docT: { x: A_X, y: 760, w: 250, h: 38 } as Rect,
+      docP: { x: A_X + 270, y: 760, w: 250, h: 38 } as Rect,
+    };
+  }
+
+  private promptField(label: string, current: string): string {
+    try {
+      const v = window.prompt?.(label, current) ?? current;
+      return v.trim();
+    } catch {
+      return current;
+    }
+  }
+
+  private setAuthMode(m: "login" | "register" | "forgot") {
+    this.authMode = m;
+    this.authError = "";
+    this.authInfo = "";
+    this.authPassword = "";
+    this.authPassword2 = "";
+  }
+
   private handleAuthTap(x: number, y: number) {
     if (x < 0) return;
-    if (inRect(AUTH_DOC_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
-    if (inRect(AUTH_DOC_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
-    if (inRect(AUTH_TERMS, x, y)) {
+    const R = this.authRects() as Record<string, Rect | undefined>;
+
+    if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
+    if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
+
+    if (R.f1 && inRect(R.f1, x, y)) {
+      this.authEmail = this.promptField("Adres e-mail:", this.authEmail);
+      return;
+    }
+    if (R.f2 && inRect(R.f2, x, y)) {
+      this.authPassword = this.promptField("Hasło (min. 8 znaków):", this.authPassword);
+      return;
+    }
+    if (R.f3 && inRect(R.f3, x, y)) {
+      this.authPassword2 = this.promptField("Powtórz hasło:", this.authPassword2);
+      return;
+    }
+    if (R.terms && inRect(R.terms, x, y)) {
       this.authTerms = !this.authTerms;
       if (this.authTerms) this.authError = "";
       return;
     }
-    if (inRect(AUTH_MARKETING, x, y)) {
+    if (R.mkt && inRect(R.mkt, x, y)) {
       this.authMarketing = !this.authMarketing;
       return;
     }
-    if (inRect(AUTH_FORGOT, x, y)) {
-      this.authError = "Odzyskiwanie hasła będzie dostępne po podłączeniu serwera.";
+    if (R.social && inRect(R.social, x, y)) {
+      void apiLoginSocial(this.applePlatform() ? "apple" : "google").then((r) => {
+        if (r.ok) this.scene = "nick";
+        else this.authError = r.error ?? "Nie udało się zalogować.";
+      });
       return;
     }
 
-    let method = "email";
-    if (inRect(AUTH_SOCIAL, x, y)) method = this.applePlatform() ? "apple" : "google";
-    else if (!inRect(AUTH_LOGIN, x, y) && !inRect(AUTH_CREATE, x, y)) return;
-
-    // wymagana akceptacja regulaminu i polityki prywatności
-    if (!this.authTerms) {
-      this.authError = "Zaznacz akceptację Regulaminu i Polityki prywatności.";
+    if (this.authMode === "login") {
+      if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("forgot");
+      if (R.alt2 && inRect(R.alt2, x, y)) return this.setAuthMode("register");
+      if (R.primary && inRect(R.primary, x, y)) {
+        void apiLogin(this.authEmail, this.authPassword).then((r) => {
+          if (r.ok) {
+            this.authError = "";
+            this.scene = needsNick() ? "nick" : "hits";
+            if (!needsNick()) this.enterHitsFresh();
+          } else {
+            this.authError = r.error ?? "Logowanie nie powiodło się.";
+          }
+        });
+      }
       return;
     }
-    const nowIso = new Date().toISOString();
-    saveAccount({
-      nick: "",
-      terms: true,
-      termsAt: nowIso,
-      marketing: this.authMarketing,
-      marketingAt: this.authMarketing ? nowIso : undefined,
-      method,
-    });
-    this.authError = "";
-    this.scene = "nick";
+
+    if (this.authMode === "register") {
+      if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("login");
+      if (R.primary && inRect(R.primary, x, y)) {
+        void apiRegister(this.authEmail, this.authPassword, this.authPassword2, {
+          terms: this.authTerms,
+          marketing: this.authMarketing,
+        }).then((r) => {
+          if (r.ok) {
+            this.authError = "";
+            this.scene = "nick";
+          } else {
+            this.authError = r.error ?? "Rejestracja nie powiodła się.";
+          }
+        });
+      }
+      return;
+    }
+
+    // forgot
+    if (R.alt1 && inRect(R.alt1, x, y)) return this.setAuthMode("login");
+    if (R.primary && inRect(R.primary, x, y)) {
+      void apiResetPassword(this.authEmail).then((r) => {
+        this.authError = r.ok ? "" : (r.error ?? "Spróbuj ponownie.");
+        this.authInfo = r.info ?? "";
+      });
+    }
   }
 
   private applePlatform() {
@@ -1317,82 +1416,100 @@ export class Game {
     );
   }
 
+  private authLink(ctx: CanvasRenderingContext2D, r: Rect, label: string, color = "#ffce8a") {
+    text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, { size: 16, weight: "700", color });
+  }
+
   private drawAuth(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
+    const R = this.authRects() as Record<string, Rect | undefined>;
+    const m = this.authMode;
 
-    text(ctx, "DENIS", VW / 2, 110, {
-      size: 76,
+    text(ctx, "DENIS", VW / 2, 100, {
+      size: 68,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
       letterSpacing: "4px",
     });
-    text(ctx, "ZAŁÓŻ KONTO / ZALOGUJ SIĘ", VW / 2, 176, {
-      size: 18,
+    const heading =
+      m === "register" ? "ZAŁÓŻ KONTO" : m === "forgot" ? "ODZYSKAJ HASŁO" : "ZALOGUJ SIĘ";
+    text(ctx, heading, VW / 2, 160, {
+      size: 22,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffce8a",
       letterSpacing: "3px",
     });
 
-    this.field(ctx, AUTH_EMAIL, "E-MAIL", "twoj@email.pl");
-    this.field(ctx, AUTH_PASS, "HASŁO", "••••••••");
+    if (m === "forgot") {
+      wrapText("Podaj adres e-mail, wyślemy link do ustawienia nowego hasła.", 40).forEach(
+        (ln, i) => text(ctx, ln, VW / 2, 196 + i * 22, { size: 15, color: "#c9b7a6" }),
+      );
+    }
 
-    // wymagana zgoda: regulamin + polityka
-    this.checkboxRow(ctx, AUTH_TERMS, this.authTerms, [
-      "Akceptuję Regulamin i Politykę prywatności",
-    ]);
-    // dobrowolna zgoda marketingowa
-    this.checkboxRow(ctx, AUTH_MARKETING, this.authMarketing, [
-      "Chcę dostawać informacje o nowościach",
-      "i promocjach na e-mail (dobrowolne)",
-    ]);
+    // pola
+    if (R.f1) this.field(ctx, R.f1, "E-MAIL", this.authEmail || "twoj@email.pl");
+    if (R.f2) this.field(ctx, R.f2, "HASŁO", this.authPassword ? "••••••••" : "");
+    if (R.f3) this.field(ctx, R.f3, "POWTÓRZ HASŁO", this.authPassword2 ? "••••••••" : "");
+
+    // zgody (tylko rejestracja)
+    if (R.terms) {
+      this.checkboxRow(ctx, R.terms, this.authTerms, [
+        "Akceptuję Regulamin i Politykę prywatności",
+      ]);
+    }
+    if (R.mkt) {
+      this.checkboxRow(ctx, R.mkt, this.authMarketing, [
+        "Chcę dostawać informacje o nowościach",
+        "i promocjach na e-mail (dobrowolne)",
+      ]);
+    }
+
+    // przycisk główny
+    const primaryLabel =
+      m === "register" ? "ZAŁÓŻ KONTO" : m === "forgot" ? "WYŚLIJ LINK" : "ZALOGUJ";
+    if (R.primary) this.styledBtn(ctx, R.primary, primaryLabel, "gold");
+
+    // odnośniki nawigacyjne
+    if (m === "login") {
+      if (R.alt1) this.authLink(ctx, R.alt1, "Nie pamiętasz hasła?", "#c9b7a6");
+      if (R.alt2) this.authLink(ctx, R.alt2, "Nie masz konta? Załóż konto");
+      if (R.social) {
+        text(ctx, "lub kontynuuj z:", VW / 2, R.social.y - 18, { size: 14, color: "#8a7c6e" });
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        roundRect(ctx, R.social.x, R.social.y, R.social.w, R.social.h, 16);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.22)";
+        ctx.lineWidth = 2;
+        roundRect(ctx, R.social.x, R.social.y, R.social.w, R.social.h, 16);
+        ctx.stroke();
+        text(ctx, this.applePlatform() ? "Apple ID" : "Google", VW / 2, R.social.y + R.social.h / 2, {
+          size: 22,
+          weight: "800",
+          font: HEAD_FONT,
+          color: "#fff7ec",
+        });
+      }
+    } else if (m === "register") {
+      if (R.alt1) this.authLink(ctx, R.alt1, "Masz już konto? Zaloguj się");
+    } else {
+      if (R.alt1) this.authLink(ctx, R.alt1, "‹ Wróć do logowania", "#c9b7a6");
+    }
 
     // odnośniki do dokumentów
-    text(ctx, "» Regulamin", AUTH_DOC_TERMS.x + AUTH_DOC_TERMS.w / 2, AUTH_DOC_TERMS.y + 20, {
-      size: 16,
-      weight: "700",
-      color: "#ff9f43",
-    });
-    text(ctx, "» Polityka prywatności", AUTH_DOC_PRIV.x + AUTH_DOC_PRIV.w / 2, AUTH_DOC_PRIV.y + 20, {
-      size: 16,
-      weight: "700",
-      color: "#ff9f43",
-    });
+    if (R.docT) this.authLink(ctx, R.docT, "» Regulamin", "#ff9f43");
+    if (R.docP) this.authLink(ctx, R.docP, "» Polityka prywatności", "#ff9f43");
 
-    // ZALOGUJ / ZAŁÓŻ KONTO
-    this.styledBtn(ctx, AUTH_LOGIN, "ZALOGUJ / ZAŁÓŻ", "gold");
-
-    text(ctx, "Zapomniałem hasła", AUTH_FORGOT.x + AUTH_FORGOT.w / 2, AUTH_FORGOT.y + 20, {
-      size: 16,
-      color: "#c9b7a6",
-    });
-    text(ctx, "Załóż konto", AUTH_CREATE.x + AUTH_CREATE.w / 2, AUTH_CREATE.y + 20, {
-      size: 16,
-      color: "#ffce8a",
-      weight: "700",
-    });
-
-    text(ctx, "lub kontynuuj z:", VW / 2, AUTH_SOCIAL.y - 18, { size: 14, color: "#8a7c6e" });
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.22)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, AUTH_SOCIAL.x, AUTH_SOCIAL.y, AUTH_SOCIAL.w, AUTH_SOCIAL.h, 16);
-    ctx.stroke();
-    text(
-      ctx,
-      this.applePlatform() ? "Apple ID" : "Google",
-      VW / 2,
-      AUTH_SOCIAL.y + AUTH_SOCIAL.h / 2,
-      { size: 22, weight: "800", font: HEAD_FONT, color: "#fff7ec" },
-    );
-
+    // komunikaty
     if (this.authError) {
-      wrapText(this.authError, 44).forEach((ln, i) =>
-        text(ctx, ln, VW / 2, VH - 60 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
+      wrapText(this.authError, 42).forEach((ln, i) =>
+        text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
+      );
+    } else if (this.authInfo) {
+      wrapText(this.authInfo, 42).forEach((ln, i) =>
+        text(ctx, ln, VW / 2, VH - 66 + i * 22, { size: 15, weight: "700", color: "#8affc1" }),
       );
     } else {
       text(ctx, "wersja demo, logowanie jeszcze niepodłączone", VW / 2, VH - 44, {
