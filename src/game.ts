@@ -548,9 +548,9 @@ export class Game {
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
 
-  /** Najwyższy index strony dostępny w karuzeli (0..3; 3 = „już wkrótce"). */
+  /** Najwyższy index strony dostępny w karuzeli. */
   private maxHitIndex(): number {
-    return Math.max(1, Math.min(3, clearedStreak() + 1));
+    return Math.max(1, Math.min(SONGS.length - 1, clearedStreak() + 1));
   }
 
   private enterHits() {
@@ -563,7 +563,7 @@ export class Game {
   private preloadedAudioFor = "";
   private preloadHitAudio() {
     const meta = SONGS[this.hitIndex];
-    if (!meta || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
+    if (!meta || !meta.playable || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
     this.preloadedAudioFor = meta.id;
     void (async () => {
       try {
@@ -595,20 +595,22 @@ export class Game {
       }
       return;
     }
-    if (inRect(HIT_REW, x, y)) {
+    const meta = SONGS[this.hitIndex];
+    if (!meta) return;
+
+    // NAGRODY: przy „wkrótce" przycisk jest na całą szerokość
+    const rewRect = meta.playable ? HIT_REW : { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_RES.h };
+    if (inRect(rewRect, x, y)) {
       this.scene = "rewards";
       return;
     }
 
-    const meta = SONGS[this.hitIndex];
-    if (!meta) return; // strona „już wkrótce" — brak akcji
-
-    if (inRect(HIT_RES, x, y)) {
+    if (meta.playable && inRect(HIT_RES, x, y)) {
       this.boardSongId = meta.id;
       this.scene = "board";
       return;
     }
-    if (inRect(HIT_GRAJ, x, y) && levelUnlocked(this.hitIndex)) {
+    if (inRect(HIT_GRAJ, x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
       this.burstConfetti(VW / 2, 660);
@@ -1522,9 +1524,11 @@ export class Game {
   private drawHits(ctx: CanvasRenderingContext2D) {
     const idx = this.hitIndex;
     const meta = SONGS[idx]; // undefined dla „już wkrótce"
-    const unlocked = levelUnlocked(idx);
+    // „wkrótce" (niedostępny utwór) pokazujemy w kolorze; zablokowany progresją — b&w
+    const locked = meta.playable && !levelUnlocked(idx);
+    const unlocked = !locked;
 
-    this.drawUiBg(ctx, !!meta && !unlocked);
+    this.drawUiBg(ctx, locked);
 
     // zębatka
     const gear = this.uiImg("gear.png");
@@ -1562,7 +1566,7 @@ export class Game {
     this.arrowBtn(ctx, HIT_ARROW_R, "right", idx < this.maxHitIndex());
 
     // tytuł (auto-zmniejszanie, żeby zmieścił się między strzałkami)
-    const title = meta ? meta.title.toUpperCase() : "JUŻ WKRÓTCE!";
+    const title = meta.title.toUpperCase();
     const maxTitleW = HIT_ARROW_R.x - (HIT_ARROW_L.x + HIT_ARROW_L.w) - 20;
     let tSize = 42;
     ctx.save();
@@ -1582,25 +1586,37 @@ export class Game {
     });
 
     // gwiazdki (najlepszy wynik dla tego utworu)
-    if (meta) this.starRow(ctx, VW / 2, HIT_STARS_Y, 20, bestStars(meta.id));
+    this.starRow(ctx, VW / 2, HIT_STARS_Y, 20, bestStars(meta.id));
 
-    // postać
+    // postać (b&w tylko gdy zablokowana progresją)
     this.drawSelectChar(ctx, idx, unlocked);
 
     // confetti (po kliknięciu GRAJ!)
     this.drawConfetti(ctx);
 
-    if (!meta) {
-      // strona „już wkrótce"
-      wrapText("WEJDŹ NA NASZEGO TIK-TOKA i napisz jaki utwór powinien być kolejny!", 22).forEach(
-        (ln, i) =>
-          text(ctx, ln, VW / 2, 900 + i * 44, {
-            size: 30,
-            weight: "900",
-            font: HEAD_FONT,
-            color: "#fff7ec",
-            shadows: HEAD_SHADOWS,
-          }),
+    // --- poziom „wkrótce" (utwór jeszcze niedostępny) ---
+    if (!meta.playable) {
+      const rad = Math.min(HIT_GRAJ.h / 2, 28);
+      ctx.fillStyle = "rgba(30,28,36,0.85)";
+      roundRect(ctx, HIT_GRAJ.x, HIT_GRAJ.y, HIT_GRAJ.w, HIT_GRAJ.h, rad);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,180,90,0.45)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, HIT_GRAJ.x, HIT_GRAJ.y, HIT_GRAJ.w, HIT_GRAJ.h, rad);
+      ctx.stroke();
+      text(ctx, "WKRÓTCE", VW / 2, HIT_GRAJ.y + HIT_GRAJ.h / 2, {
+        size: 42,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffce8a",
+        letterSpacing: "4px",
+        shadows: HEAD_SHADOWS,
+      });
+      this.uiButton(
+        ctx,
+        { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_RES.h },
+        "nagrody",
+        { fallback: "NAGRODY" },
       );
       return;
     }
@@ -1626,17 +1642,15 @@ export class Game {
     const meta = SONGS[idx];
     const box: Rect = { x: 90, y: 420, w: VW - 180, h: 540 };
     let src: HTMLImageElement | null = null;
-    if (meta) {
-      const named = this.uiImg(`select-${meta.id}.png`);
-      if (imgReady(named)) src = named;
-      else {
-        // zapas: pierwsza klatka animacji „ujecie1" tego utworu
-        const fb = loadImg(`assets/char/${meta.id}/ujecie1/dance.png`);
-        if (imgReady(fb)) src = fb;
-      }
+    const named = this.uiImg(`select-${meta.id}.png`);
+    if (imgReady(named)) src = named;
+    else {
+      // zapas: pierwsza klatka animacji „ujecie1" tego utworu
+      const fb = loadImg(`assets/char/${meta.id}/ujecie1/dance.png`);
+      if (imgReady(fb)) src = fb;
     }
     if (!src) {
-      text(ctx, meta ? "?" : "🎵", VW / 2, box.y + box.h / 2, {
+      text(ctx, "?", VW / 2, box.y + box.h / 2, {
         size: 160,
         weight: "900",
         color: "rgba(255,255,255,0.12)",

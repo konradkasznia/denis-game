@@ -47,6 +47,14 @@ export const SONGS: SongMeta[] = [
     spotifyUrl: "https://open.spotify.com/search/Denis%20Pogrzeb%C3%B3wka",
     playable: true,
   },
+  {
+    id: "pani-policjantko",
+    title: "Pani policjantko",
+    artist: "Denis",
+    accent: "#8ab6ff",
+    spotifyUrl: "https://open.spotify.com/search/Denis%20Pani%20policjantko",
+    playable: false, // wkrótce
+  },
 ];
 
 /** Następna runda po utworze `id` (albo null, gdy to ostatnia). */
