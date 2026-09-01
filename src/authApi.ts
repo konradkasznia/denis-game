@@ -74,9 +74,13 @@ function startSession(email: string, method: string, extra: Partial<Account> = {
   }
 }
 
-/** ApiError → komunikat dla użytkownika. OfflineError → przerzuć dalej (fallback na atrapę). */
+/**
+ * ApiError 4xx → komunikat dla użytkownika (błąd walidacji, złe hasło, zajęty e-mail).
+ * ApiError 5xx / OfflineError → przerzuć dalej: warstwa wyżej spróbuje lokalnej atrapy,
+ * żeby awaria lub brak konfiguracji backendu nie blokowały wejścia do gry.
+ */
 function toResult(e: unknown): AuthResult {
-  if (e instanceof ApiError) return { ok: false, error: e.message };
+  if (e instanceof ApiError && e.status < 500) return { ok: false, error: e.message };
   throw e instanceof OfflineError ? e : new OfflineError();
 }
 
