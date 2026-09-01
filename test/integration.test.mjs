@@ -225,6 +225,8 @@ const { nextRound } = await import("../src/songs.ts");
 ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
 ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
 {
+  // KONTYNUUJ po zaliczeniu -> ekran wyboru, ustawiony na następny poziom
+  localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5, "ksiaze-z-bajki": 5 }));
   const gp = new Game();
   gp.trackId = "panna-mloda";
   await new Promise((r) => setTimeout(r, 5));
@@ -233,9 +235,23 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   gp.parScore = 1000;
   gp.finish();
   gp.resultsAt = performance.now() - 5000; // po animacji
-  gp.onPress(-1, 360, 1150); // KOLEJNA RUNDA
+  gp.onPress(-1, 360, 1200); // KONTYNUUJ
   await new Promise((r) => setTimeout(r, 5));
-  ok(gp.trackId === "ksiaze-z-bajki", "przycisk Kolejna runda przełącza na następny utwór");
+  ok(gp.scene === "hits" && gp.hitIndex === 1, "KONTYNUUJ po zaliczeniu -> wybór, następny poziom");
+}
+{
+  // KONTYNUUJ po porażce -> ekran wyboru, ten sam poziom
+  const gf = new Game();
+  gf.trackId = "ksiaze-z-bajki";
+  await new Promise((r) => setTimeout(r, 5));
+  await gf.startPlay();
+  gf.score = 0;
+  gf.parScore = 1000;
+  gf.finish();
+  gf.resultsAt = performance.now() - 5000;
+  gf.onPress(-1, 360, 1200);
+  await new Promise((r) => setTimeout(r, 5));
+  ok(gf.scene === "hits" && gf.hitIndex === 1, "KONTYNUUJ po porażce -> wybór, ten sam poziom");
 }
 
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);

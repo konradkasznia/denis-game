@@ -116,9 +116,9 @@ const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
 const PZ_MENU: Rect = { x: MARGIN, y: 800, w: VW - MARGIN * 2, h: 96 };
-const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 88 };
-const RES_SPOTIFY: Rect = { x: MARGIN, y: 1014, w: VW - MARGIN * 2, h: 88 };
-const RES_PRIMARY: Rect = { x: MARGIN, y: 1112, w: VW - MARGIN * 2, h: 96 };
+const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 110 };
+const RES_SPOTIFY: Rect = { x: MARGIN, y: 1034, w: VW - MARGIN * 2, h: 110 }; // 8px odstępu
+const RES_PRIMARY: Rect = { x: MARGIN, y: 1152, w: VW - MARGIN * 2, h: 110 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -250,7 +250,7 @@ export class Game {
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
-      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kolejna-runda.png",
+      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kontynuuj.png",
       "reward-denis.png", "wkrotce.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
@@ -649,19 +649,12 @@ export class Game {
     }
     const passed = this.rating() >= PASS_RATING;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
-    const nextS = idx >= 0 && idx + 1 < SONGS.length ? SONGS[idx + 1] : null;
-    const nextUnlocked = !!nextS && nextS.playable && levelUnlocked(idx + 1);
 
+    // KONTYNUUJ → ekran wyboru piosenki: zaliczone → następna, nie → ta sama
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
-      if (passed && nextUnlocked && nextS) {
-        this.trackId = nextS.id;
-        void this.startPlay();
-      } else if (passed) {
-        this.hitIndex = Math.max(0, idx);
-        this.enterHits(); // zaliczone, ale kolejny poziom jeszcze zablokowany / brak
-      } else {
-        void this.startPlay(); // spróbuj ponownie tę samą
-      }
+      const target = passed ? idx + 1 : idx;
+      this.hitIndex = clamp(Math.max(0, target), 0, this.maxHitIndex());
+      this.enterHits();
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
@@ -2529,14 +2522,7 @@ export class Game {
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "ZAPISZ NA SPOTIFY", style: "dark-green" });
-
-    const nextS = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length ? SONGS[lvlIdx + 1] : null;
-    const nextPlayable = !!nextS && nextS.playable && levelUnlocked(lvlIdx + 1);
-    const primary = passed ? (nextPlayable ? "KOLEJNA RUNDA!" : "WYBIERZ HIT") : "SPRÓBUJ PONOWNIE";
-    this.uiButton(ctx, RES_PRIMARY, passed && nextPlayable ? "kolejna-runda" : "_", {
-      fallback: primary,
-      style: "gold",
-    });
+    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
 
     ctx.restore();
   }
