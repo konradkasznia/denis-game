@@ -271,6 +271,7 @@ export class Game {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
     if (!this.soundHintDone) this.soundModal = true;
     this.scene = "hits";
+    this.preloadHitAudio();
   }
 
   private async preloadChart() {
@@ -491,7 +492,6 @@ export class Game {
     if (this.scene === "profile") return this.handleProfileTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
-      if (this.awaitingStart) return this.beginSong();
       if (this.paused) {
         if (this.resumeAt) return; // trwa odliczanie
         return this.handlePauseTap(x, y);
@@ -556,6 +556,23 @@ export class Game {
   private enterHits() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
     this.scene = "hits";
+    this.preloadHitAudio();
+  }
+
+  /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
+  private preloadedAudioFor = "";
+  private preloadHitAudio() {
+    const meta = SONGS[this.hitIndex];
+    if (!meta || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
+    this.preloadedAudioFor = meta.id;
+    void (async () => {
+      try {
+        const song = await loadTrack(meta.id);
+        if (song.audioUrl) await this.audio.loadTrack(song.audioUrl);
+      } catch {
+        /* brak sieci / nie ma pliku — trudno, poleci przy GRAJ! */
+      }
+    })();
   }
 
   private handleHitsTap(x: number, y: number) {
@@ -565,11 +582,17 @@ export class Game {
       return;
     }
     if (inRect(HIT_ARROW_L, x, y)) {
-      if (this.hitIndex > 0) this.hitIndex--;
+      if (this.hitIndex > 0) {
+        this.hitIndex--;
+        this.preloadHitAudio();
+      }
       return;
     }
     if (inRect(HIT_ARROW_R, x, y)) {
-      if (this.hitIndex < this.maxHitIndex()) this.hitIndex++;
+      if (this.hitIndex < this.maxHitIndex()) {
+        this.hitIndex++;
+        this.preloadHitAudio();
+      }
       return;
     }
     if (inRect(HIT_REW, x, y)) {
@@ -586,13 +609,12 @@ export class Game {
       return;
     }
     if (inRect(HIT_GRAJ, x, y) && levelUnlocked(this.hitIndex)) {
+      // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
+      void this.audio.unlock();
       this.burstConfetti(VW / 2, 660);
       haptic("combo");
       this.trackId = meta.id;
-      // krótka chwila na pokazanie confetti za postacią, potem wczytywanie
-      setTimeout(() => {
-        if (this.scene === "hits") void this.startPlay();
-      }, 380);
+      void this.startPlay();
     }
   }
 
@@ -730,9 +752,10 @@ export class Game {
     this.newBest = false;
     this.songTime = 0;
     this.scene = "play";
-    this.awaitingStart = true; // start dopiero od świeżego dotyku (iOS audio)
-    markDiscovered(this.song.id);
     this.preparing = false;
+    markDiscovered(this.song.id);
+    // audio odblokowane w geście GRAJ! → startujemy od razu, bez ekranu „stuknij"
+    this.beginSong();
   }
 
   /** „Par" — punkty za solidny przebieg (same SUPER, mnożnik do x3). Ocena
@@ -1726,54 +1749,6 @@ export class Game {
     const pulse = this.beatPulse();
 
     const plainStage = this.character.hasContent() && !this.songBg;
-
-    if (this.awaitingStart) {
-      this.drawStage(ctx, 0.45, pulse, plainStage);
-      ctx.fillStyle = "rgba(4,4,10,0.58)";
-      ctx.fillRect(0, 0, VW, VH);
-      text(ctx, this.song.title.toUpperCase(), VW / 2, 300, {
-        size: 42,
-        weight: "800",
-        color: "#fff7ec",
-        glow: "#ffb457",
-        glowBlur: 16,
-      });
-
-      // ostrzeżenie o dźwięku — TYLKO tutaj, przed grą
-      const suspended = this.audio.state !== "running";
-      ctx.fillStyle = "rgba(8,6,12,0.85)";
-      roundRect(ctx, 44, 386, VW - 88, 132, 18);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,180,90,0.5)";
-      ctx.lineWidth = 2;
-      roundRect(ctx, 44, 386, VW - 88, 132, 18);
-      ctx.stroke();
-      text(ctx, "🔊 SPRAWDŹ DŹWIĘK", VW / 2, 424, { size: 22, weight: "800", color: "#ffce8a" });
-      text(ctx, "iPhone: wyłącz przełącznik ciszy nad przyciskami głośności", VW / 2, 458, {
-        size: 16,
-        color: "#c9b7a6",
-      });
-      text(ctx, "oraz podkręć głośność multimediów", VW / 2, 486, { size: 16, color: "#c9b7a6" });
-      void suspended;
-
-      const s = 1 + pulse * 0.06;
-      ctx.save();
-      ctx.translate(VW / 2, 760);
-      ctx.scale(s, s);
-      ctx.fillStyle = "rgba(255,180,90,0.16)";
-      ctx.beginPath();
-      ctx.arc(0, 0, 96, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      text(ctx, "▶", VW / 2 + 6, 760, { size: 88, color: "#ffce8a" });
-      text(ctx, "STUKNIJ, ABY ZAGRAĆ", VW / 2, 910, {
-        size: 28,
-        weight: "800",
-        color: "#ffce8a",
-        letterSpacing: "3px",
-      });
-      return;
-    }
 
     // ---- trzęsienie ekranu ----
     const sh = this.shake;
