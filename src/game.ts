@@ -562,6 +562,46 @@ export class Game {
     if (this.scene === "play" && lane >= 0) this.releaseLane(lane);
   }
 
+  /** Sprzętowy „wstecz" (Android). true = obsłużone; false = można wyjść z apki. */
+  handleBack(): boolean {
+    if (this.soundModal) {
+      this.soundModal = false;
+      this.soundHintDone = true;
+      return true;
+    }
+    if (this.offlineNotice) {
+      this.offlineNotice = false;
+      return true;
+    }
+    switch (this.scene) {
+      case "board":
+      case "rewards":
+      case "profile":
+        this.scene = "hits";
+        return true;
+      case "results":
+        this.enterHits();
+        return true;
+      case "play":
+        if (this.paused) {
+          if (this.resumeAt) return true; // trwa odliczanie — zignoruj
+          this.audio.stop();
+          this.paused = false;
+          this.scene = "hits";
+        } else {
+          this.pauseGame();
+        }
+        return true;
+      default:
+        return false; // loading / auth / hits → wyjście z aplikacji
+    }
+  }
+
+  /** Apka zeszła w tło — wstrzymaj rozgrywkę. */
+  onAppBackground() {
+    if (this.scene === "play" && !this.paused) this.pauseGame();
+  }
+
   /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
   private authRects() {
     const reg = this.authMode === "register";

@@ -1,6 +1,7 @@
 import "./style.css";
 import { Game } from "./game.ts";
 import { initInput } from "./input.ts";
+import { hideSplash, initNativeShell } from "./nativeShell.ts";
 import { VH, VW, viewport } from "./viewport.ts";
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
@@ -31,6 +32,7 @@ function resize() {
 }
 
 const game = new Game(canvas);
+initNativeShell(game);
 
 let vpRaf = 0;
 function onViewportChange() {
@@ -98,6 +100,7 @@ async function ensureFonts() {
 }
 
 let last = performance.now();
+let firstFrame = true;
 function frame(now: number) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
@@ -105,6 +108,10 @@ function frame(now: number) {
   ctx.save();
   game.render(ctx);
   ctx.restore();
+  if (firstFrame) {
+    firstFrame = false;
+    hideSplash(); // gra narysowana — chowamy natywny splash
+  }
   requestAnimationFrame(frame);
 }
 void ensureFonts().then(() => requestAnimationFrame(frame));

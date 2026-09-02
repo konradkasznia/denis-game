@@ -1,9 +1,13 @@
 // Wibracje (haptyka).
 //
-// Web: `navigator.vibrate` działa na Androidzie (Chrome) i desktopie z silnikiem.
-// iOS Safari NIE wspiera wibracji z poziomu strony — tam haptyka ruszy dopiero
-// w wersji natywnej (Capacitor + @capacitor/haptics). Wtedy podmieniamy tylko
-// implementację `fire()` poniżej, reszta gry bez zmian.
+// - Natywnie (Capacitor / Android): `@capacitor/haptics` — prawdziwy silnik
+//   haptyczny (impact/notification), lepszy feel niż surowy `vibrate`.
+// - Web: `navigator.vibrate` (Android Chrome / desktop z silnikiem).
+//   iOS Safari nie wspiera wibracji z poziomu strony — tam zadziała dopiero
+//   wersja natywna.
+
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
+import { isNative } from "./native.ts";
 
 export type Haptic =
   | "tick" // zwykłe trafienie
@@ -12,9 +16,10 @@ export type Haptic =
   | "hold" // utrzymana nuta trzymana
   | "holdTick" // puls w trakcie trzymania
   | "combo" // próg combo (co 10)
-  | "flowUp" // wejście na wyższy mnożnik — mocna wibracja całego telefonu
+  | "flowUp" // wejście na wyższy mnożnik — mocna wibracja
   | "fail"; // koniec / brak życia
 
+// wzorce dla web (`navigator.vibrate`)
 const PATTERNS: Record<Haptic, number | number[]> = {
   tick: 8,
   perfect: 14,
@@ -26,14 +31,14 @@ const PATTERNS: Record<Haptic, number | number[]> = {
   fail: [0, 120, 60, 120],
 };
 
-const supported =
+const webSupported =
   typeof navigator !== "undefined" && typeof (navigator as Navigator).vibrate === "function";
 
 let enabled = true;
 
 export function setHapticsEnabled(on: boolean) {
   enabled = on;
-  if (!on && supported) {
+  if (!on && webSupported) {
     try {
       navigator.vibrate(0);
     } catch {
@@ -43,11 +48,32 @@ export function setHapticsEnabled(on: boolean) {
 }
 
 export function hapticsAvailable() {
-  return supported;
+  return isNative || webSupported;
+}
+
+function fireNative(kind: Haptic) {
+  const p =
+    kind === "tick" || kind === "holdTick"
+      ? Haptics.impact({ style: ImpactStyle.Light })
+      : kind === "perfect" || kind === "hold"
+        ? Haptics.impact({ style: ImpactStyle.Medium })
+        : kind === "flowUp"
+          ? Haptics.impact({ style: ImpactStyle.Heavy })
+          : kind === "combo"
+            ? Haptics.notification({ type: NotificationType.Success })
+            : kind === "miss"
+              ? Haptics.notification({ type: NotificationType.Warning })
+              : Haptics.notification({ type: NotificationType.Error }); // fail
+  void Promise.resolve(p).catch(() => {});
 }
 
 export function fire(kind: Haptic) {
-  if (!enabled || !supported) return;
+  if (!enabled) return;
+  if (isNative) {
+    fireNative(kind);
+    return;
+  }
+  if (!webSupported) return;
   try {
     navigator.vibrate(PATTERNS[kind]);
   } catch {

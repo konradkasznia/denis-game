@@ -34,8 +34,10 @@ jobs:
       - name: Instalacja zależności
         run: npm ci
 
-      - name: Build web (dist/)
+      - name: Build web (dist/) — backend na Vercelu (apka woła cross-origin)
         run: npm run build
+        env:
+          VITE_API_BASE: https://denis-game.vercel.app
 
       - uses: actions/setup-java@v4
         with:

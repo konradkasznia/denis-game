@@ -1,29 +1,23 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
-// DENIS Impulsywni Live — konfiguracja Capacitora (na razie tylko Android, do testów).
+// DENIS Impulsywni Live — Capacitor (Android; iOS w fazie późniejszej).
 //
-// TRYB TESTOWY: `server.url` = apka to natywna powłoka ładująca żywą stronę
-// (denis-game.vercel.app). Dzięki temu API działa (ten sam origin), a każda
-// zmiana w grze = tylko redeploy Vercela, bez przebudowy APK.
-//
-// PRZED PRODUKCJĄ: usunąć `server.url`, zbundlować `dist/` do apki (assety
-// lokalnie) i dodać `Access-Control-Allow-Origin` do `/api/*` (origin
-// `https://localhost` w Capacitorze). Wtedy gra działa offline poza rankingiem.
+// Wersja NATYWNA: assety gry (`dist/`) są zbundlowane w APK — gra działa
+// offline poza rankingiem/kontem. Backend `/api/*` wołany cross-origin z
+// origin `https://localhost`, więc API ma `Access-Control-Allow-Origin: *`.
+// Adres backendu wstrzykiwany przy buildzie: `VITE_API_BASE` (patrz workflow).
 const config: CapacitorConfig = {
   appId: "pl.impulsywni.denis",
   appName: "DENIS Impulsywni Live",
   webDir: "dist",
   backgroundColor: "#0b0b12",
-  server: {
-    url: "https://denis-game.vercel.app",
-    cleartext: false,
-  },
   android: {
     backgroundColor: "#0b0b12",
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 700,
+      launchShowDuration: 3000,
+      launchAutoHide: false, // chowamy ręcznie, gdy gra gotowa (main.ts)
       backgroundColor: "#0b0b12",
       showSpinner: false,
       androidScaleType: "CENTER_CROP",

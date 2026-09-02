@@ -53,7 +53,16 @@ export const PW_RULE = "Hasło musi mieć min. 8 znaków, wielką literę i znak
 
 // ---- HTTP ----------------------------------------------------------
 
+/** CORS — apka natywna (Capacitor, origin https://localhost) woła API cross-origin.
+ *  Bez ciasteczek (auth = Bearer), więc `*` jest bezpieczne. */
+export function cors(res: VercelResponse) {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-headers", "content-type, authorization, x-editor-key");
+  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+}
+
 export function json(res: VercelResponse, status: number, body: unknown) {
+  cors(res);
   res.status(status).setHeader("content-type", "application/json; charset=utf-8");
   res.send(JSON.stringify(body));
 }
@@ -74,8 +83,8 @@ export function body<T = Record<string, unknown>>(req: VercelRequest): T {
 
 export function allow(req: VercelRequest, res: VercelResponse, methods: string[]): boolean {
   if (req.method === "OPTIONS") {
-    res.setHeader("access-control-allow-methods", methods.join(", "));
-    res.setHeader("access-control-allow-headers", "content-type, authorization");
+    cors(res);
+    res.setHeader("access-control-allow-methods", [...methods, "OPTIONS"].join(", "));
     res.status(204).end();
     return false;
   }
