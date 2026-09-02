@@ -114,8 +114,8 @@ const SET_LOGOUT: Rect = { x: MARGIN, y: 648, w: SET_W, h: 64 };
 const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
-const BOARD_TAB_M: Rect = { x: MARGIN, y: 150, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
-const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 150, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
 const BOARD_BEST: Rect = { x: MARGIN, y: 856, w: VW - MARGIN * 2, h: 138 };
 const BOARD_BACK: Rect = { x: MARGIN, y: 1026, w: VW - MARGIN * 2, h: 100 };
 
@@ -829,7 +829,7 @@ export class Game {
   }
 
   private handleBoardTap(x: number, y: number) {
-    if (x < 0 || inRect(BACK, x, y) || inRect(BOARD_BACK, x, y)) {
+    if (x < 0 || inRect(BOARD_BACK, x, y)) {
       this.scene = "hits";
       return;
     }
@@ -1548,13 +1548,7 @@ export class Game {
   private drawBoard(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     const meta = SONGS.find((s) => s.id === this.boardSongId);
-    text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
-      size: 24,
-      align: "left",
-      color: "#ffce8a",
-      weight: "700",
-    });
-    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 94, {
+    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 84, {
       size: 32,
       weight: "900",
       font: HEAD_FONT,
@@ -1605,7 +1599,7 @@ export class Game {
       });
     };
 
-    let y = 244;
+    let y = 226;
     rows.forEach((r) => {
       drawRow(r, y);
       y += rowH;

@@ -220,8 +220,8 @@ gn.onPress(-1, -1, -1); // ROZUMIEM
 ok(gn.soundModal === false && gn.scene === "hits", "modal zamyka się, zostaje WYBIERZ HIT");
 gn.onPress(1, 80, 1140); // WYNIKI (lewy przycisk dolnego rzędu)
 ok(gn.scene === "board", "WYNIKI otwiera tablicę utworu");
-gn.onPress(-1, 60, 66); // WRÓĆ
-ok(gn.scene === "hits", "WRÓĆ z tablicy wraca do karuzeli");
+gn.onPress(1, 360, 1076); // POWRÓT (przycisk na dole tablicy)
+ok(gn.scene === "hits", "POWRÓT z tablicy wraca do karuzeli");
 gn.onPress(1, 640, 1140); // NAGRODY (prawy przycisk)
 ok(gn.scene === "rewards", "NAGRODY otwiera ekran nagród");
 gn.onPress(-1, 60, 1120); // POWRÓT
