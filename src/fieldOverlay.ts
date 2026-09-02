@@ -50,7 +50,7 @@ const BASE_CSS = [
   "touch-action:auto",
   "-webkit-appearance:none",
   "appearance:none",
-  "border-radius:14px",
+  "border-radius:11px",
   "caret-color:#ff9f43",
 ].join(";");
 

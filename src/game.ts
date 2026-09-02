@@ -577,27 +577,31 @@ export class Game {
     const cx = 56;
     const cw = VW - 112;
     const btnH = 104;
+    // pola blisko siebie w obu trybach (odstęp ~14 px jak w logowaniu)
+    const f1: Rect = { x: cx, y: 268, w: cw, h: 86 };
+    const f2: Rect = { x: cx, y: 368, w: cw, h: 86 };
     if (reg) {
       return {
-        f1: { x: cx, y: 250, w: cw, h: 86 } as Rect,
-        f2: { x: cx, y: 388, w: cw, h: 86 } as Rect,
-        hint: { x: cx, y: 486, w: cw, h: 60 } as Rect, // 2 linie pod hasłem
-        terms: { x: cx, y: 560, w: cw, h: 72 } as Rect,
-        primary: { x: cx, y: 654, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
-        altLabel: { x: cx, y: 790, w: cw, h: 30 } as Rect,
+        f1,
+        f2,
+        chip: { x: cx, y: 222, w: cw, h: 26 } as Rect, // „nick wolny/zajęty" nad polami
+        hint: { x: cx, y: 468, w: cw, h: 66 } as Rect, // 2 linie pod hasłem
+        terms: { x: cx, y: 552, w: cw, h: 76 } as Rect,
+        primary: { x: cx, y: 648, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+        altLabel: { x: cx, y: 786, w: cw, h: 34 } as Rect,
         alt1: { x: cx, y: 826, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
         docT: { x: cx, y: 968, w: cw, h: 52 } as Rect,
         docP: { x: cx, y: 1026, w: cw, h: 52 } as Rect,
       };
     }
     return {
-      f1: { x: cx, y: 300, w: cw, h: 86 } as Rect,
-      f2: { x: cx, y: 400, w: cw, h: 86 } as Rect,
-      primary: { x: cx, y: 536, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
-      altLabel: { x: cx, y: 682, w: cw, h: 30 } as Rect,
-      alt1: { x: cx, y: 718, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
-      docT: { x: cx, y: 868, w: cw, h: 52 } as Rect,
-      docP: { x: cx, y: 926, w: cw, h: 52 } as Rect,
+      f1,
+      f2,
+      primary: { x: cx, y: 512, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+      altLabel: { x: cx, y: 668, w: cw, h: 34 } as Rect,
+      alt1: { x: cx, y: 708, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+      docT: { x: cx, y: 858, w: cw, h: 52 } as Rect,
+      docP: { x: cx, y: 916, w: cw, h: 52 } as Rect,
     };
   }
 
@@ -1424,10 +1428,10 @@ export class Game {
     const startY = cyMid - ((lines.length - 1) * lh) / 2;
     lines.forEach((ln, i) =>
       text(ctx, ln, tx, startY + i * lh, {
-        size: 17,
+        size: 19,
         align: "left",
         weight: "700",
-        color: "#e0d0bd",
+        color: "#e6d6c3",
       }),
     );
   }
@@ -1456,16 +1460,16 @@ export class Game {
       letterSpacing: "2px",
     });
 
-    // dostępność loginu — pod polem nicku
-    if (R.f1 && reg && this.authLogin.length >= 3) {
+    // dostępność loginu — nad polami, po prawej
+    if (R.chip && reg && this.authLogin.length >= 3) {
       const s = this.authLoginState;
       const msg =
         s === "checking" ? "sprawdzam…" : s === "free" ? "✓ nick wolny" : s === "taken" ? "✗ nick zajęty" : "";
       const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#9a8c7c";
       if (msg) {
-        text(ctx, msg, R.f1.x + 4, R.f1.y + R.f1.h + 24, {
-          size: 17,
-          align: "left",
+        text(ctx, msg, R.chip.x + R.chip.w, R.chip.y + R.chip.h / 2, {
+          size: 18,
+          align: "right",
           weight: "700",
           color: col,
         });
@@ -1478,15 +1482,15 @@ export class Game {
         ctx,
         "Min. 8 znaków, wielka litera i znak specjalny.",
         R.hint.x + 4,
-        R.hint.y + 8,
-        { size: 16, align: "left", color: "#cdbdac" },
+        R.hint.y + 12,
+        { size: 18, align: "left", color: "#d3c3b2" },
       );
       text(
         ctx,
         "Hasła nie odzyskasz. Zapisz je w bezpiecznym miejscu.",
         R.hint.x + 4,
-        R.hint.y + 36,
-        { size: 16, align: "left", color: "#bda894" },
+        R.hint.y + 42,
+        { size: 18, align: "left", color: "#c3ae9a" },
       );
     }
 
@@ -1504,10 +1508,10 @@ export class Game {
       });
     }
     if (R.altLabel) {
-      text(ctx, reg ? "Masz już konto?" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 16, {
-        size: 18,
-        weight: "700",
-        color: "#e7d9c8",
+      text(ctx, reg ? "Masz już konto?" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 17, {
+        size: 23,
+        weight: "800",
+        color: "#f0e2d0",
       });
     }
     if (R.alt1) {
