@@ -12,7 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const b = body<{ login?: string; password?: string }>(req);
     const login = String(b.login || "").trim();
     const password = String(b.password || "");
-    if (!validLogin(login)) return json(res, 400, { error: "Podaj poprawny login." });
+    if (!validLogin(login)) return json(res, 400, { error: "Podaj poprawny nick." });
 
     const c = db();
     const u = await c.execute({

@@ -1507,46 +1507,47 @@ export class Game {
     if (R.docT) this.authLink(ctx, R.docT, "REGULAMIN", "#ffb64a");
     if (R.docP) this.authLink(ctx, R.docP, "POLITYKA PRYWATNOŚCI", "#ffb64a");
 
-    // komunikat błędu — czerwony baner u góry, SZEROKOŚĆ JAK INPUT, z ✕ do zamknięcia
+    // komunikat błędu — miękki czerwony baner u góry, szerokość jak input, z ✕
     if (this.authError) {
       const bx = 56;
       const bw = VW - 112; // ta sama szerokość co pola / przyciski
-      const lines = wrapText(this.authError, 28);
-      const size = lines.length >= 3 ? 18 : 22;
-      const lh = size + 8;
-      const padV = 16;
-      const bh = Math.max(70, lines.length * lh + padV * 2);
-      const by = 22;
+      const lines = wrapText(this.authError, 40); // zawija dopiero gdy naprawdę długie
+      const size = 25;
+      const lh = 33;
+      const padV = 20;
+      const bh = Math.max(78, lines.length * lh + padV * 2);
+      const by = 20;
 
       ctx.save();
-      ctx.fillStyle = "#d21f1f";
-      roundRect(ctx, bx, by, bw, bh, 14);
+      ctx.fillStyle = "rgba(150,16,16,0.36)";
+      roundRect(ctx, bx, by, bw, bh, 16);
       ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#7d0d0d";
-      roundRect(ctx, bx, by, bw, bh, 14);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ff2323";
+      roundRect(ctx, bx, by, bw, bh, 16);
       ctx.stroke();
       ctx.restore();
 
-      const close: Rect = { x: bx + bw - 54, y: by + (bh - 48) / 2, w: 48, h: 48 };
+      const close: Rect = { x: bx + bw - 52, y: by + 6, w: 46, h: 46 };
       this.authErrorCloseRect = close;
 
+      const blockTop = by + (bh - lines.length * lh) / 2;
       lines.forEach((ln, i) =>
-        text(ctx, ln, bx + 20, by + padV + lh / 2 + i * lh, {
+        text(ctx, ln, bx + 22, blockTop + lh / 2 + i * lh, {
           size,
           weight: "900",
-          color: "#fff",
+          color: "#ff4242",
           align: "left",
         }),
       );
 
       ctx.save();
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = "#ff8a8a";
       ctx.lineWidth = 4;
       ctx.lineCap = "round";
       const ccx = close.x + close.w / 2;
       const ccy = close.y + close.h / 2;
-      const cr = 11;
+      const cr = 12;
       ctx.beginPath();
       ctx.moveTo(ccx - cr, ccy - cr);
       ctx.lineTo(ccx + cr, ccy + cr);

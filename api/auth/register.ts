@@ -8,7 +8,6 @@ import {
   hashPassword,
   json,
   nowIso,
-  PW_RULE,
   validLogin,
   validPassword,
 } from "../_lib/util.js";
@@ -29,12 +28,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const password = String(b.password || "");
 
     if (!validLogin(login))
-      return json(res, 400, { error: "Login: 3–18 znaków (litery, cyfry, . _ -)." });
-    if (!validPassword(password)) return json(res, 400, { error: PW_RULE });
+      return json(res, 400, { error: "Nick: od 3 do 18 znaków, bez spacji." });
+    if (!validPassword(password)) return json(res, 400, { error: "Hasło nie spełnia wymagań." });
     if (b.password2 != null && password !== String(b.password2))
       return json(res, 400, { error: "Hasła nie są takie same." });
     if (!b.terms)
-      return json(res, 400, { error: "Zaznacz akceptację Regulaminu i Polityki prywatności." });
+      return json(res, 400, { error: "Zaznacz zgodę na Regulamin i Politykę." });
 
     const c = db();
     const exists = await c.execute({

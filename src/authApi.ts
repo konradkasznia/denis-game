@@ -85,12 +85,10 @@ export async function register(
   opts: { terms: boolean },
 ): Promise<AuthResult> {
   const l = login.trim();
-  if (!validLogin(l))
-    return { ok: false, error: "Login: 3–18 znaków (litery, cyfry, . _ -)." };
-  if (!validPassword(password)) return { ok: false, error: PW_RULE };
+  if (!validLogin(l)) return { ok: false, error: "Nick: od 3 do 18 znaków, bez spacji." };
+  if (!validPassword(password)) return { ok: false, error: "Hasło nie spełnia wymagań." };
   if (password !== password2) return { ok: false, error: "Hasła nie są takie same." };
-  if (!opts.terms)
-    return { ok: false, error: "Zaznacz akceptację Regulaminu i Polityki prywatności." };
+  if (!opts.terms) return { ok: false, error: "Zaznacz zgodę na Regulamin i Politykę." };
 
   if (backendReachable()) {
     try {
@@ -123,7 +121,7 @@ export async function register(
 
 export async function login(loginName: string, password: string): Promise<AuthResult> {
   const l = loginName.trim();
-  if (!validLogin(l)) return { ok: false, error: "Podaj poprawny login." };
+  if (!validLogin(l)) return { ok: false, error: "Podaj poprawny nick." };
 
   if (backendReachable()) {
     try {
