@@ -11,6 +11,7 @@
     "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs && node --experimental-strip-types test/api.smoke.mjs"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@vercel/node": "^5.10.2",
     "gifenc": "^1.0.3",
     "pngjs": "^7.0.0",
@@ -18,6 +19,12 @@
     "vite": "^5.4.10"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@libsql/client": "^0.14.0"
   }
 }

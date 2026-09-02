@@ -1,0 +1,8 @@
+# Skrypty Gradle muszą mieć LF i bit wykonywalny (build w CI na Linuksie)
+android/gradlew text eol=lf
+*.sh text eol=lf
+android/gradlew.bat text eol=crlf
+*.jar binary
+*.apk binary
+*.keystore binary
+*.png binary

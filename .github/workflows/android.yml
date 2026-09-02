@@ -1,0 +1,81 @@
+name: Android APK (debug)
+
+# Buduje testowy APK w chmurze (bez Maca / bez lokalnego Android SDK).
+# Efekt: artefakt do pobrania z zakładki Actions + stały prerelease
+# „android-latest" z plikiem .apk (wygodny bezpośredni link na telefon).
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "public/regulamin.html"
+      - "public/polityka-prywatnosci.html"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      - name: Build web (dist/)
+        run: npm run build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Pakiety Android SDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Capacitor sync
+        run: npx cap sync android
+
+      - name: Build APK (debug)
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Nazwa pliku
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk denis-impulsywni-live-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: denis-android-debug-apk
+          path: denis-impulsywni-live-debug.apk
+          if-no-files-found: error
+
+      - name: Publikacja do prerelease „android-latest"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Android (debug) — najnowszy build
+          prerelease: true
+          files: denis-impulsywni-live-debug.apk
+          body: |
+            Testowy build APK (debug) — instalacja spoza sklepu.
+            Na telefonie włącz „Instaluj nieznane aplikacje" dla przeglądarki / menedżera plików.
+            APK ładuje żywą wersję z https://denis-game.vercel.app (potrzebny internet).
+            Commit: ${{ github.sha }}
