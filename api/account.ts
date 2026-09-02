@@ -5,12 +5,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
 import { nickAllowed } from "./_lib/nick.js";
+import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, sessionUser } from "./_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
   try {
     await ensureSchema();
+    if (!(await limitReq(req, "account", 30, 600))) {
+      return json(res, 429, { error: "Zbyt wiele operacji. Spróbuj później." });
+    }
     const u = await sessionUser(req);
     if (!u) return json(res, 401, { error: "Brak sesji." });
     const c = db();

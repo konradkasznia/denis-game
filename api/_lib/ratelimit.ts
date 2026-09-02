@@ -27,17 +27,20 @@ export async function rateLimit(
     const c = db();
     const now = Date.now();
     const from = now - windowSec * 1000;
+    // Sprzątanie DLA TEGO KLUCZA w tym samym round-tripie — tabela nie puchnie
+    // nawet pod atakiem (każdy klucz trzyma najwyżej ~1 okno wpisów).
+    await c.execute({ sql: "DELETE FROM rate_limits WHERE k = ? AND ts < ?", args: [key, from] });
     const r = await c.execute({
       sql: "SELECT COUNT(*) AS n FROM rate_limits WHERE k = ? AND ts >= ?",
       args: [key, from],
     });
     if (Number(r.rows[0]?.n ?? 0) >= max) return false;
     await c.execute({ sql: "INSERT INTO rate_limits (k, ts) VALUES (?, ?)", args: [key, now] });
-    // okazjonalne sprzątanie (1 na ~20 żądań), żeby tabela nie puchła
-    if (Math.random() < 0.05) {
+    // rzadkie globalne sprzątanie (na wypadek osieroconych kluczy)
+    if (Math.random() < 0.02) {
       await c.execute({
         sql: "DELETE FROM rate_limits WHERE ts < ?",
-        args: [now - 24 * 3600 * 1000],
+        args: [now - 3 * 3600 * 1000],
       });
     }
     return true;
@@ -45,6 +48,7 @@ export async function rateLimit(
     return true;
   }
 }
+
 
 /** Skrót: limit dla żądania (akcja + IP). */
 export async function limitReq(
