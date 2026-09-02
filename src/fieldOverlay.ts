@@ -28,12 +28,18 @@ export interface FieldSpec {
   onEnter?: () => void;
   /** ikonka „oczko" w polu (podgląd hasła). `revealed` = hasło widoczne. */
   reveal?: { revealed: boolean; onToggle: () => void };
+  /** ikonka statusu po prawej w polu: zielony ✓ / czerwony ✗ (nieklikalna). */
+  status?: "ok" | "bad" | null;
 }
 
 const EYE_OPEN =
   '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffce8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
 const EYE_OFF =
   '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#c9b7a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.7 9.7 0 0 1 12 6c7 0 10.5 6 10.5 6a17 17 0 0 1-3.4 4M6.2 8.2A16.7 16.7 0 0 0 1.5 12S5 18 12 18a10 10 0 0 0 4-.8"/><path d="M9.8 9.8a3.2 3.2 0 0 0 4.4 4.4"/></svg>';
+const ICON_OK =
+  '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#3ddc84" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>';
+const ICON_BAD =
+  '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ff4d4d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 const BASE_CSS = [
   "position:fixed",
@@ -59,6 +65,7 @@ export class FieldOverlay {
   private root: HTMLDivElement | null = null;
   private inputs = new Map<string, HTMLInputElement>();
   private eyes = new Map<string, HTMLButtonElement>();
+  private statusIcons = new Map<string, HTMLSpanElement>();
   private specs = new Map<string, FieldSpec>();
   private styleInjected = false;
   private sig = "";
@@ -96,7 +103,10 @@ export class FieldOverlay {
       base +
       "|" +
       specs
-        .map((s) => `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}:${s.reveal ? +s.reveal.revealed : "n"}`)
+        .map(
+          (s) =>
+            `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}:${s.reveal ? +s.reveal.revealed : "n"}:${s.status ?? "n"}`,
+        )
         .join(";")
     );
   }
@@ -122,6 +132,13 @@ export class FieldOverlay {
       if (!spec || !spec.reveal) {
         btn.remove();
         this.eyes.delete(k);
+      }
+    }
+    for (const [k, icon] of this.statusIcons) {
+      const spec = specs.find((s) => s.key === k);
+      if (!spec || !spec.status) {
+        icon.remove();
+        this.statusIcons.delete(k);
       }
     }
     for (const s of specs) {
@@ -183,6 +200,20 @@ export class FieldOverlay {
         btn.innerHTML = s.reveal.revealed ? EYE_OFF : EYE_OPEN;
       }
 
+      // ikonka statusu (✓ / ✗) w polu — nieklikalna
+      if (s.status) {
+        let icon = this.statusIcons.get(s.key);
+        if (!icon) {
+          icon = document.createElement("span");
+          icon.style.cssText =
+            "position:fixed;display:flex;align-items:center;justify-content:center;" +
+            "pointer-events:none;-webkit-tap-highlight-color:transparent";
+          this.root!.appendChild(icon);
+          this.statusIcons.set(s.key, icon);
+        }
+        icon.innerHTML = s.status === "ok" ? ICON_OK : ICON_BAD;
+      }
+
       this.specs.set(s.key, s);
     }
     this.reposition();
@@ -200,26 +231,40 @@ export class FieldOverlay {
       const top = Math.round(rect.top + s.y * sc);
       const w = Math.round(s.w * sc);
       const h = Math.round(s.h * sc);
-      const eyeW = s.reveal ? Math.round(52 * sc) : 0;
+      const adornW = s.reveal || s.status ? Math.round(52 * sc) : 0;
       el.style.left = `${left}px`;
       el.style.top = `${top}px`;
       el.style.width = `${w}px`;
       el.style.height = `${h}px`;
       el.style.fontSize = `${Math.max(16, Math.round(20 * sc))}px`;
       el.style.paddingLeft = `${Math.round(18 * sc)}px`;
-      el.style.paddingRight = `${Math.round(18 * sc) + eyeW}px`;
+      el.style.paddingRight = `${Math.round(18 * sc) + adornW}px`;
       el.style.paddingTop = "0px";
       el.style.paddingBottom = "0px";
+      const bs = Math.round(44 * sc);
+      const iss = Math.max(18, Math.round(24 * sc));
+      const adornLeft = `${left + w - adornW - Math.round(4 * sc)}px`;
+      const adornTop = `${top + (h - bs) / 2}px`;
       const btn = this.eyes.get(k);
       if (btn) {
-        const bs = Math.round(44 * sc);
-        btn.style.left = `${left + w - eyeW - Math.round(4 * sc)}px`;
-        btn.style.top = `${top + (h - bs) / 2}px`;
+        btn.style.left = adornLeft;
+        btn.style.top = adornTop;
         btn.style.width = `${bs}px`;
         btn.style.height = `${bs}px`;
         const svg = btn.querySelector("svg");
         if (svg) {
-          const iss = Math.max(18, Math.round(24 * sc));
+          svg.setAttribute("width", `${iss}`);
+          svg.setAttribute("height", `${iss}`);
+        }
+      }
+      const icon = this.statusIcons.get(k);
+      if (icon) {
+        icon.style.left = adornLeft;
+        icon.style.top = adornTop;
+        icon.style.width = `${bs}px`;
+        icon.style.height = `${bs}px`;
+        const svg = icon.querySelector("svg");
+        if (svg) {
           svg.setAttribute("width", `${iss}`);
           svg.setAttribute("height", `${iss}`);
         }
@@ -243,11 +288,13 @@ export class FieldOverlay {
   /** Usuwa wszystkie pola (wyjście z ekranu logowania). */
   clear() {
     this.sig = "";
-    if (this.inputs.size === 0 && this.eyes.size === 0) return;
+    if (this.inputs.size === 0 && this.eyes.size === 0 && this.statusIcons.size === 0) return;
     for (const el of this.inputs.values()) el.remove();
     for (const btn of this.eyes.values()) btn.remove();
+    for (const icon of this.statusIcons.values()) icon.remove();
     this.inputs.clear();
     this.eyes.clear();
+    this.statusIcons.clear();
     this.specs.clear();
   }
 }

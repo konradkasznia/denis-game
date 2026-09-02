@@ -560,7 +560,6 @@ export class Game {
       return {
         f1,
         f2,
-        chip: { x: cx, y: 222, w: cw, h: 26 } as Rect, // „nick wolny/zajęty" nad polami
         hint: { x: cx, y: 468, w: cw, h: 66 } as Rect, // 2 linie pod hasłem
         terms: { x: cx, y: 552, w: cw, h: 76 } as Rect,
         primary: { x: cx, y: 648, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
@@ -623,6 +622,14 @@ export class Game {
         maxLength: 18,
         enterKeyHint: "next",
         x: R.f1.x, y: R.f1.y, w: R.f1.w, h: R.f1.h,
+        status:
+          reg && this.authLogin.length >= 3
+            ? this.authLoginState === "free"
+              ? "ok"
+              : this.authLoginState === "taken"
+                ? "bad"
+                : null
+            : null,
         onInput: (v) => {
           this.authLogin = v.replace(/\s/g, "").slice(0, 18);
           this.authError = "";
@@ -1424,21 +1431,7 @@ export class Game {
       letterSpacing: "2px",
     });
 
-    // dostępność loginu — nad polami, po prawej
-    if (R.chip && reg && this.authLogin.length >= 3) {
-      const s = this.authLoginState;
-      const msg =
-        s === "checking" ? "sprawdzam…" : s === "free" ? "✓ nick wolny" : s === "taken" ? "✗ nick zajęty" : "";
-      const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#9a8c7c";
-      if (msg) {
-        text(ctx, msg, R.chip.x + R.chip.w, R.chip.y + R.chip.h / 2, {
-          size: 18,
-          align: "right",
-          weight: "700",
-          color: col,
-        });
-      }
-    }
+    // dostępność loginu pokazuje ikona ✓/✗ w polu (FieldSpec.status) — bez tekstu obok
 
     // info pod hasłem (rejestracja): wymagania + brak odzyskiwania
     if (R.hint) {
@@ -1490,10 +1483,33 @@ export class Game {
 
     // komunikaty
     if (this.authBusy) {
-      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 15, weight: "700", color: "#ffce8a" });
+      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 17, weight: "800", color: "#ffce8a" });
     } else if (this.authError) {
-      wrapText(this.authError, 42).forEach((ln, i) =>
-        text(ctx, ln, VW / 2, VH - 58 + i * 22, { size: 15, weight: "700", color: "#ff8a97" }),
+      // ostro czerwony baner nad polami — musi rzucać się w oczy
+      const lines = wrapText(this.authError, 30);
+      const size = lines.length >= 3 ? 20 : 26;
+      const lh = size + 7;
+      const padV = 14;
+      const bx = 34;
+      const bw = VW - 68;
+      const bh = lines.length * lh + padV * 2;
+      const bottom = (R.f1?.y ?? 250) - 10;
+      const by = Math.max(172, bottom - bh);
+      ctx.save();
+      ctx.fillStyle = "rgba(150,14,14,0.34)";
+      roundRect(ctx, bx, by, bw, bh, 16);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ff2323";
+      roundRect(ctx, bx, by, bw, bh, 16);
+      ctx.stroke();
+      ctx.restore();
+      lines.forEach((ln, i) =>
+        text(ctx, ln, VW / 2, by + padV + lh / 2 + i * lh, {
+          size,
+          weight: "900",
+          color: "#ff3131",
+        }),
       );
     }
   }

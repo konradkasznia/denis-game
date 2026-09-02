@@ -50,6 +50,25 @@ function onViewportChange() {
 }
 window.addEventListener("resize", onViewportChange);
 window.addEventListener("orientationchange", onViewportChange);
+
+// Blokada orientacji na PION — w apce ekran się nie obraca, niezależnie od
+// ustawień telefonu. Natywnie (App Store / Google Play) wymusza to config
+// Capacitora (iOS: UISupportedInterfaceOrientations = tylko Portrait;
+// Android: android:screenOrientation="portrait"). Tu best-effort dla WebView/PWA.
+function lockPortrait() {
+  try {
+    const so = (typeof screen !== "undefined" && screen.orientation) as unknown as
+      | { lock?: (o: string) => Promise<void> }
+      | null;
+    if (so && typeof so.lock === "function") void so.lock("portrait").catch(() => {});
+  } catch {
+    /* nieobsługiwane — zostaje #rotate-hint (CSS) */
+  }
+}
+lockPortrait();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") lockPortrait();
+});
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", onViewportChange);
 }
