@@ -9,6 +9,7 @@ import { App } from "@capacitor/app";
 import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import type { Game } from "./game.ts";
+import { setLoopActive } from "./main.ts";
 import { isNative } from "./native.ts";
 
 let splashHidden = false;
@@ -37,6 +38,7 @@ export function initNativeShell(game: Game) {
 
   void App.addListener("appStateChange", ({ isActive }) => {
     if (!isActive) game.onAppBackground();
+    setLoopActive(isActive); // w tle pętla renderu całkiem stoi (bateria / temperatura)
   });
 
   // bezpiecznik: gdyby gra nie zdążyła zawołać hideSplash()

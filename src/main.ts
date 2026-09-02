@@ -2,7 +2,7 @@ import "./style.css";
 import { Game } from "./game.ts";
 import { initInput } from "./input.ts";
 import { hideSplash, initNativeShell } from "./nativeShell.ts";
-import { VH, VW, viewport } from "./viewport.ts";
+import { VW, viewport } from "./viewport.ts";
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -11,22 +11,23 @@ function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const availW = window.innerWidth;
   const availH = window.innerHeight;
-  const scale = Math.min(availW / VW, availH / VH);
-  const cssW = VW * scale;
-  const cssH = VH * scale;
 
-  canvas.style.width = `${cssW}px`;
-  canvas.style.height = `${cssH}px`;
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
+  // Wypełniamy CAŁY ekran: skala liczona z szerokości (gra jest w pionie),
+  // a wysokość układu „rozciąga się" — `viewport.vh` >= VH na wyższych telefonach.
+  const scale = availW / VW;
+  const vh = Math.round(availH / scale);
 
-  // viewport.scale jest w jednostkach CSS (do przeliczania dotyku)
+  canvas.style.width = `${availW}px`;
+  canvas.style.height = `${availH}px`;
+  canvas.width = Math.round(availW * dpr);
+  canvas.height = Math.round(availH * dpr);
+
   viewport.scale = scale;
   viewport.offsetX = 0;
   viewport.offsetY = 0;
   viewport.dpr = dpr;
+  viewport.vh = vh;
 
-  // kontekst rysuje w jednostkach gry; dpr obsłużony tutaj
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   ctx.imageSmoothingQuality = "high";
 }
@@ -99,10 +100,35 @@ async function ensureFonts() {
   }
 }
 
+// ---- pętla renderu: oszczędna dla CPU / baterii / temperatury ----------
+//  - gdy apka jest w tle / karta niewidoczna: pętla całkiem stoi
+//  - poza rozgrywką (menu, karuzela, wyniki): ~30 kl./s zamiast 60
+let loopActive = true;
+/** Włącza/wyłącza pętlę renderu (wołane przy zejściu apki w tło). */
+export function setLoopActive(on: boolean) {
+  if (on === loopActive) return;
+  loopActive = on;
+  if (on) {
+    last = performance.now();
+    requestAnimationFrame(frame);
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  setLoopActive(document.visibilityState === "visible");
+});
+
 let last = performance.now();
 let firstFrame = true;
 function frame(now: number) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  if (!loopActive) return;
+  requestAnimationFrame(frame);
+
+  const elapsed = (now - last) / 1000;
+  // poza grą ograniczamy do ~30 kl./s (mniej pracy GPU/CPU, telefon się nie grzeje)
+  const minStep = game.highFps() ? 0 : 0.031;
+  if (elapsed < minStep) return;
+
+  const dt = Math.min(elapsed, 0.05);
   last = now;
   game.update(dt, now);
   ctx.save();
@@ -112,6 +138,5 @@ function frame(now: number) {
     firstFrame = false;
     hideSplash(); // gra narysowana — chowamy natywny splash
   }
-  requestAnimationFrame(frame);
 }
 void ensureFonts().then(() => requestAnimationFrame(frame));

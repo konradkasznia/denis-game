@@ -26,7 +26,7 @@ import {
   SONGS,
   spotifyUrl,
 } from "./songs.ts";
-import { VH, VW } from "./viewport.ts";
+import { VH, viewport, VW } from "./viewport.ts";
 import {
   clamp,
   desaturated,
@@ -198,6 +198,8 @@ export class Game {
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
   private soundModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
+  /** pionowe przesunięcie układu UI w bieżącej klatce (ekran wyższy niż VH) */
+  private vdy = 0;
   private song: SongDef = buildSynthSong();
   private songTime = 0;
   private preparing = false;
@@ -266,6 +268,8 @@ export class Game {
   private fields: FieldOverlay;
   private boardSongId = DEFAULT_TRACK;
   private boardPeriod: Period = "month";
+  /** dokąd wraca „POWRÓT" z tablicy wyników (zależnie od tego, skąd weszliśmy) */
+  private boardFrom: "hits" | "results" = "hits";
   private resultRank = 0;
   private resultsSavedBest = false;
 
@@ -452,8 +456,37 @@ export class Game {
     }
   }
 
+  /** Ile pikseli „nadmiaru wysokości" (ekran wyższy niż projekt 9:16). */
+  private extraH(): number {
+    return Math.max(0, viewport.vh - VH);
+  }
+
+  /** Przesunięcie układu: gra kotwiczy do dołu, menu wyśrodkowane, WYBIERZ HIT do góry. */
+  private frameDY(): number {
+    const extra = this.extraH();
+    if (extra <= 0) return 0;
+    if (this.scene === "play") return this.paused ? Math.round(extra / 2) : extra;
+    // auth: pola <input> to elementy DOM (nie przesuwają się z canvasem) → bez offsetu
+    if (this.scene === "hits" || this.scene === "auth") return 0;
+    return Math.round(extra / 2); // pozostałe ekrany — wyśrodkowane
+  }
+
+  /** Rect dolnego klastra „WYBIERZ HIT" dosunięty do dolnej krawędzi ekranu. */
+  private hb(r: Rect): Rect {
+    return { x: r.x, y: r.y + this.extraH(), w: r.w, h: r.h };
+  }
+
+  /** Wypełnia CAŁY widoczny obszar (także pas ponad/pod ramką UI). */
+  private fillViewport(ctx: CanvasRenderingContext2D, style: string | CanvasGradient) {
+    ctx.fillStyle = style;
+    ctx.fillRect(0, -this.vdy, VW, viewport.vh);
+  }
+
   render(ctx: CanvasRenderingContext2D) {
-    ctx.clearRect(0, 0, VW, VH);
+    ctx.clearRect(0, 0, VW, viewport.vh);
+    this.vdy = this.frameDY();
+    ctx.save();
+    ctx.translate(0, this.vdy);
     switch (this.scene) {
       case "loading":
         this.drawLoading(ctx);
@@ -499,25 +532,27 @@ export class Game {
         this.preparing = false;
         this.prepId++;
       } else {
-        ctx.fillStyle = "rgba(4,4,10,0.78)";
-        ctx.fillRect(0, 0, VW, VH);
+        this.fillViewport(ctx, "rgba(4,4,10,0.78)");
+        const cy = viewport.vh / 2 - this.vdy;
         const d = Math.floor((performance.now() / 300) % 4);
-        text(ctx, `Wczytywanie${".".repeat(d)}`, VW / 2, VH / 2 - 40, {
+        text(ctx, `Wczytywanie${".".repeat(d)}`, VW / 2, cy - 40, {
           size: 36,
           color: "#ffce8a",
         });
-        text(ctx, `${this.prepStep} · ${secs.toFixed(0)} s`, VW / 2, VH / 2 + 18, {
+        text(ctx, `${this.prepStep} · ${secs.toFixed(0)} s`, VW / 2, cy + 18, {
           size: 20,
           color: "#9a8c7e",
         });
-        text(ctx, "stuknij, aby przerwać", VW / 2, VH / 2 + 90, { size: 18, color: "#6b6055" });
+        text(ctx, "stuknij, aby przerwać", VW / 2, cy + 90, { size: 18, color: "#6b6055" });
       }
     } else if (this.loadError && this.scene === "hits") {
       const lines = wrapText(this.loadError, 46);
       lines.forEach((ln, i) =>
-        text(ctx, ln, VW / 2, VH - 150 + i * 26, { size: 18, color: "#ff8a97" }),
+        text(ctx, ln, VW / 2, viewport.vh - this.vdy - 150 + i * 26, { size: 18, color: "#ff8a97" }),
       );
     }
+
+    ctx.restore();
   }
 
   // ---- wejście -------------------------------------------------------
@@ -529,6 +564,8 @@ export class Game {
   }
 
   onPress(lane: number, x: number, y: number) {
+    // przelicz Y z układu ekranu na układ UI (ramka bywa przesunięta w pionie)
+    y -= this.frameDY();
     if (this.preparing) return this.cancelPrepare();
     if (this.offlineNotice && this.scene === "results") {
       this.offlineNotice = false;
@@ -575,6 +612,8 @@ export class Game {
     }
     switch (this.scene) {
       case "board":
+        this.scene = this.boardFrom;
+        return true;
       case "rewards":
       case "profile":
         this.scene = "hits";
@@ -854,19 +893,22 @@ export class Game {
     if (!meta) return;
 
     // NAGRODY: przy „wkrótce" przycisk jest na całą szerokość, wyżej
-    const rewRect = meta.playable ? HIT_REW : { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
+    const rewRect = meta.playable
+      ? this.hb(HIT_REW)
+      : this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h });
     if (inRect(rewRect, x, y)) {
       this.scene = "rewards";
       return;
     }
 
-    if (meta.playable && inRect(HIT_RES, x, y)) {
+    if (meta.playable && inRect(this.hb(HIT_RES), x, y)) {
       this.boardSongId = meta.id;
+      this.boardFrom = "hits";
       this.scene = "board";
       void refreshBoard(this.boardSongId, this.boardPeriod);
       return;
     }
-    if (inRect(HIT_GRAJ, x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
+    if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
       this.burstConfetti(VW / 2, 660);
@@ -878,7 +920,7 @@ export class Game {
 
   private handleBoardTap(x: number, y: number) {
     if (x < 0 || inRect(BOARD_BACK, x, y)) {
-      this.scene = "hits";
+      this.scene = this.boardFrom;
       return;
     }
     if (inRect(BOARD_TAB_M, x, y) && this.boardPeriod !== "month") {
@@ -950,6 +992,7 @@ export class Game {
     }
     if (inRect(RES_BOARD, x, y)) {
       this.boardSongId = this.trackId;
+      this.boardFrom = "results";
       this.scene = "board";
       void refreshBoard(this.boardSongId, this.boardPeriod);
     }
@@ -1125,6 +1168,13 @@ export class Game {
       this.offlineNotice = !online;
     }
     this.scene = "results";
+  }
+
+  /** Sceny wymagające pełnych ~60 kl./s (rozgrywka + animacja licznika wyniku). */
+  highFps(): boolean {
+    if (this.scene === "play") return true;
+    if (this.scene === "results" && performance.now() - this.resultsAt < 2600) return true;
+    return false;
   }
 
   // ---- logika rytmiczna -------------------------------------------
@@ -1370,28 +1420,28 @@ export class Game {
   private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number, plain = false) {
     // w grze z animowaną postacią i bez własnego tła: czysta ciemna scena
     // (żeby nie było drugiego Denisa z domyślnego zdjęcia)
+    const top = -this.vdy;
+    const vh = viewport.vh;
     const img = this.songBg ?? (plain ? null : this.bgReady ? this.bg : null);
     if (img && img.width) {
       const iw = img.width;
       const ih = img.height;
-      const scale = Math.max(VW / iw, VH / ih) * (1 + pulse * 0.015);
+      const scale = Math.max(VW / iw, vh / ih) * (1 + pulse * 0.015);
       const w = iw * scale;
       const h = ih * scale;
-      ctx.drawImage(img, (VW - w) / 2, (VH - h) / 2 - 20, w, h);
+      ctx.drawImage(img, (VW - w) / 2, top + (vh - h) / 2 - 20, w, h);
     } else {
-      const bgg = ctx.createLinearGradient(0, 0, 0, VH);
+      const bgg = ctx.createLinearGradient(0, top, 0, top + vh);
       bgg.addColorStop(0, "#1a1520");
       bgg.addColorStop(0.5, "#12101a");
       bgg.addColorStop(1, "#0a0810");
-      ctx.fillStyle = bgg;
-      ctx.fillRect(0, 0, VW, VH);
+      this.fillViewport(ctx, bgg);
     }
-    const g = ctx.createLinearGradient(0, 0, 0, VH);
+    const g = ctx.createLinearGradient(0, top, 0, top + vh);
     g.addColorStop(0, `rgba(5,5,12,${0.35 + darken * 0.4})`);
     g.addColorStop(0.55, `rgba(5,5,12,${0.15 + darken * 0.35})`);
     g.addColorStop(1, `rgba(5,5,12,${0.75 + darken * 0.2})`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, VW, VH);
+    this.fillViewport(ctx, g);
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -1427,9 +1477,8 @@ export class Game {
   // ---- ekran: ładowanie -----------------------------------------
 
   private drawLoading(ctx: CanvasRenderingContext2D) {
-    ctx.fillStyle = "#07070d";
-    ctx.fillRect(0, 0, VW, VH);
-    text(ctx, "wczytywanie…", VW / 2, VH / 2, { size: 34, color: "#ffce8a" });
+    this.fillViewport(ctx, "#07070d");
+    text(ctx, "wczytywanie…", VW / 2, viewport.vh / 2 - this.vdy, { size: 34, color: "#ffce8a" });
   }
 
   // ---- ekran: rejestracja / logowanie --------------------------
@@ -1733,8 +1782,7 @@ export class Game {
 
   /** Uniwersalny modal (ikona + tytuł + treść + przycisk ROZUMIEM). */
   private drawModal(ctx: CanvasRenderingContext2D, icon: string, title: string, body: string) {
-    ctx.fillStyle = "rgba(4,4,10,0.82)";
-    ctx.fillRect(0, 0, VW, VH);
+    this.fillViewport(ctx, "rgba(4,4,10,0.82)");
     const pw = VW - 120;
     const px = 60;
     const lines = wrapText(body, 30);
@@ -1792,16 +1840,20 @@ export class Game {
   /** Tło sceny: grafika `assets/ui/stage-bg.png` (cover) albo ciemny gradient.
    *  `gray` = wersja czarno-biała (dla zablokowanego poziomu). */
   private drawUiBg(ctx: CanvasRenderingContext2D, gray = false) {
+    const top = -this.vdy;
+    const vh = viewport.vh;
+    const midY = top + vh / 2;
     const bg = this.uiImg("stage-bg.png");
     if (imgReady(bg)) {
-      const s = Math.max(VW / bg.naturalWidth, VH / bg.naturalHeight);
+      // „cover" na cały widoczny obszar (rozciągnięte tło na wyższych telefonach)
+      const s = Math.max(VW / bg.naturalWidth, vh / bg.naturalHeight);
       const w = bg.naturalWidth * s;
       const h = bg.naturalHeight * s;
       const src: CanvasImageSource = gray ? desaturated(bg) : bg;
-      ctx.drawImage(src, (VW - w) / 2, (VH - h) / 2, w, h);
+      ctx.drawImage(src, (VW - w) / 2, midY - h / 2, w, h);
       return;
     }
-    const g = ctx.createRadialGradient(VW / 2, VH * 0.32, 40, VW / 2, VH * 0.55, VH * 0.95);
+    const g = ctx.createRadialGradient(VW / 2, top + vh * 0.32, 40, VW / 2, midY, vh * 0.95);
     if (gray) {
       g.addColorStop(0, "#26262a");
       g.addColorStop(1, "#08080a");
@@ -1809,8 +1861,7 @@ export class Game {
       g.addColorStop(0, "#2a141d");
       g.addColorStop(1, "#0a0508");
     }
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, VW, VH);
+    this.fillViewport(ctx, g);
   }
 
   /** Przycisk z grafiki `assets/ui/button-<name>.png` (napis wbudowany).
@@ -1994,7 +2045,7 @@ export class Game {
       }
       this.uiButton(
         ctx,
-        { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h },
+        this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h }),
         "nagrody",
         { fallback: "NAGRODY" },
       );
@@ -2002,9 +2053,10 @@ export class Game {
     }
 
     // GRAJ!
-    this.uiButton(ctx, HIT_GRAJ, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
+    const graj = this.hb(HIT_GRAJ);
+    this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
     if (!unlocked) {
-      text(ctx, "Przejdź poprzedni poziom!", VW / 2, HIT_GRAJ.y - 26, {
+      text(ctx, "Przejdź poprzedni poziom!", VW / 2, graj.y - 26, {
         size: 22,
         weight: "900",
         font: HEAD_FONT,
@@ -2014,13 +2066,14 @@ export class Game {
     }
 
     // WYNIKI | NAGRODY
-    this.uiButton(ctx, HIT_RES, "wyniki", { fallback: "WYNIKI" });
-    this.uiButton(ctx, HIT_REW, "nagrody", { fallback: "NAGRODY" });
+    this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI" });
+    this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY" });
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
-    const box: Rect = { x: 70, y: 392, w: VW - 140, h: 576 };
+    // na wyższych telefonach postać rośnie w wolną przestrzeń (dół podąża za GRAJ!)
+    const box: Rect = { x: 60, y: 392, w: VW - 120, h: 576 + this.extraH() };
     let src: HTMLImageElement | null = null;
     const named = this.uiImg(`select-${meta.id}.png`);
     if (imgReady(named)) src = named;
@@ -2182,9 +2235,10 @@ export class Game {
     if (heat > 0.01 || missGlow > 0.02) {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      ctx.fillStyle =
-        missGlow > 0.05 ? `rgba(255,45,60,${missGlow * 0.14})` : `rgba(255,150,60,${heat * 0.05})`;
-      ctx.fillRect(0, 0, VW, VH);
+      this.fillViewport(
+        ctx,
+        missGlow > 0.05 ? `rgba(255,45,60,${missGlow * 0.14})` : `rgba(255,150,60,${heat * 0.05})`,
+      );
       ctx.restore();
     }
 
@@ -2272,14 +2326,13 @@ export class Game {
   private drawPause(ctx: CanvasRenderingContext2D) {
     ctx.save();
     this.drawUiBg(ctx);
-    ctx.fillStyle = "rgba(4,4,10,0.6)";
-    ctx.fillRect(0, 0, VW, VH);
+    this.fillViewport(ctx, "rgba(4,4,10,0.6)");
 
     if (this.resumeAt) {
       const left = Math.ceil((this.resumeAt - performance.now()) / 1000);
       if (left >= 1) {
         const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
-        text(ctx, String(left), VW / 2, VH / 2, {
+        text(ctx, String(left), VW / 2, viewport.vh / 2 - this.vdy, {
           size: 200 - frac * 40,
           weight: "900",
           font: HEAD_FONT,
@@ -2554,7 +2607,7 @@ export class Game {
     const f = n - rel;
     ctx.save();
     ctx.globalAlpha = clamp(1 - f, 0.15, 1);
-    text(ctx, String(n), VW / 2, VH / 2 - 60, {
+    text(ctx, String(n), VW / 2, viewport.vh / 2 - this.vdy - 60, {
       size: 150 + f * 50,
       weight: "800",
       color: "#fff7ec",

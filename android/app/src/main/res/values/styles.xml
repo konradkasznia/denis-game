@@ -13,6 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- paski systemowe na czarnym tle gry, jasne ikony -->
+        <item name="android:statusBarColor">#FF0B0B12</item>
+        <item name="android:navigationBarColor">#FF0B0B12</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
 

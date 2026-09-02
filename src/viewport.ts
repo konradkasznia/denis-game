@@ -2,13 +2,15 @@
 // współrzędnych, a viewport skaluje/centruje je do realnego okna.
 
 export const VW = 720;
-export const VH = 1280;
+export const VH = 1280; // wysokość „bazowa" układu (projekt 9:16)
 
 export const viewport = {
   scale: 1,
   offsetX: 0,
   offsetY: 0,
   dpr: 1,
+  /** realna wysokość widoku w jednostkach gry (>= VH na wyższych telefonach) */
+  vh: VH,
 };
 
 /** Przelicza punkt z układu ekranu (clientX/Y) na współrzędne gry. */
