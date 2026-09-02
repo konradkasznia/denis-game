@@ -963,40 +963,109 @@ $<HTMLButtonElement>("publish").addEventListener("click", async () => {
 
 // ---- start / wczytanie projektu ------------------------
 
-async function seedPannaMloda() {
-  sidInput.value = "panna-mloda";
-  titleInput.value = "Panna Młoda";
-  bpmInput.value = "155";
-  currentId = "panna-mloda";
-  try {
-    const raw = (await (await fetch("charts/panna-mloda.json")).json()) as RawChart;
-    applyChart({ ...raw, id: "panna-mloda", title: "Panna Młoda" });
-  } catch {
-    segments = [{ at: 0, uj: 1 }];
-    syncCharacter();
+/** Cichy WAV z delikatnym „tik" na każdym beacie — żeby `play()` działało
+ *  dla utworów bez mp3 (podgląd długości klatek animacji). */
+function silentWavBlob(secs: number, bpm: number): Blob {
+  const sr = 8000;
+  const n = Math.floor(secs * sr);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const ws = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i));
+  };
+  ws(0, "RIFF");
+  dv.setUint32(4, 36 + n * 2, true);
+  ws(8, "WAVE");
+  ws(12, "fmt ");
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true);
+  dv.setUint32(28, sr * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  ws(36, "data");
+  dv.setUint32(40, n * 2, true);
+  const beat = 60 / Math.max(30, bpm);
+  const clickLen = Math.floor(0.014 * sr);
+  for (let k = 0; k * beat < secs; k++) {
+    const start = Math.floor(k * beat * sr);
+    for (let i = 0; i < clickLen && start + i < n; i++) {
+      const env = 1 - i / clickLen;
+      const v = Math.sin((i / sr) * 2 * Math.PI * 1200) * env * env * 2600;
+      dv.setInt16(44 + (start + i) * 2, v, true);
+    }
   }
-  try {
-    const blob = await (await fetch("assets/songs/panna-mloda.mp3")).blob();
-    await audioPut("panna-mloda", blob); // zapamiętaj plik przy projekcie
-    await decodeInto(blob, true);
-  } catch (e) {
-    console.error("seed mp3:", e);
-    drop.style.display = "flex";
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+interface SeedCfg {
+  id: string;
+  title: string;
+  bpm: number;
+  ujecia: number[];
+  realAudio?: boolean;
+}
+
+/** Zakłada projekt (jeśli go jeszcze nie ma) z segmentami rotującymi po
+ *  dostępnych ujęciach — do podglądu animacji w prawym dolnym rogu. */
+async function persistSeed(cfg: SeedCfg) {
+  if (projectIds().includes(cfg.id)) return;
+
+  const segs: Seg[] = [];
+  for (let t = 0, i = 0; t < 44; t += 5, i++) {
+    segs.push({ at: t, uj: cfg.ujecia[i % cfg.ujecia.length] });
   }
-  history.length = 0;
-  saveNow();
+  const p: StoredProject = {
+    id: cfg.id,
+    title: cfg.title,
+    bpm: cfg.bpm,
+    offsetMs: 0,
+    notes: [],
+    segments: segs,
+    savedAt: Date.now(),
+  };
+
+  if (cfg.realAudio) {
+    // panna-mloda: dołóż prawdziwe nuty + rotację ujęć z gotowego chartu
+    try {
+      const raw = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
+      p.notes = (raw.notes || []).map((n) => ({ lane: n.lane, time: n.time, dur: n.dur || 0 }));
+      p.bpm = raw.bpm || cfg.bpm;
+      p.offsetMs = Math.round((raw.gridOffset ?? 0) * 1000);
+      let cs = (raw.characters || []).map((c) => ({
+        at: c.at,
+        uj: Number(c.sprite.match(/ujecie(\d+)/)?.[1] || 1),
+      }));
+      cs = cs.filter((s, i) => i === 0 || s.uj !== cs[i - 1].uj);
+      if (cs.length) p.segments = cs;
+    } catch {
+      /* brak chartu — zostają segmenty podglądowe */
+    }
+    try {
+      const blob = await (await fetch(`assets/songs/${cfg.id}.mp3`)).blob();
+      await audioPut(cfg.id, blob);
+    } catch {
+      await audioPut(cfg.id, silentWavBlob(46, p.bpm)); // brak mp3 → cichy podkład
+    }
+  } else {
+    await audioPut(cfg.id, silentWavBlob(46, cfg.bpm));
+  }
+
+  localStorage.setItem(pKey(cfg.id), JSON.stringify(p));
+  setProjectIds([...projectIds(), cfg.id]);
 }
 
 async function startup() {
+  // 3 projekty na starcie — po jednym na utwór z grą, z załadowanymi ujęciami
+  await persistSeed({ id: "panna-mloda", title: "Panna Młoda", bpm: 155, ujecia: [1, 2, 3, 4], realAudio: true });
+  await persistSeed({ id: "ksiaze-z-bajki", title: "Książę z bajki", bpm: 112, ujecia: [1, 2, 3] });
+  await persistSeed({ id: "pogrzebowka", title: "Pogrzebówka", bpm: 150, ujecia: [1] });
+
   refreshProjectList();
   const last = localStorage.getItem(LAST_KEY);
-  if (last && projectIds().includes(last)) {
-    await openProject(last);
-  } else if (projectIds().length) {
-    await openProject(projectIds()[0]);
-  } else {
-    await seedPannaMloda();
-  }
+  if (last && projectIds().includes(last)) await openProject(last);
+  else await openProject(projectIds()[0] || "panna-mloda");
 }
 
 // ---- instrukcja --------------------------------------

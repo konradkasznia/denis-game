@@ -112,7 +112,7 @@
       <button class="close" id="helpclose">✕ zamknij</button>
       <div class="inner">
         <h1>Edytor beatmap DENIS — instrukcja</h1>
-        <p style="color:#9a8c7e">Wersja 1.3 · narzędzie do robienia map nut (beatmap) do gry rytmicznej z Denisem.</p>
+        <p style="color:#9a8c7e">Wersja 1.4 · narzędzie do robienia map nut (beatmap) do gry rytmicznej z Denisem.</p>
 
         <h2>Do czego to służy</h2>
         <p>Wczytujesz plik MP3, ustawiasz tempo, klikasz albo „wygrywasz” nuty na siatce, słuchasz czy
@@ -144,9 +144,21 @@
             eksportuj do pliku i wysyłaj Konradowi.</li>
         </ul>
 
-        <h2>Krok po kroku</h2>
+        <h2>Podgląd animacji (3 gotowe projekty)</h2>
+        <ul>
+          <li>Na starcie są 3 projekty: <b>Panna Młoda</b>, <b>Książę z bajki</b>, <b>Pogrzebówka</b> —
+            z wgranymi ujęciami postaci. Wybierasz z listy <b>projekt</b> u góry.</li>
+          <li>Kliknij <b>► graj</b> (spacja). W prawym dolnym rogu postać zaczyna tańczyć, a różowe
+            znaczniki na osi przełączają ujęcia co 5 s (uj.1 → uj.2 → …).</li>
+          <li>Tam oceniasz, czy <b>długości klatek</b> w animacji są OK (za szybko / za wolno / szarpie).
+            Uwagi zgłaszasz Konradowi — on poprawi <code>scenario.txt</code> danego ujęcia.</li>
+          <li>Utwory bez mp3 (Książę, Pogrzebówka) mają cichy podkład z <b>„tik"</b> na każdym beacie —
+            do porównania animacji z rytmem.</li>
+        </ul>
+
+        <h2>Krok po kroku (robienie beatmapy)</h2>
         <ol>
-          <li>Po wejściu jest wczytany projekt <b>Panna Młoda</b> (mp3 + istniejące nuty + ujęcia).</li>
+          <li>Wybierz projekt z listy albo załóż nowy („＋ nowy projekt…”).</li>
           <li>Nowy utwór: „＋ nowy projekt…”, wpisz <b>id</b> (bez spacji i polskich znaków, np.
             <code>ksiaze-z-bajki</code>), przeciągnij <b>MP3</b> na okno, wpisz <b>tytuł</b>.</li>
           <li>Ustaw <b>BPM</b> — wpisz ręcznie albo klikaj <b>„wystukaj BPM”</b> równo w rytm (min. 3 razy).</li>
