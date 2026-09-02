@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Edytor beatmap — DENIS Impulsywni Live</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #0b0b12; color: #e7e2da;
+        font: 14px/1.4 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif; }
+      #app { display: flex; flex-direction: column; height: 100%; }
+      .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+        padding: 10px 14px; background: #15121c; border-bottom: 1px solid #2c2636; }
+      .bar.foot { border-top: 1px solid #2c2636; border-bottom: 0; font-size: 12px; color: #9a8c7e; }
+      label { display: inline-flex; align-items: center; gap: 6px; color: #9a8c7e; }
+      input[type="text"], input[type="number"] { background: #0f0f18; color: #fff;
+        border: 1px solid #34344a; border-radius: 8px; padding: 6px 8px; font: inherit; }
+      input[type="number"] { width: 76px; }
+      input[type="text"] { width: 130px; }
+      select { background: #0f0f18; color: #fff; border: 1px solid #34344a; border-radius: 8px; padding: 6px; font: inherit; }
+      button { background: #ff9f43; color: #1a0d12; border: 0; border-radius: 8px;
+        padding: 7px 12px; font: 600 13px inherit; cursor: pointer; }
+      button.ghost { background: rgba(255,255,255,0.06); color: #ffce8a; border: 1px solid #ffce8a44; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      #wrap { flex: 1; position: relative; overflow: hidden; }
+      canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      .val { color: #fff; font-weight: 600; }
+      a { color: #ff9f43; }
+      #drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        text-align: center; color: #9a8c7e; font-size: 16px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="bar">
+        <label>MP3 <input type="file" id="file" accept="audio/*" /></label>
+        <label>id <input type="text" id="sid" value="nowy-utwor" /></label>
+        <label>tytuł <input type="text" id="title" value="Nowy utwór" /></label>
+        <label>BPM <input type="number" id="bpm" value="120" step="0.1" /></label>
+        <button class="ghost" id="tap">wystukaj BPM</button>
+        <label>offset ms <input type="number" id="offset" value="0" step="5" /></label>
+        <button class="ghost" id="offm">−5</button>
+        <button class="ghost" id="offp">+5</button>
+        <label>siatka
+          <select id="snap">
+            <option value="1">1/1</option>
+            <option value="2">1/2</option>
+            <option value="3">1/3</option>
+            <option value="4" selected>1/4</option>
+            <option value="6">1/6</option>
+            <option value="8">1/8</option>
+          </select>
+        </label>
+        <label>tempo
+          <select id="speed">
+            <option value="0.5">0,5×</option>
+            <option value="0.75">0,75×</option>
+            <option value="1" selected>1×</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="metro" /> metronom</label>
+        <label><input type="checkbox" id="ntick" checked /> tik nut</label>
+        <button id="play">► graj</button>
+        <span class="val" id="time">0:00,0</span>
+      </div>
+
+      <div id="wrap">
+        <canvas id="cv"></canvas>
+        <div id="drop">przeciągnij tu plik MP3 albo wybierz go powyżej</div>
+      </div>
+
+      <div class="bar foot">
+        <span>nut: <span class="val" id="cnt">0</span></span>
+        <button class="ghost" id="loadjson">wgraj JSON</button>
+        <input type="file" id="jsonfile" accept=".json,application/json" style="display:none" />
+        <button id="export">eksportuj JSON</button>
+        <span>klik = postaw nutę · przeciągnij w dół = przytrzymanie · klik w nutę = usuń · Z = cofnij · spacja = graj · ← → = przewiń · kółko = zoom</span>
+      </div>
+    </div>
+    <script type="module" src="/src/editor.ts"></script>
+  </body>
+</html>
