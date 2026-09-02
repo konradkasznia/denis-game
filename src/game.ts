@@ -117,9 +117,7 @@ const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
 const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
 const BOARD_ARROW_R: Rect = { x: VW - 104, y: 1188, w: 60, h: 60 };
 
-// logowanie / rejestracja / odzyskiwanie — layout liczony w Game.authRects()
-const A_X = VW / 2 - 260;
-const A_W = 520;
+// logowanie / rejestracja — layout liczony w Game.authRects()
 
 // dokumenty prawne (strony HTML w public/)
 const DOC_TERMS_URL = "/regulamin.html";
@@ -267,6 +265,7 @@ export class Game {
   private authShowPw = false;
   private authError = "";
   private authBusy = false;
+  private modalOkRect: Rect | null = null;
   /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
   private authLoginState = "";
   private authCheckSeq = 0;
@@ -544,10 +543,9 @@ export class Game {
       return;
     }
     if (this.soundModal) {
-      if (x < 0 || inRect(MODAL_OK, x, y)) {
-        this.soundModal = false;
-        this.soundHintDone = true;
-      }
+      // to tylko potwierdzenie — dowolne stuknięcie zamyka
+      this.soundModal = false;
+      this.soundHintDone = true;
       return;
     }
     if (this.scene === "auth") return this.handleAuthTap(x, y);
@@ -575,31 +573,31 @@ export class Game {
   /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
   private authRects() {
     const reg = this.authMode === "register";
-    // oba przyciski identycznych rozmiarów (jak w makiecie)
-    const btnW = VW - 112;
-    const btnX = 56;
+    // pola i przyciski tej samej szerokości (jak w makiecie)
+    const cx = 56;
+    const cw = VW - 112;
     const btnH = 104;
     if (reg) {
       return {
-        f1: { x: A_X, y: 258, w: A_W, h: 84 } as Rect,
-        f2: { x: A_X, y: 392, w: A_W, h: 84 } as Rect,
-        hint: { x: A_X, y: 486, w: A_W, h: 52 } as Rect, // 2 linie pod hasłem
-        terms: { x: A_X, y: 552, w: A_W, h: 64 } as Rect,
-        primary: { x: btnX, y: 638, w: btnW, h: btnH } as Rect, // STWÓRZ KONTO
-        altLabel: { x: A_X, y: 774, w: A_W, h: 30 } as Rect,
-        alt1: { x: btnX, y: 810, w: btnW, h: btnH } as Rect, // ZALOGUJ SIĘ
-        docT: { x: A_X, y: 952, w: A_W, h: 50 } as Rect,
-        docP: { x: A_X, y: 1010, w: A_W, h: 50 } as Rect,
+        f1: { x: cx, y: 250, w: cw, h: 86 } as Rect,
+        f2: { x: cx, y: 388, w: cw, h: 86 } as Rect,
+        hint: { x: cx, y: 486, w: cw, h: 60 } as Rect, // 2 linie pod hasłem
+        terms: { x: cx, y: 560, w: cw, h: 72 } as Rect,
+        primary: { x: cx, y: 654, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+        altLabel: { x: cx, y: 790, w: cw, h: 30 } as Rect,
+        alt1: { x: cx, y: 826, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+        docT: { x: cx, y: 968, w: cw, h: 52 } as Rect,
+        docP: { x: cx, y: 1026, w: cw, h: 52 } as Rect,
       };
     }
     return {
-      f1: { x: A_X, y: 300, w: A_W, h: 84 } as Rect,
-      f2: { x: A_X, y: 398, w: A_W, h: 84 } as Rect,
-      primary: { x: btnX, y: 530, w: btnW, h: btnH } as Rect, // ZALOGUJ SIĘ
-      altLabel: { x: A_X, y: 676, w: A_W, h: 30 } as Rect,
-      alt1: { x: btnX, y: 712, w: btnW, h: btnH } as Rect, // STWÓRZ KONTO
-      docT: { x: A_X, y: 862, w: A_W, h: 50 } as Rect,
-      docP: { x: A_X, y: 920, w: A_W, h: 50 } as Rect,
+      f1: { x: cx, y: 300, w: cw, h: 86 } as Rect,
+      f2: { x: cx, y: 400, w: cw, h: 86 } as Rect,
+      primary: { x: cx, y: 536, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+      altLabel: { x: cx, y: 682, w: cw, h: 30 } as Rect,
+      alt1: { x: cx, y: 718, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+      docT: { x: cx, y: 868, w: cw, h: 52 } as Rect,
+      docP: { x: cx, y: 926, w: cw, h: 52 } as Rect,
     };
   }
 
@@ -1390,37 +1388,46 @@ export class Game {
   // Pola (ramka + wartość + oczko) to elementy DOM z `FieldOverlay` ułożone na
   // prostokątach f1/f2 — dzięki temu na telefonie wysuwa się natywna klawiatura.
 
-  /** Kwadratowy checkbox z etykietą w wierszu `r`. */
+  /** Kwadratowy checkbox z etykietą, wyrównaną w pionie do środka pola. */
   private checkboxRow(
     ctx: CanvasRenderingContext2D,
     r: Rect,
     on: boolean,
     lines: string[],
   ) {
-    const cs = 28;
-    const cx0 = r.x + 2;
-    const cy0 = r.y + 6;
-    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.1)";
-    roundRect(ctx, cx0, cy0, cs, cs, 7);
+    const cs = 38;
+    const cx0 = r.x;
+    const cyMid = r.y + r.h / 2;
+    const cy0 = cyMid - cs / 2;
+    ctx.save();
+    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.12)";
+    roundRect(ctx, cx0, cy0, cs, cs, 10);
     ctx.fill();
-    ctx.strokeStyle = on ? "#ff9f43" : "rgba(255,255,255,0.28)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, cx0, cy0, cs, cs, 7);
+    ctx.strokeStyle = on ? "#ffc471" : "rgba(255,255,255,0.42)";
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, cx0, cy0, cs, cs, 10);
     ctx.stroke();
     if (on) {
       ctx.strokeStyle = "#1a0d12";
-      ctx.lineWidth = 3.5;
+      ctx.lineWidth = 4.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
       ctx.beginPath();
-      ctx.moveTo(cx0 + 6, cy0 + 15);
-      ctx.lineTo(cx0 + 12, cy0 + 21);
-      ctx.lineTo(cx0 + 23, cy0 + 7);
+      ctx.moveTo(cx0 + 9, cyMid + 1);
+      ctx.lineTo(cx0 + 16, cyMid + 9);
+      ctx.lineTo(cx0 + 30, cyMid - 9);
       ctx.stroke();
     }
+    ctx.restore();
+    const tx = cx0 + cs + 18;
+    const lh = 26;
+    const startY = cyMid - ((lines.length - 1) * lh) / 2;
     lines.forEach((ln, i) =>
-      text(ctx, ln, cx0 + cs + 14, r.y + 12 + i * 22, {
-        size: 15,
+      text(ctx, ln, tx, startY + i * lh, {
+        size: 17,
         align: "left",
-        color: "#c9b7a6",
+        weight: "700",
+        color: "#e0d0bd",
       }),
     );
   }
@@ -1456,8 +1463,8 @@ export class Game {
         s === "checking" ? "sprawdzam…" : s === "free" ? "✓ nick wolny" : s === "taken" ? "✗ nick zajęty" : "";
       const col = s === "free" ? "#8affc1" : s === "taken" ? "#ff8a97" : "#9a8c7c";
       if (msg) {
-        text(ctx, msg, R.f1.x + 6, R.f1.y + R.f1.h + 20, {
-          size: 14,
+        text(ctx, msg, R.f1.x + 4, R.f1.y + R.f1.h + 24, {
+          size: 17,
           align: "left",
           weight: "700",
           color: col,
@@ -1470,16 +1477,16 @@ export class Game {
       text(
         ctx,
         "Min. 8 znaków, wielka litera i znak specjalny.",
-        R.hint.x + 6,
-        R.hint.y + 6,
-        { size: 14, align: "left", color: "#c9b7a6" },
+        R.hint.x + 4,
+        R.hint.y + 8,
+        { size: 16, align: "left", color: "#cdbdac" },
       );
       text(
         ctx,
-        "Hasła nie da się odzyskać — zapisz je w bezpiecznym miejscu.",
-        R.hint.x + 6,
-        R.hint.y + 30,
-        { size: 14, align: "left", color: "#b7a291" },
+        "Hasła nie odzyskasz. Zapisz je w bezpiecznym miejscu.",
+        R.hint.x + 4,
+        R.hint.y + 36,
+        { size: 16, align: "left", color: "#bda894" },
       );
     }
 
@@ -1612,7 +1619,12 @@ export class Game {
     const pw = VW - 120;
     const px = 60;
     const lines = wrapText(body, 30);
-    const ph = 300 + lines.length * 32;
+    const lineH = 34;
+    const bodyStart = 210;
+    const bodyEnd = bodyStart + (lines.length - 1) * lineH + 18;
+    const gap = 28; // oddech między tekstem a przyciskiem
+    const btnH = MODAL_OK.h;
+    const ph = bodyEnd + gap + btnH + 44;
     const py = (VH - ph) / 2;
     ctx.fillStyle = "#15121c";
     roundRect(ctx, px, py, pw, ph, 26);
@@ -1622,8 +1634,8 @@ export class Game {
     roundRect(ctx, px, py, pw, ph, 26);
     ctx.stroke();
 
-    text(ctx, icon, VW / 2, py + 74, { size: 62 });
-    text(ctx, title, VW / 2, py + 150, {
+    text(ctx, icon, VW / 2, py + 76, { size: 62 });
+    text(ctx, title, VW / 2, py + 154, {
       size: 38,
       weight: "900",
       font: HEAD_FONT,
@@ -1631,14 +1643,16 @@ export class Game {
       shadows: HEAD_SHADOWS,
     });
     lines.forEach((ln, i) =>
-      text(ctx, ln, VW / 2, py + 204 + i * 32, { size: 20, color: "#c9b7a6" }),
+      text(ctx, ln, VW / 2, py + bodyStart + i * lineH, { size: 20, color: "#c9b7a6" }),
     );
-    this.uiButton(
-      ctx,
-      { x: MODAL_OK.x, y: py + ph - 116, w: MODAL_OK.w, h: MODAL_OK.h },
-      "rozumiem",
-      { fallback: "ROZUMIEM" },
-    );
+    // przycisk — zapamiętany prostokąt, żeby trafienie zgadzało się z rysunkiem
+    this.modalOkRect = {
+      x: VW / 2 - MODAL_OK.w / 2,
+      y: py + bodyEnd + gap,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.uiButton(ctx, this.modalOkRect, "rozumiem", { fallback: "ROZUMIEM" });
   }
 
   private drawSoundModal(ctx: CanvasRenderingContext2D) {
