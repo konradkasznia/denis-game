@@ -1833,14 +1833,15 @@ export class Game {
 
     this.drawUiBg(ctx, locked);
 
-    // logo — wyśrodkowane (zębatka rysowana wyżej, z własnym ciemnym kołem)
+    // logo — wyśrodkowane, dolna krawędź tuż nad „POZIOM N"
     const logo = this.uiImg("wybierz-hit.png");
     if (imgReady(logo)) {
       const w = VW - 150;
       const h = (logo.naturalHeight / logo.naturalWidth) * w;
-      ctx.drawImage(logo, (VW - w) / 2, HIT_LOGO.y + 8, w, h);
+      const ly = Math.max(HIT_LOGO.y, HIT_LEVEL_Y - 40 - h);
+      ctx.drawImage(logo, (VW - w) / 2, ly, w, h);
     } else {
-      text(ctx, "WYBIERZ HIT", VW / 2, HIT_LOGO.y + 90, {
+      text(ctx, "WYBIERZ HIT", VW / 2, HIT_LEVEL_Y - 90, {
         size: 64,
         weight: "900",
         font: HEAD_FONT,
