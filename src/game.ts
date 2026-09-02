@@ -72,9 +72,8 @@ const inRect = (r: Rect, x: number, y: number) =>
 // --- układ pola gry (perspektywa: tor zbiega do horyzontu) ---
 const MARGIN = 40;
 const HORIZON_Y = 330; // punkt zbiegu torów
-const HIT_Y = 1118; // linia trafienia (puste kółka)
-const PAD_BOT = VH - 16; // dół „klawiszy" dotykowych
-const APPROACH = 2.15; // s: jak długo nuta jest widoczna zanim dojdzie do linii
+const HIT_Y_BASE = 1118; // linia trafienia przy wysokości projektowej (VH); realnie: hitY()
+const APPROACH = 2.15; // s: jak długo nuta jest widoczna zanim dojdzie do linii (przy HIT_Y_BASE)
 const LANE_GAP_HIT = 150; // odstęp środków torów przy linii trafienia
 const RECEPTOR_R = 52; // promień pustego kółka na linii
 const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
@@ -661,14 +660,35 @@ export class Game {
     return Math.max(0, this.sh() - VH);
   }
 
-  /** Przesunięcie układu: gra kotwiczy do dołu, menu wyśrodkowane, WYBIERZ HIT do góry. */
+  /** Przesunięcie układu w pionie. „play" rysuje się w realnych współrzędnych
+   *  ekranu (linia trafienia / klawisze liczone dynamicznie z `sh()` — patrz
+   *  `hitY()`), więc bez offsetu; HUD siedzi wtedy przy górnej krawędzi, a tor
+   *  rozciąga się na całą wysokość. Reszta ekranów wyśrodkowana; „hits"/„auth"
+   *  przy górze. */
   private frameDY(): number {
     const extra = this.extraH();
     if (extra <= 0) return 0;
-    if (this.scene === "play") return this.paused ? Math.round(extra / 2) : extra;
-    // auth: pola <input> to elementy DOM (nie przesuwają się z canvasem) → bez offsetu
-    if (this.scene === "hits" || this.scene === "auth") return 0;
+    if (this.scene === "play" || this.scene === "hits" || this.scene === "auth") return 0;
     return Math.round(extra / 2); // pozostałe ekrany — wyśrodkowane
+  }
+
+  /** Wyśrodkowanie menu pauzy w pionie (scena „play" rysuje się bez offsetu). */
+  private pauseShift(): number {
+    return Math.round(this.extraH() / 2);
+  }
+
+  /** Linia trafienia (puste kółka) — dosunięta do dołu ekranu. */
+  private hitY(): number {
+    return this.sh() - 162;
+  }
+  /** Dolna krawędź strefy klawiszy. */
+  private padBot(): number {
+    return this.sh() - 16;
+  }
+  /** Czas dojścia nuty od horyzontu do linii — skalowany z długością toru,
+   *  żeby prędkość nut w pikselach była stała niezależnie od wysokości ekranu. */
+  private approachSec(): number {
+    return APPROACH * clamp((this.hitY() - HORIZON_Y) / (HIT_Y_BASE - HORIZON_Y), 1, 1.7);
   }
 
   /** Rect dolnego klastra „WYBIERZ HIT" dosunięty do dolnej krawędzi ekranu. */
@@ -1343,6 +1363,7 @@ export class Game {
   }
 
   private handlePauseTap(x: number, y: number) {
+    y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
       this.resumeAt = performance.now() + 3050; // pełne odliczanie 3-2-1
       return;
@@ -1632,7 +1653,7 @@ export class Game {
   // torów to proste; wrażenie 3D daje easing czasu w `eForTime`.
 
   private eForTime(t: number): number {
-    const rel = (t - this.songTime) / APPROACH; // 1 = świeżo, 0 = na linii
+    const rel = (t - this.songTime) / this.approachSec(); // 1 = świeżo, 0 = na linii
     const travel = 1 - rel; // 0 daleko, 1 na linii
     if (travel <= 0) return travel * 0.6; // nuta zeszła poniżej linii
     if (travel >= 1) return 1 + (travel - 1) * 1.6;
@@ -1641,7 +1662,7 @@ export class Game {
   }
 
   private yForE(e: number): number {
-    return HORIZON_Y + e * (HIT_Y - HORIZON_Y);
+    return HORIZON_Y + e * (this.hitY() - HORIZON_Y);
   }
 
   /** środek toru `lane` na linii trafienia */
@@ -1688,9 +1709,10 @@ export class Game {
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
+    const lightY = top + this.sh() * 0.32;
     const lights: [number, number][] = [
-      [VW * 0.12, VH * 0.24],
-      [VW * 0.88, VH * 0.24],
+      [VW * 0.12, lightY],
+      [VW * 0.88, lightY],
     ];
     for (const [lx, ly] of lights) {
       const r = 120 + pulse * 60;
@@ -2529,7 +2551,9 @@ export class Game {
   // kilka na osi czasu utworu). Bez grafik rysujemy wektorowy placeholder.
 
   private drawCharacter(ctx: CanvasRenderingContext2D) {
-    const groundY = this.song.characterY ?? 706;
+    // na wyższych ekranach zsuwamy postać w dół razem z wydłużonym torem,
+    // żeby stała mniej więcej w tej samej części kadru co przy wysokości bazowej
+    const groundY = (this.song.characterY ?? 706) + this.extraH() * 0.5;
     const targetH = 440 * (this.song.characterScale ?? 1);
     if (this.character.draw(ctx, VW / 2, groundY, this.songTime, this.song.bpm, targetH)) return;
 
@@ -2613,6 +2637,7 @@ export class Game {
       return;
     }
 
+    ctx.translate(0, this.pauseShift()); // wyśrodkuj menu na wyższych ekranach
     text(ctx, "PAUZA", VW / 2, 420, {
       size: 72,
       weight: "900",
@@ -2632,14 +2657,16 @@ export class Game {
   // ---- pole gry (perspektywa) -----------------------------------
 
   private drawPlayfield(ctx: CanvasRenderingContext2D, pulse: number) {
-    const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, VH);
+    const hitY = this.hitY();
+    const padBot = this.padBot();
+    const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, this.sh());
     grad.addColorStop(0, "rgba(6,3,10,0)");
     grad.addColorStop(0.4, "rgba(6,3,10,0.5)");
     grad.addColorStop(1, "rgba(6,3,10,0.86)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, HORIZON_Y, VW, VH - HORIZON_Y);
+    ctx.fillRect(0, HORIZON_Y, VW, this.sh() - HORIZON_Y);
 
-    const eBot = 1 + (PAD_BOT - HIT_Y) / (HIT_Y - HORIZON_Y);
+    const eBot = 1 + (padBot - hitY) / (hitY - HORIZON_Y);
     const stripHW = (e: number) => lerp(2, LANE_GAP_HIT * 0.46, e);
 
     // tory
@@ -2659,7 +2686,7 @@ export class Game {
       ctx.lineTo(cBotE + hwB, yBot);
       ctx.lineTo(cTop + hwT, yTop);
       ctx.closePath();
-      const lg = ctx.createLinearGradient(0, HORIZON_Y, 0, PAD_BOT);
+      const lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
       lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
       lg.addColorStop(
         1,
@@ -2685,8 +2712,8 @@ export class Game {
     ctx.shadowColor = "rgba(255,200,120,0.9)";
     ctx.shadowBlur = 16 + pulse * 12;
     ctx.beginPath();
-    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, HIT_Y);
-    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, HIT_Y);
+    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, hitY);
+    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, hitY);
     ctx.stroke();
     ctx.restore();
 
@@ -2735,7 +2762,7 @@ export class Game {
       ctx.shadowColor = LANE_COLORS[l];
       ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
       ctx.beginPath();
-      ctx.arc(x, HIT_Y, r, 0, Math.PI * 2);
+      ctx.arc(x, hitY, r, 0, Math.PI * 2);
       ctx.stroke();
       if (flash > 0.01) {
         ctx.globalAlpha = flash * 0.32;
@@ -2842,7 +2869,7 @@ export class Game {
       ctx.lineWidth = 5 * (1 - life) + 1;
       ctx.strokeStyle = JUDGE_COLOR[fx.kind];
       ctx.beginPath();
-      ctx.arc(x, HIT_Y, r, 0, Math.PI * 2);
+      ctx.arc(x, this.hitY(), r, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -2854,7 +2881,7 @@ export class Game {
       if (life < 0 || life >= 1) continue;
       ctx.save();
       ctx.globalAlpha = 1 - life * life;
-      ctx.translate(p.x, HIT_Y - 92 - life * 44);
+      ctx.translate(p.x, this.hitY() - 92 - life * 44);
       ctx.rotate(-0.05);
       text(ctx, p.txt, 0, 0, {
         size: 30 - life * 4,
