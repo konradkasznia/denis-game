@@ -6,7 +6,7 @@
   "description": "Gra rytmiczna z artystą Denisem i jego piosenkami (prototyp / vertical slice)",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node tools/prune-dist.mjs",
     "preview": "vite preview",
     "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs && node --experimental-strip-types test/api.smoke.mjs"
   },
