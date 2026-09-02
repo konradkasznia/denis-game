@@ -202,7 +202,8 @@ const COMBO_FX: Record<string, FxKind> = {
   pogrzebowka: "smoke",
 };
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
-const SMOKE_COLORS = ["154,154,164", "138,140,150", "170,168,176"];
+// jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
+const SMOKE_COLORS = ["222,224,232", "200,202,212", "180,182,196", "158,160,176"];
 
 const APP_VERSION = "0.9.0";
 const SUPPORT_EMAIL = "impulsywni.media@gmail.com";
@@ -464,26 +465,29 @@ export class Game {
     }
   }
 
-  /** Dym — kłęby unoszące się do góry i rozmywające (Pogrzebówka). */
+  /** Dym — wznoszący się, kłębiący pióropusz (styl kreskówkowy, dobrze widoczny). */
   private spawnSmoke(x: number, y: number) {
-    for (let i = 0; i < 28; i++) {
+    const baseY = y + 90;
+    const N = 16;
+    for (let i = 0; i < N; i++) {
+      const col = (Math.random() - 0.5) * 2;
       this.fx.push({
         kind: "smoke",
-        x: x + (Math.random() - 0.5) * 120,
-        y: y + (Math.random() - 0.5) * 40 + 20,
-        vx: (Math.random() - 0.5) * 54,
-        vy: -46 - Math.random() * 84, // unosi się
+        x: x + col * 22,
+        y: baseY + (Math.random() - 0.5) * 26,
+        vx: col * 30, // rozchodzi się na boki wznosząc się (pióropusz)
+        vy: -95 - Math.random() * 60,
         rot: Math.random() * Math.PI * 2,
-        vr: (Math.random() - 0.5) * 0.7,
-        w: 26 + Math.random() * 30, // promień startowy
+        vr: (Math.random() - 0.5) * 0.9,
+        w: 26 + Math.random() * 18,
         h: 0,
         color: SMOKE_COLORS[(Math.random() * SMOKE_COLORS.length) | 0],
-        life: 0,
-        ttl: 2.4 + Math.random() * 1.6,
-        swayA: 16 + Math.random() * 30,
-        swayF: 0.7 + Math.random() * 1.1,
+        life: -(i / N) * 0.9,
+        ttl: 1.5 + Math.random() * 1.0,
+        swayA: 34 + Math.random() * 40,
+        swayF: 0.7 + Math.random() * 0.8,
         swayP: Math.random() * Math.PI * 2,
-        grow: 60 + Math.random() * 55,
+        grow: 70 + Math.random() * 44,
       });
     }
   }
@@ -516,8 +520,13 @@ export class Game {
     if (!this.fx.length) return;
     const confDrag = Math.pow(0.55, dt);
     const roseDrag = Math.pow(0.85, dt);
+    const smokeXDrag = Math.pow(0.55, dt);
+    const smokeYDrag = Math.pow(0.8, dt);
     for (const p of this.fx) {
       p.life += dt;
+      if (p.life < 0) continue; // dym: czeka na swoją kolej emisji
+
+      let sway = Math.sin(p.life * p.swayF + p.swayP) * p.swayA;
       if (p.kind === "confetti") {
         p.vy += 780 * dt;
         p.vx *= confDrag;
@@ -525,38 +534,61 @@ export class Game {
         p.vy += 60 * dt; // lekkie przyspieszenie
         p.vx *= roseDrag;
       } else {
-        // dym: bez grawitacji, lekko zwalnia
-        p.vx *= Math.pow(0.6, dt);
-        p.vy *= Math.pow(0.72, dt);
-        p.w += p.grow * dt; // pęcznieje
+        // dym: wznosi się, S-owy skręt (2 częstotliwości), rośnie umiarkowanie
+        p.vx *= smokeXDrag;
+        p.vy = p.vy * smokeYDrag - 4 * dt; // opór + minimalny wypór
+        p.w += p.grow * dt;
+        // curl narasta z wysokością (im wyżej, tym szerszy zawijas)
+        const rise = Math.min(1, p.life / p.ttl);
+        sway =
+          (sway + Math.sin(p.life * p.swayF * 2.3 + p.swayP * 1.7) * p.swayA * 0.5) *
+          (0.3 + 0.9 * rise);
       }
-      const sway = Math.sin(p.life * p.swayF + p.swayP) * p.swayA;
       p.x += (p.vx + sway) * dt;
       p.y += p.vy * dt;
       p.rot += p.vr * dt;
     }
-    this.fx = this.fx.filter((p) => p.life < p.ttl && p.y < this.sh() + 60 && p.y > -260);
+    this.fx = this.fx.filter(
+      (p) => p.life < p.ttl && p.y < this.sh() + 60 && p.y > -320,
+    );
   }
 
   private drawFx(ctx: CanvasRenderingContext2D) {
     if (!this.fx.length) return;
+
     for (const p of this.fx) {
-      if (p.kind === "smoke") {
-        // dym: kłąb jako radialny gradient, wjeżdża i powoli gaśnie
-        const inA = Math.min(1, p.life / 0.22);
-        const outA = Math.pow(Math.max(0, 1 - p.life / p.ttl), 0.7);
-        const a = inA * outA * 0.4;
-        if (a <= 0.003) continue;
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.w);
+      if (p.kind !== "smoke" || p.life < 0) continue;
+      const t = p.life / p.ttl;
+      const inA = Math.min(1, p.life / 0.15);
+      const outA = Math.pow(Math.max(0, 1 - t), 1.15); // rozwiewa się u góry
+      const a = inA * outA * 0.62;
+      if (a <= 0.004) continue;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      // 3 nachodzące garby → kłębiasta, nieregularna sylwetka
+      for (const [ox, oy, rs] of [
+        [0, 0, 1],
+        [-0.55, 0.15, 0.72],
+        [0.5, -0.1, 0.66],
+      ] as [number, number, number][]) {
+        const rr = p.w * rs;
+        const cx = ox * p.w;
+        const cy = oy * p.w;
+        const g = ctx.createRadialGradient(cx, cy, rr * 0.15, cx, cy, rr);
         g.addColorStop(0, `rgba(${p.color},${a})`);
-        g.addColorStop(0.6, `rgba(${p.color},${a * 0.55})`);
+        g.addColorStop(0.55, `rgba(${p.color},${a * 0.7})`);
         g.addColorStop(1, `rgba(${p.color},0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.w, 0, Math.PI * 2);
+        ctx.arc(cx, cy, rr, 0, Math.PI * 2);
         ctx.fill();
-        continue;
       }
+      ctx.restore();
+    }
+
+    for (const p of this.fx) {
+      if (p.kind === "smoke") continue; // narysowany wyżej
 
       const fade = p.life > p.ttl - 0.5 ? Math.max(0, (p.ttl - p.life) / 0.5) : 1;
       const flutter = Math.cos(p.life * 12 + p.x * 0.05);
