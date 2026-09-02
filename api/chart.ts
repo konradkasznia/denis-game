@@ -8,13 +8,68 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
+import { limitReq } from "./_lib/ratelimit.js";
 import { allow, json, body, nowIso } from "./_lib/util.js";
 
+interface RawNote {
+  lane: number;
+  time: number;
+  dur?: number;
+}
+interface RawChar {
+  at: number;
+  sprite: string;
+}
 interface RawChart {
   id?: string;
   title?: string;
+  artist?: string;
   bpm?: number;
-  notes?: unknown;
+  gridOffset?: number;
+  duration?: number;
+  audioUrl?: string;
+  bg?: string;
+  characterScale?: number;
+  characterY?: number;
+  characters?: RawChar[];
+  notes?: RawNote[];
+}
+
+const SONG_ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
+const UJ_RE = /^ujecie[1-9]\d?$/;
+
+/** Wymusza bezpieczne, względne ścieżki w opublikowanej mapie (blokuje np.
+ *  `audioUrl: "https://evil.com/x.mp3"` → apka pobierałaby treść z obcego serwera). */
+function sanitizeChart(raw: RawChart, songId: string): RawChart {
+  const clean = (uj: string) => (UJ_RE.test(uj) ? uj : "ujecie1");
+  const chars = Array.isArray(raw.characters)
+    ? raw.characters
+        .filter((c) => c && typeof c.at === "number")
+        .map((c) => {
+          const m = String(c.sprite || "").match(/ujecie\d{1,2}/);
+          return { at: +c.at, sprite: `assets/char/${songId}/${clean(m?.[0] || "ujecie1")}` };
+        })
+    : undefined;
+  const notes = (raw.notes || [])
+    .filter((n) => n && typeof n.lane === "number" && typeof n.time === "number")
+    .map((n) => ({
+      lane: Math.max(0, Math.min(3, Math.round(n.lane))),
+      time: Math.max(0, +Number(n.time).toFixed(4)),
+      dur: n.dur ? Math.max(0, +Number(n.dur).toFixed(4)) : 0,
+    }));
+  return {
+    id: songId,
+    title: String(raw.title || songId).slice(0, 80),
+    artist: String(raw.artist || "Denis").slice(0, 60),
+    bpm: Math.max(30, Math.min(400, Number(raw.bpm) || 120)),
+    gridOffset: Math.max(-2, Math.min(2, Number(raw.gridOffset) || 0)),
+    duration: Math.max(0, Math.min(1800, Number(raw.duration) || 0)),
+    audioUrl: `assets/songs/${songId}.mp3`, // zawsze lokalny plik, nigdy obcy URL
+    characterScale: Math.max(0.2, Math.min(3, Number(raw.characterScale) || 0.95)),
+    characterY: Math.max(0, Math.min(2000, Number(raw.characterY) || 704)),
+    ...(chars ? { characters: chars } : {}),
+    notes,
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -31,33 +86,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         args: [songId],
       });
       if (!r.rows[0]) return json(res, 404, { error: "Brak opublikowanej mapy." });
-      let chart: unknown = null;
+      let chart: RawChart | null = null;
       try {
-        chart = JSON.parse(String(r.rows[0].data));
+        chart = JSON.parse(String(r.rows[0].data)) as RawChart;
       } catch {
         return json(res, 500, { error: "Uszkodzone dane mapy." });
       }
-      return json(res, 200, { ok: true, chart, updatedAt: String(r.rows[0].updated_at) });
+      // sanityzacja przy ODCZYCIE (obejmuje też mapy zapisane starszą wersją)
+      const safe = sanitizeChart(chart || {}, songId);
+      res.setHeader("cache-control", "public, s-maxage=30, stale-while-revalidate=300");
+      return json(res, 200, { ok: true, chart: safe, updatedAt: String(r.rows[0].updated_at) });
     }
 
     // POST — publikacja z edytora
     const need = process.env.EDITOR_PASSWORD || "";
+    if (!need && process.env.VERCEL_ENV === "production") {
+      // fail-closed: brak hasła w produkcji = nie przyjmujemy publikacji
+      return json(res, 503, { error: "Publikacja wyłączona (brak konfiguracji hasła)." });
+    }
     const key = String(req.headers["x-editor-key"] || "");
     if (need && key !== need) return json(res, 401, { error: "Złe hasło publikacji." });
 
-    const b = body<{ chart?: RawChart }>(req);
-    const chart = (b.chart ?? (b as RawChart)) as RawChart;
-    if (!chart || typeof chart !== "object" || !chart.id || !Array.isArray(chart.notes)) {
-      return json(res, 400, { error: "Zły format mapy (brak id lub notes)." });
+    if (!(await limitReq(req, "chart-publish", 30, 3600))) {
+      return json(res, 429, { error: "Zbyt wiele publikacji. Spróbuj później." });
     }
-    if (!chart.notes.length) return json(res, 400, { error: "Mapa nie ma nut." });
 
+    const bp = body<{ chart?: RawChart }>(req);
+    const incoming = (bp.chart ?? (bp as RawChart)) as RawChart;
+    const songId = String(incoming?.id || "").trim().toLowerCase();
+    if (!SONG_ID_RE.test(songId)) {
+      return json(res, 400, { error: "Złe id utworu (a-z, 0-9, myślnik)." });
+    }
+    if (!Array.isArray(incoming.notes) || !incoming.notes.length) {
+      return json(res, 400, { error: "Mapa nie ma nut." });
+    }
+    if (incoming.notes.length > 5000) {
+      return json(res, 400, { error: "Za dużo nut (limit 5000)." });
+    }
+
+    const safe = sanitizeChart(incoming, songId);
     await c.execute({
       sql: `INSERT INTO charts (song_id, data, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(song_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-      args: [String(chart.id), JSON.stringify(chart), nowIso()],
+      args: [songId, JSON.stringify(safe), nowIso()],
     });
-    return json(res, 200, { ok: true, songId: String(chart.id), notes: chart.notes.length });
+    return json(res, 200, { ok: true, songId, notes: safe.notes?.length ?? 0 });
   } catch (e) {
     console.error("chart", e);
     return json(res, 500, { error: "Błąd serwera." });

@@ -12,6 +12,18 @@
 #   public *;
 #}
 
+# --- DENIS: reguły dla release (minifyEnabled true) ---
+# Capacitor: most JS<->native, pluginy i ich adnotacje
+-keep class com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keep class * extends com.getcapacitor.Plugin { *; }
+-keepclassmembers class * {
+  @com.getcapacitor.annotation.PermissionCallback <methods>;
+  @com.getcapacitor.PluginMethod <methods>;
+  @android.webkit.JavascriptInterface <methods>;
+}
+-keepattributes JavascriptInterface,*Annotation*
+
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable

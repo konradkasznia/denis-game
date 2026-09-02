@@ -6,10 +6,15 @@ import type { VercelRequest } from "@vercel/node";
 import { db } from "./db.js";
 
 export function clientIp(req: VercelRequest): string {
+  // Na Vercelu `x-real-ip` = realne IP połączenia (ustawiane przez proxy, nie do
+  // podrobienia). `x-forwarded-for` klient może prefiksować dowolnymi wartościami,
+  // więc bierzemy z niego dopiero OSTATNI segment (dołożony przez Vercela).
+  const realIp = String(req.headers["x-real-ip"] || "").trim();
+  if (realIp) return realIp.slice(0, 64);
   const xff = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(xff) ? xff[0] : xff || "";
-  const ip = raw.split(",")[0].trim() || String(req.headers["x-real-ip"] || "") || "0.0.0.0";
-  return ip.slice(0, 64);
+  const raw = Array.isArray(xff) ? xff[xff.length - 1] : xff || "";
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return (parts[parts.length - 1] || "0.0.0.0").slice(0, 64);
 }
 
 /** Zwraca true = przepuść, false = przekroczono limit. Błąd bazy = przepuść. */

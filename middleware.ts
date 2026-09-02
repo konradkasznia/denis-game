@@ -8,7 +8,17 @@ export const config = {
 
 export default function middleware(request: Request): Response | undefined {
   const pass = process.env.EDITOR_PASSWORD;
-  if (!pass) return undefined; // brak hasła w env -> nie blokuj (np. lokalnie)
+  if (!pass) {
+    // Lokalnie / preview bez hasła — przepuszczamy. W PRODUKCJI odwrotnie:
+    // brak hasła = zamknięte (fail-closed), żeby edytor nie stał się publiczny.
+    if (process.env.VERCEL_ENV === "production") {
+      return new Response("Edytor niedostępny (brak konfiguracji).", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    return undefined;
+  }
 
   const header = request.headers.get("authorization") || "";
   const [scheme, encoded] = header.split(" ");

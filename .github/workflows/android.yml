@@ -44,7 +44,8 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      # third-party akcje przypięte do SHA (tagi są mutowalne)
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
 
       - name: Pakiety Android SDK
         run: |
@@ -71,7 +72,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publikacja do prerelease „android-latest"
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: android-latest
           name: Android (debug) — najnowszy build

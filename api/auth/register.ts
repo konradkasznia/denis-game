@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "../_lib/db.js";
+import { nickAllowed } from "../_lib/nick.js";
 import { limitReq } from "../_lib/ratelimit.js";
 import {
   allow,
@@ -29,6 +30,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!validLogin(login))
       return json(res, 400, { error: "Nick: od 3 do 18 znaków, bez spacji." });
+    const nc = nickAllowed(login);
+    if (!nc.ok) return json(res, 400, { error: nc.error });
     if (!validPassword(password)) return json(res, 400, { error: "Hasło nie spełnia wymagań." });
     if (b.password2 != null && password !== String(b.password2))
       return json(res, 400, { error: "Hasła nie są takie same." });

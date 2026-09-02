@@ -2,12 +2,32 @@
 //   GET  /api/scores?songId=panna-mloda&period=month|all  → { top, me, total }
 //   POST /api/scores  { songId, score, stars }  (Bearer)  → { ok, best, stars, rank }
 
+import type { Client } from "@libsql/client/web";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
+import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
 
 const TOP_N = 50;
 const ym = () => new Date().toISOString().slice(0, 7); // "2026-09"
+
+// Anti-cheat (wstępne): górny limit wyniku per utwór. Realny maks. „perfekcyjnego
+// przebiegu" to ~2200 pkt/nutę (300 × mnożnik x5 × kick), plus przytrzymania —
+// limit ~1,7× tego, żeby nie odrzucać uczciwych wyników, ale blokować absurdy.
+const KNOWN_NOTES: Record<string, number> = { "panna-mloda": 310 };
+
+async function songNoteCount(c: Client, songId: string): Promise<number> {
+  try {
+    const r = await c.execute({ sql: "SELECT data FROM charts WHERE song_id = ?", args: [songId] });
+    const n = r.rows[0] ? JSON.parse(String(r.rows[0].data))?.notes : null;
+    if (Array.isArray(n) && n.length) return n.length;
+  } catch {
+    /* brak tabeli / uszkodzone dane — lecimy na wartość znaną / domyślną */
+  }
+  return KNOWN_NOTES[songId] ?? 600;
+}
+
+const maxScoreFor = (notes: number) => Math.round(notes * 3800 + 150000);
 
 async function rankAll(songId: string, score: number): Promise<number> {
   const r = await db().execute({
@@ -31,6 +51,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const c = db();
 
     if (req.method === "GET") {
+      if (!(await limitReq(req, "scores-get", 150, 60))) {
+        return json(res, 429, { error: "Zbyt wiele zapytań." });
+      }
       const songId = String(req.query.songId || "").trim();
       if (!songId) return json(res, 400, { error: "Brak songId." });
       const monthly = String(req.query.period || "all") === "month";
@@ -83,6 +106,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // POST — zapis wyniku do rankingu ogólnego i miesięcznego
+    if (!(await limitReq(req, "scores-post", 40, 600))) {
+      return json(res, 429, { error: "Zbyt wiele zapisów wyniku." });
+    }
     const u = await sessionUser(req);
     if (!u) return json(res, 401, { error: "Brak sesji." });
     const b = body<{ songId?: string; score?: number; stars?: number }>(req);
@@ -90,6 +116,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const score = Math.max(0, Math.floor(Number(b.score) || 0));
     const stars = Math.max(0, Math.min(5, Math.floor(Number(b.stars) || 0)));
     if (!songId) return json(res, 400, { error: "Brak songId." });
+
+    // anti-cheat: wynik poza rozsądnym zakresem dla tego utworu → odrzuć
+    const cap = maxScoreFor(await songNoteCount(c, songId));
+    if (score > cap) {
+      console.warn(`scores: odrzucony wynik ${score} (cap ${cap}) user ${u.id} song ${songId}`);
+      return json(res, 422, { error: "Wynik poza dopuszczalnym zakresem." });
+    }
 
     const prev = await c.execute({
       sql: "SELECT score, stars FROM scores WHERE song_id = ? AND user_id = ?",

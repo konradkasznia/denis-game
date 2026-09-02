@@ -4,6 +4,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
+import { nickAllowed } from "./_lib/nick.js";
 import { allow, body, json, sessionUser } from "./_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -17,6 +18,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (b.action === "nick") {
       const nick = String(b.nick || "").trim().slice(0, 18);
+      const nc = nickAllowed(nick);
+      if (!nc.ok) return json(res, 400, { error: nc.error });
       await c.execute({ sql: "UPDATE users SET nick = ? WHERE id = ?", args: [nick, u.id] });
       return json(res, 200, { ok: true, nick });
     }
