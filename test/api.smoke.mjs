@@ -115,10 +115,35 @@ const top = await c.execute({
 ok(String(top.rows[0].nick) === "OleczkaXO", "nick użyty, gdy ustawiony");
 ok(String(top.rows[1].nick) === "WeselnyKrol", "login użyty, gdy nick pusty");
 
+// --- ranking miesięczny: osobna tabela per (user, song, ym) ---
+async function submitM(userId, songId, m, score) {
+  await c.execute({
+    sql: `INSERT INTO scores_monthly (user_id, song_id, ym, score, stars, updated_at)
+          VALUES (?, ?, ?, ?, 0, ?)
+          ON CONFLICT(user_id, song_id, ym) DO UPDATE SET
+            score = MAX(scores_monthly.score, excluded.score),
+            updated_at = excluded.updated_at`,
+    args: [userId, songId, m, score, new Date().toISOString()],
+  });
+}
+await submitM(uid, "panna-mloda", "2026-09", 400000);
+await submitM(uid, "panna-mloda", "2026-09", 200000); // niższy — nie nadpisuje
+await submitM(uid, "panna-mloda", "2026-10", 999000); // inny miesiąc — osobno
+await submitM(u2, "panna-mloda", "2026-09", 700000);
+const mSep = await c.execute({
+  sql: "SELECT user_id, score FROM scores_monthly WHERE song_id='panna-mloda' AND ym='2026-09' ORDER BY score DESC",
+});
+ok(mSep.rows.length === 2 && Number(mSep.rows[0].score) === 700000, "ranking miesięczny filtruje po ym");
+ok(
+  Number((await c.execute({ sql: "SELECT score FROM scores_monthly WHERE user_id=? AND song_id='panna-mloda' AND ym='2026-09'", args: [uid] })).rows[0].score) === 400000,
+  "upsert miesięczny trzyma najwyższy wynik w danym miesiącu",
+);
+
 // --- kaskada usunięcia konta ---
 await c.batch(
   [
     { sql: "DELETE FROM scores WHERE user_id = ?", args: [uid] },
+    { sql: "DELETE FROM scores_monthly WHERE user_id = ?", args: [uid] },
     { sql: "DELETE FROM sessions WHERE user_id = ?", args: [uid] },
     { sql: "DELETE FROM users WHERE id = ?", args: [uid] },
   ],
@@ -126,8 +151,9 @@ await c.batch(
 );
 ok(
   Number((await c.execute({ sql: "SELECT COUNT(*) AS n FROM users WHERE id = ?", args: [uid] })).rows[0].n) === 0 &&
-    Number((await c.execute({ sql: "SELECT COUNT(*) AS n FROM scores WHERE user_id = ?", args: [uid] })).rows[0].n) === 0,
-  "usunięcie konta czyści powiązane dane",
+    Number((await c.execute({ sql: "SELECT COUNT(*) AS n FROM scores WHERE user_id = ?", args: [uid] })).rows[0].n) === 0 &&
+    Number((await c.execute({ sql: "SELECT COUNT(*) AS n FROM scores_monthly WHERE user_id = ?", args: [uid] })).rows[0].n) === 0,
+  "usunięcie konta czyści powiązane dane (w tym ranking miesięczny)",
 );
 
 try {

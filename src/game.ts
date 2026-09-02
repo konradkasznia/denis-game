@@ -12,7 +12,14 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
-import { gapToTop, myEntry, refreshBoard, submitScore, topN } from "./leaderboard.ts";
+import {
+  gapToTop,
+  myEntry,
+  type Period,
+  refreshBoard,
+  submitScore,
+  topN,
+} from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
@@ -116,6 +123,9 @@ const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
 // --- strzałki na tablicy wyników (między utworami) ---
 const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
 const BOARD_ARROW_R: Rect = { x: VW - 104, y: 1188, w: 60, h: 60 };
+// --- zakładki tablicy: „ten miesiąc" | „wszystkie" ---
+const BOARD_TAB_M: Rect = { x: MARGIN, y: 152, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 152, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
 
 // logowanie / rejestracja — layout liczony w Game.authRects()
 
@@ -272,6 +282,7 @@ export class Game {
   private authCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private fields: FieldOverlay;
   private boardSongId = DEFAULT_TRACK;
+  private boardPeriod: Period = "month";
   private resultRank = 0;
   private resultsSavedBest = false;
 
@@ -812,7 +823,7 @@ export class Game {
     if (meta.playable && inRect(HIT_RES, x, y)) {
       this.boardSongId = meta.id;
       this.scene = "board";
-      void refreshBoard(this.boardSongId);
+      void refreshBoard(this.boardSongId, this.boardPeriod);
       return;
     }
     if (inRect(HIT_GRAJ, x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
@@ -830,9 +841,24 @@ export class Game {
       this.scene = "hits";
       return;
     }
+    if (inRect(BOARD_TAB_M, x, y) && this.boardPeriod !== "month") {
+      this.boardPeriod = "month";
+      void refreshBoard(this.boardSongId, "month");
+      return;
+    }
+    if (inRect(BOARD_TAB_A, x, y) && this.boardPeriod !== "all") {
+      this.boardPeriod = "all";
+      void refreshBoard(this.boardSongId, "all");
+      return;
+    }
     const i = SONGS.findIndex((s) => s.id === this.boardSongId);
-    if (inRect(BOARD_ARROW_L, x, y) && i > 0) this.boardSongId = SONGS[i - 1].id;
-    else if (inRect(BOARD_ARROW_R, x, y) && i < SONGS.length - 1) this.boardSongId = SONGS[i + 1].id;
+    let ni = i;
+    if (inRect(BOARD_ARROW_L, x, y) && i > 0) ni = i - 1;
+    else if (inRect(BOARD_ARROW_R, x, y) && i < SONGS.length - 1) ni = i + 1;
+    if (ni !== i) {
+      this.boardSongId = SONGS[ni].id;
+      void refreshBoard(this.boardSongId, this.boardPeriod);
+    }
   }
 
   private handleRewardsTap(x: number, y: number) {
@@ -907,7 +933,7 @@ export class Game {
     if (inRect(RES_BOARD, x, y)) {
       this.boardSongId = this.trackId;
       this.scene = "board";
-      void refreshBoard(this.boardSongId);
+      void refreshBoard(this.boardSongId, this.boardPeriod);
     }
   }
 
@@ -1070,7 +1096,7 @@ export class Game {
       const gained = Math.floor(this.starFill());
       this.resultRank = submitScore(this.trackId, this.score, gained);
       recordStars(this.trackId, gained);
-      void refreshBoard(this.trackId);
+      // submitScore -> postScore odświeża obie zakładki po zapisie
       // brak internetu → wynik nie trafił do bazy (info na podsumowaniu)
       let online = true;
       try {
@@ -1550,18 +1576,39 @@ export class Game {
     this.arrowBtn(ctx, BOARD_ARROW_L, "left", i > 0);
     this.arrowBtn(ctx, BOARD_ARROW_R, "right", i < SONGS.length - 1);
     text(ctx, "INNY UTWÓR", VW / 2, 1218, { size: 15, color: "#8a7c6e", letterSpacing: "3px" });
-    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 100, {
-      size: 34,
+    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 96, {
+      size: 32,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
     });
-    text(ctx, "TABLICA WYNIKÓW", VW / 2, 140, { size: 15, color: "#8a7c6e", letterSpacing: "6px" });
 
-    const rows = topN(this.boardSongId, 10);
-    const rowH = 62;
-    let y = 200;
+    // zakładki: TEN MIESIĄC | WSZYSTKIE
+    const tab = (r: Rect, label: string, active: boolean) => {
+      ctx.fillStyle = active ? "#ff9f43" : "rgba(255,255,255,0.07)";
+      roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+      ctx.fill();
+      if (!active) {
+        ctx.strokeStyle = "rgba(255,206,138,0.28)";
+        ctx.lineWidth = 2;
+        roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+        ctx.stroke();
+      }
+      text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, {
+        size: 19,
+        weight: "900",
+        font: HEAD_FONT,
+        color: active ? "#1a0d12" : "#c9b7a6",
+        letterSpacing: "1px",
+      });
+    };
+    tab(BOARD_TAB_M, "TEN MIESIĄC", this.boardPeriod === "month");
+    tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
+
+    const rows = topN(this.boardSongId, this.boardPeriod, 10);
+    const rowH = 60;
+    let y = 262;
     const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }) => {
       if (r.me) {
         ctx.fillStyle = "rgba(255,159,67,0.18)";
@@ -1586,12 +1633,15 @@ export class Game {
     };
     rows.forEach(drawRow);
 
-    const me = myEntry(this.boardSongId);
+    const me = myEntry(this.boardSongId, this.boardPeriod);
     if (!me) {
-      text(ctx, "Zagraj tę rundę, żeby trafić do tablicy", VW / 2, y + 60, {
-        size: 18,
-        color: "#9a8c7e",
-      });
+      const msg =
+        this.boardPeriod === "month"
+          ? "Zagraj tę rundę w tym miesiącu, żeby trafić do tablicy"
+          : "Zagraj tę rundę, żeby trafić do tablicy";
+      wrapText(msg, 32).forEach((ln, k) =>
+        text(ctx, ln, VW / 2, y + 60 + k * 26, { size: 18, color: "#9a8c7e" }),
+      );
       return;
     }
     if (me.rank > 10) {
@@ -1599,7 +1649,7 @@ export class Game {
       text(ctx, "· · ·", VW / 2, y, { size: 26, color: "#6b6055" });
       y += 54;
       drawRow(me);
-      const gap = gapToTop(this.boardSongId, 10);
+      const gap = gapToTop(this.boardSongId, this.boardPeriod, 10);
       text(ctx, `do TOP 10 brakuje Ci ${gap.toLocaleString("pl-PL")} pkt`, VW / 2, y + 20, {
         size: 18,
         weight: "700",

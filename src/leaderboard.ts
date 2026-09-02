@@ -1,12 +1,14 @@
-// Ranking wyników — per piosenka.
+// Ranking wyników — per piosenka, dwie zakładki: „ten miesiąc" / „wszystkie".
 //
 // Źródło prawdy: backend (/api/scores). Trzymamy lokalną kopię ostatnio pobranej
 // tablicy oraz najlepszy wynik gracza (żeby UI działało natychmiast i offline).
 // „Boty" (deterministyczny ogon stawki) dokładamy tylko jako wypełnienie, gdy
-// realnych wyników dla utworu jest mało — dzięki temu tablica nie świeci pustką.
+// realnych wyników jest mało — żeby tablica nie świeciła pustką.
 
 import { nick as myNick } from "./account.ts";
 import { api, backendReachable, getToken } from "./net.ts";
+
+export type Period = "month" | "all";
 
 export interface Entry {
   rank: number;
@@ -44,12 +46,16 @@ const NICKS = [
   "karolina_k", "Wojtek99", "asia_p", "MichałW",
 ];
 
-/** Deterministyczna „reszta stawki" dla danej piosenki (wypełniacz). */
-function fakeBoard(songId: string, n = 180): { nick: string; score: number }[] {
-  const rng = mulberry32(hashStr("board:" + songId));
+/** Deterministyczna „reszta stawki" (wypełniacz). Zakładka „ten miesiąc" ma
+ *  mniej wpisów i niższe wyniki niż „wszystkie". */
+function fakeBoard(songId: string, period: Period): { nick: string; score: number }[] {
+  const rng = mulberry32(hashStr(`board:${period}:${songId}`));
+  const n = period === "month" ? 70 : 180;
+  const cap = period === "month" ? 620000 : 920000;
+  const base = period === "month" ? 30000 : 45000;
   const rows: { nick: string; score: number }[] = [];
   for (let i = 0; i < n; i++) {
-    const score = 45000 + Math.floor(Math.pow(rng(), 1.9) * 920000);
+    const score = base + Math.floor(Math.pow(rng(), 1.9) * cap);
     const name =
       NICKS[Math.floor(rng() * NICKS.length)] +
       (rng() < 0.25 ? String(Math.floor(rng() * 90) + 10) : "");
@@ -62,6 +68,7 @@ function keyFor(songId: string) {
   return `denis.board.${songId}`;
 }
 
+/** Najlepszy wynik gracza w tej piosence (all-time, lokalny cache). */
 export function myBest(songId: string): number | null {
   const v = Number(localStorage.getItem(keyFor(songId)));
   return v > 0 ? v : null;
@@ -75,16 +82,17 @@ interface RemoteBoard {
   total: number;
 }
 const remote = new Map<string, RemoteBoard>();
+const rkey = (songId: string, period: Period) => `${period}::${songId}`;
 
-/** Pobiera aktualną tablicę utworu z serwera do lokalnej kopii. */
-export async function refreshBoard(songId: string): Promise<void> {
+/** Pobiera aktualną tablicę utworu (dla danej zakładki) z serwera do cache. */
+export async function refreshBoard(songId: string, period: Period = "all"): Promise<void> {
   if (!backendReachable()) return;
   try {
     const r = await api<RemoteBoard>(
-      `/api/scores?songId=${encodeURIComponent(songId)}`,
+      `/api/scores?songId=${encodeURIComponent(songId)}&period=${period}`,
       getToken() ? { auth: true } : {},
     );
-    remote.set(songId, { top: r.top || [], me: r.me ?? null, total: r.total || 0 });
+    remote.set(rkey(songId, period), { top: r.top || [], me: r.me ?? null, total: r.total || 0 });
   } catch {
     /* zostaje ostatnia znana kopia / sam wypełniacz */
   }
@@ -94,7 +102,7 @@ async function postScore(songId: string, score: number, stars: number) {
   if (!backendReachable() || !getToken()) return;
   try {
     await api("/api/scores", { method: "POST", body: { songId, score, stars }, auth: true });
-    await refreshBoard(songId);
+    await Promise.all([refreshBoard(songId, "all"), refreshBoard(songId, "month")]);
   } catch {
     /* wynik jest zapisany lokalnie; zsynchronizuje się przy następnej okazji */
   }
@@ -102,28 +110,31 @@ async function postScore(songId: string, score: number, stars: number) {
 
 // ---- budowa widoku tablicy ------------------------------------
 
-function fullBoard(songId: string): Entry[] {
-  const rb = remote.get(songId);
-  const mineLocal = myBest(songId);
+function fullBoard(songId: string, period: Period): Entry[] {
+  const rb = remote.get(rkey(songId, period));
   const list: { nick: string; score: number; me?: boolean }[] = [];
 
   if (rb && rb.top.length) {
     for (const e of rb.top) list.push({ nick: e.nick, score: e.score, me: e.me });
-    // wypełnij ogon botami z wynikiem niższym niż najniższy realny
     const floor = rb.top[rb.top.length - 1]?.score ?? 0;
-    for (const f of fakeBoard(songId)) if (f.score < floor) list.push(f);
+    for (const f of fakeBoard(songId, period)) if (f.score < floor) list.push(f);
   } else {
-    for (const f of fakeBoard(songId)) list.push(f);
+    for (const f of fakeBoard(songId, period)) list.push(f);
   }
 
+  // „ja" w zakładce all-time bierzemy też z lokalnego rekordu (działa offline);
+  // w zakładce miesięcznej — tylko z serwera
   const hasMe = list.some((e) => e.me);
-  if (!hasMe && mineLocal != null) list.push({ nick: myNick(), score: mineLocal, me: true });
+  if (!hasMe && period === "all") {
+    const mineLocal = myBest(songId);
+    if (mineLocal != null) list.push({ nick: myNick(), score: mineLocal, me: true });
+  }
 
   list.sort((a, b) => b.score - a.score);
   return list.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
-/** Zapisuje wynik gracza (trzyma najlepszy) i wysyła na serwer. Zwraca miejsce. */
+/** Zapisuje wynik gracza (trzyma najlepszy) i wysyła na serwer. Zwraca miejsce (all-time). */
 export function submitScore(songId: string, score: number, stars = 0): number {
   const prev = myBest(songId) ?? 0;
   if (score > prev) {
@@ -134,29 +145,29 @@ export function submitScore(songId: string, score: number, stars = 0): number {
     }
   }
   void postScore(songId, Math.max(score, prev), stars);
-  return rankOf(songId);
+  return rankOf(songId, "all");
 }
 
-export function topN(songId: string, n = 10): Entry[] {
-  return fullBoard(songId).slice(0, n);
+export function topN(songId: string, period: Period, n = 10): Entry[] {
+  return fullBoard(songId, period).slice(0, n);
 }
 
-export function rankOf(songId: string): number {
-  const rb = remote.get(songId);
+export function rankOf(songId: string, period: Period): number {
+  const rb = remote.get(rkey(songId, period));
   if (rb?.me) return rb.me.rank;
-  const b = fullBoard(songId);
+  const b = fullBoard(songId, period);
   const me = b.find((e) => e.me);
   return me ? me.rank : b.length + 1;
 }
 
-/** Wpis gracza (z miejscem) albo null, gdy nie ma jeszcze wyniku. */
-export function myEntry(songId: string): Entry | null {
-  return fullBoard(songId).find((e) => e.me) ?? null;
+/** Wpis gracza (z miejscem) albo null, gdy nie ma jeszcze wyniku w tej zakładce. */
+export function myEntry(songId: string, period: Period): Entry | null {
+  return fullBoard(songId, period).find((e) => e.me) ?? null;
 }
 
 /** Ile punktów brakuje graczowi do TOP `n` (0 = już w top). */
-export function gapToTop(songId: string, n = 10): number {
-  const b = fullBoard(songId);
+export function gapToTop(songId: string, period: Period, n = 10): number {
+  const b = fullBoard(songId, period);
   const me = b.find((e) => e.me);
   if (!me || me.rank <= n) return 0;
   const cut = b[n - 1]?.score ?? 0;

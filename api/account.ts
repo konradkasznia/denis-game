@@ -25,6 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await c.batch(
         [
           { sql: "DELETE FROM scores WHERE user_id = ?", args: [u.id] },
+          { sql: "DELETE FROM scores_monthly WHERE user_id = ?", args: [u.id] },
           { sql: "DELETE FROM sessions WHERE user_id = ?", args: [u.id] },
           { sql: "DELETE FROM users WHERE id = ?", args: [u.id] },
         ],

@@ -199,14 +199,15 @@ ok(bad.ok === false, "logowanie ze złym hasłem odrzucone");
 const good = await apiLogin2("testgracz", "Haslo123!");
 ok(good.ok === true, "logowanie z poprawnym hasłem OK (login bez rozróżniania wielkości liter)");
 
-// ranking: wynik trafia do tablicy, liczy się miejsce
+// ranking: wynik trafia do tablicy, liczy się miejsce (zakładka „wszystkie")
 const { submitScore, myEntry, topN, gapToTop } = await import("../src/leaderboard.ts");
 localStorage.removeItem("denis.board.pogrzebowka");
 const rank = submitScore("pogrzebowka", 250000);
 ok(rank >= 1, `wynik ma miejsce w rankingu (#${rank})`);
-ok(myEntry("pogrzebowka")?.score === 250000, "moj wynik w tablicy");
-ok(topN("pogrzebowka", 10).length === 10, "tablica ma top 10");
-ok(gapToTop("pogrzebowka", 10) >= 0, "policzony dystans do top 10");
+ok(myEntry("pogrzebowka", "all")?.score === 250000, "moj wynik w tablicy (wszystkie)");
+ok(topN("pogrzebowka", "all", 10).length === 10, "tablica ma top 10");
+ok(topN("pogrzebowka", "month", 10).length === 10, "zakładka miesięczna też ma top 10");
+ok(gapToTop("pogrzebowka", "all", 10) >= 0, "policzony dystans do top 10");
 const rank2 = submitScore("pogrzebowka", 1500000);
 ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 
