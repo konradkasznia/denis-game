@@ -1074,9 +1074,9 @@ export class Game {
     if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
-      this.burstFx("confetti", VW / 2, 660);
-      haptic("combo");
       this.trackId = meta.id;
+      this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
+      haptic("combo");
       void this.startPlay();
     }
   }
@@ -1218,7 +1218,8 @@ export class Game {
     this.held = [null, null, null, null];
     this.popups = [];
     this.hitFx = [];
-    this.fx = [];
+    // `this.fx` NIE czyścimy — efekt z przycisku GRAJ! ma dolecieć w trakcie
+    // odliczania 3-2-1 (róże/dym opadają jeszcze przez chwilę). Cząstki i tak gasną.
     this.shake = 0;
     this.bannerAt = -10;
     this.flowUpAt = -10;
