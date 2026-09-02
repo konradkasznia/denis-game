@@ -1,0 +1,9 @@
+# Pogrzebowka - ujecie 4 (Denis w skorzanym fotelu, pali papierosa)
+# os czasu 30 fps. Petla: luz -> podniesienie -> zaciagniecie -> klab dymu -> opuszczenie
+#   klatki: 1=papieros przy ustach, 2=zaciagniecie, 3=wydmuch dymu,
+#           4=reka na oparciu (luz), 5=reka w dol, dym sie rozwiewa
+4 - 16f
+1 - 4f
+2 - 11f
+3 - 20f
+5 - 9f

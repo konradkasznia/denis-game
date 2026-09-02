@@ -1007,15 +1007,39 @@ interface SeedCfg {
   realAudio?: boolean;
 }
 
-/** Zakłada projekt (jeśli go jeszcze nie ma) z segmentami rotującymi po
- *  dostępnych ujęciach — do podglądu animacji w prawym dolnym rogu. */
-async function persistSeed(cfg: SeedCfg) {
-  if (projectIds().includes(cfg.id)) return;
-
+/** Segmenty rotujące po dostępnych ujęciach (co 5 s przez 44 s) — do podglądu. */
+function seedSegs(ujecia: number[]): Seg[] {
   const segs: Seg[] = [];
   for (let t = 0, i = 0; t < 44; t += 5, i++) {
-    segs.push({ at: t, uj: cfg.ujecia[i % cfg.ujecia.length] });
+    segs.push({ at: t, uj: ujecia[i % ujecia.length] });
   }
+  return segs;
+}
+
+/** Zakłada projekt (jeśli go jeszcze nie ma) z segmentami rotującymi po
+ *  dostępnych ujęciach — do podglądu animacji w prawym dolnym rogu.
+ *  Gdy projekt-podgląd już jest (bez własnych nut), a doszło nowe ujęcie —
+ *  odświeża same segmenty, żeby nadążał za nowymi animacjami. */
+async function persistSeed(cfg: SeedCfg) {
+  if (projectIds().includes(cfg.id)) {
+    if (!cfg.realAudio) {
+      try {
+        const cur = JSON.parse(localStorage.getItem(pKey(cfg.id)) || "{}") as StoredProject;
+        const untouched = (cur?.notes?.length ?? 0) === 0;
+        const have = new Set((cur?.segments || []).map((s) => s.uj));
+        if (untouched && cfg.ujecia.some((u) => !have.has(u))) {
+          cur.segments = seedSegs(cfg.ujecia);
+          cur.bpm = cfg.bpm;
+          localStorage.setItem(pKey(cfg.id), JSON.stringify(cur));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  const segs = seedSegs(cfg.ujecia);
   const p: StoredProject = {
     id: cfg.id,
     title: cfg.title,
@@ -1060,7 +1084,7 @@ async function startup() {
   // 3 projekty na starcie — po jednym na utwór z grą, z załadowanymi ujęciami
   await persistSeed({ id: "panna-mloda", title: "Panna Młoda", bpm: 155, ujecia: [1, 2, 3, 4], realAudio: true });
   await persistSeed({ id: "ksiaze-z-bajki", title: "Książę z bajki", bpm: 112, ujecia: [1, 2, 3] });
-  await persistSeed({ id: "pogrzebowka", title: "Pogrzebówka", bpm: 150, ujecia: [1] });
+  await persistSeed({ id: "pogrzebowka", title: "Pogrzebówka", bpm: 150, ujecia: [1, 4] });
 
   refreshProjectList();
   const last = localStorage.getItem(LAST_KEY);
