@@ -46,6 +46,7 @@ import {
   roundRect,
   shade,
   text,
+  trimmedImage,
   wrapText,
 } from "./ui.ts";
 
@@ -232,6 +233,8 @@ export class Game {
 
   private trackId = DEFAULT_TRACK;
   private hitIndex = 0; // strona karuzeli WYBIERZ HIT
+  /** obszar postaci na ekranie WYBIERZ HIT (do umieszczania pieczątek) */
+  private charRect: Rect = { x: 60, y: 392, w: VW - 120, h: 576 };
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
   private soundModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
@@ -328,7 +331,7 @@ export class Game {
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
       "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kontynuuj.png",
-      "reward-denis.png", "wkrotce.png",
+      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
       loadImg(`assets/ui/${n}`);
@@ -1784,14 +1787,23 @@ export class Game {
     const R = this.authRects() as Record<string, Rect | undefined>;
     const reg = this.authMode === "register";
 
-    text(ctx, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", VW / 2, 150, {
-      size: 58,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#fff7ec",
-      shadows: HEAD_SHADOWS,
-      letterSpacing: "2px",
-    });
+    // duża głowa Denisa na górze (zamiast nagłówka „STWÓRZ KONTO / ZALOGUJ SIĘ")
+    const head = this.uiImg("head.png");
+    if (imgReady(head)) {
+      const hw = 320;
+      const hh = (head.naturalHeight / head.naturalWidth) * hw;
+      const f1y = (R.f1?.y ?? 268) - 6; // dolna krawędź tuż nad pierwszym polem
+      ctx.drawImage(head, VW / 2 - hw / 2, f1y - hh, hw, hh);
+    } else {
+      text(ctx, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", VW / 2, 150, {
+        size: 58,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff7ec",
+        shadows: HEAD_SHADOWS,
+        letterSpacing: "2px",
+      });
+    }
 
     // dostępność loginu pokazuje ikona ✓/✗ w polu (FieldSpec.status) — bez tekstu obok
 
@@ -2263,26 +2275,7 @@ export class Game {
     // --- poziom „wkrótce" (utwór jeszcze niedostępny) ---
     if (!meta.playable) {
       // czerwona pieczątka „WKRÓTCE" ukośnie na postaci
-      const stamp = this.uiImg("wkrotce.png");
-      const cy = HIT_STARS_Y + 340;
-      if (imgReady(stamp)) {
-        const w = VW - 24;
-        const h = (stamp.naturalHeight / stamp.naturalWidth) * w;
-        ctx.save();
-        ctx.translate(VW / 2, cy);
-        ctx.rotate((-13 * Math.PI) / 180);
-        ctx.drawImage(stamp, -w / 2, -h / 2, w, h);
-        ctx.restore();
-      } else {
-        text(ctx, "WKRÓTCE", VW / 2, cy, {
-          size: 72,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#e0322e",
-          stroke: "#e0322e",
-          strokeWidth: 8,
-        });
-      }
+      this.drawCharStamp(ctx, "wkrotce.png", -13, "WKRÓTCE");
       // utwór jeszcze niedostępny → przycisk do jego odsłuchu na Spotify
       this.uiButton(
         ctx,
@@ -2293,18 +2286,15 @@ export class Game {
       return;
     }
 
+    // poziom zablokowany progresją → ukośna pieczątka „PRZEJDŹ POPRZEDNI POZIOM"
+    // na postaci (zamiast napisu pod przyciskiem)
+    if (!unlocked) {
+      this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
+    }
+
     // GRAJ!
     const graj = this.hb(HIT_GRAJ);
     this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
-    if (!unlocked) {
-      text(ctx, "Przejdź poprzedni poziom!", VW / 2, graj.y - 26, {
-        size: 22,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#ffb457",
-        shadows: HEAD_SHADOWS,
-      });
-    }
 
     // WYNIKI | NAGRODY
     this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI" });
@@ -2313,8 +2303,14 @@ export class Game {
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
-    // na wyższych telefonach postać rośnie w wolną przestrzeń (dół podąża za GRAJ!)
-    const box: Rect = { x: 60, y: 392, w: VW - 120, h: 576 + this.extraH() };
+    // postać wypełnia całą wolną przestrzeń w pionie: od tuż pod gwiazdkami do
+    // tuż nad przyciskiem GRAJ! (który jest dosunięty do dołu ekranu). Dzięki
+    // temu na wyższych telefonach nie ma pustej dziury u góry.
+    const top = HIT_STARS_Y + 26;
+    const bottom = this.hb(HIT_GRAJ).y - 14;
+    const box: Rect = { x: 0, y: top, w: VW, h: Math.max(320, bottom - top) };
+    this.charRect = box;
+
     let src: HTMLImageElement | null = null;
     const named = this.uiImg(`select-${meta.id}.png`);
     if (imgReady(named)) src = named;
@@ -2331,17 +2327,48 @@ export class Game {
       });
       return;
     }
-    const ar = src.naturalWidth / src.naturalHeight;
-    let w = box.w;
-    let h = w / ar;
-    if (h > box.h) {
-      h = box.h;
-      w = h * ar;
+    // przytnij przezroczyste marginesy PNG — inaczej „puste" zapasy grafiki
+    // zostawiają dziurę mimo dopasowania do wysokości
+    const pic = trimmedImage(src);
+    const ar = pic.width / pic.height;
+    // wypełnij WYSOKOŚĆ pasa; szerokość może lekko wyjść poza ekran —
+    // ograniczamy do ~1,12×VW, żeby nie ucinać sylwetki
+    let h = box.h;
+    let w = h * ar;
+    if (w > VW * 1.12) {
+      w = VW * 1.12;
+      h = w / ar;
     }
     const dx = VW / 2 - w / 2;
     const dy = box.y + box.h - h;
-    if (unlocked) ctx.drawImage(src, dx, dy, w, h);
-    else ctx.drawImage(desaturated(src), dx, dy, w, h);
+    this.charRect = { x: dx, y: dy, w, h };
+    ctx.drawImage(unlocked ? pic : desaturated(pic), dx, dy, w, h);
+  }
+
+  /** Rysuje ukośną pieczątkę PNG wyśrodkowaną na postaci (WKRÓTCE / zablokowane). */
+  private drawCharStamp(ctx: CanvasRenderingContext2D, file: string, deg: number, fallbackText?: string) {
+    const c = this.charRect;
+    const cx = c.x + c.w / 2;
+    const cy = c.y + c.h * 0.5;
+    const stamp = this.uiImg(file);
+    if (imgReady(stamp)) {
+      const w = VW - 20;
+      const h = (stamp.naturalHeight / stamp.naturalWidth) * w;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate((deg * Math.PI) / 180);
+      ctx.drawImage(stamp, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    } else if (fallbackText) {
+      text(ctx, fallbackText, cx, cy, {
+        size: 60,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#e0322e",
+        stroke: "#e0322e",
+        strokeWidth: 8,
+      });
+    }
   }
 
   // ---- ekran: NAGRODY ---------------------------------------

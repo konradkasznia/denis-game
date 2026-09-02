@@ -118,15 +118,69 @@ export function imgReady(img: HTMLImageElement | null | undefined): img is HTMLI
   return !!img && img.complete && img.naturalWidth > 0;
 }
 
-const grayCache = new Map<HTMLImageElement, HTMLCanvasElement>();
+type ImgSrc = HTMLImageElement | HTMLCanvasElement;
+const dimsOf = (img: ImgSrc): [number, number] =>
+  "naturalWidth" in img ? [img.naturalWidth, img.naturalHeight] : [img.width, img.height];
+
+const trimCache = new Map<HTMLImageElement, HTMLCanvasElement>();
+
+/** Przycina przezroczyste marginesy obrazu do prostokąta obejmującego alfę.
+ *  Dzięki temu grafika postaci realnie wypełnia przydzielone miejsce niezależnie
+ *  od tego, ile pustego zapasu ma dany PNG. Wynik cache'owany; fallback = oryginał. */
+export function trimmedImage(img: HTMLImageElement): HTMLCanvasElement {
+  const hit = trimCache.get(img);
+  if (hit) return hit;
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const src = document.createElement("canvas");
+  src.width = w;
+  src.height = h;
+  const sg = src.getContext("2d")!;
+  sg.drawImage(img, 0, 0);
+  let x0 = w;
+  let y0 = h;
+  let x1 = 0;
+  let y1 = 0;
+  try {
+    const p = sg.getImageData(0, 0, w, h).data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (p[(y * w + x) * 4 + 3] > 8) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+  } catch {
+    trimCache.set(img, src);
+    return src;
+  }
+  if (x1 <= x0 || y1 <= y0) {
+    trimCache.set(img, src);
+    return src;
+  }
+  const cw = x1 - x0 + 1;
+  const ch = y1 - y0 + 1;
+  const c = document.createElement("canvas");
+  c.width = cw;
+  c.height = ch;
+  c.getContext("2d")!.drawImage(src, x0, y0, cw, ch, 0, 0, cw, ch);
+  trimCache.set(img, c);
+  return c;
+}
+
+const grayCache = new Map<ImgSrc, HTMLCanvasElement>();
 
 /** Czarno-biała wersja obrazu (offscreen canvas, cache). */
-export function desaturated(img: HTMLImageElement): HTMLCanvasElement {
+export function desaturated(img: ImgSrc): HTMLCanvasElement {
   let c = grayCache.get(img);
   if (c) return c;
+  const [iw, ih] = dimsOf(img);
   c = document.createElement("canvas");
-  c.width = img.naturalWidth;
-  c.height = img.naturalHeight;
+  c.width = iw;
+  c.height = ih;
   const g = c.getContext("2d")!;
   try {
     (g as any).filter = "grayscale(1) brightness(0.85)";
