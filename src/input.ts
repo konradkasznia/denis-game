@@ -9,6 +9,8 @@ export interface InputHandlers {
   onRelease: (lane: number) => void;
   /** który tor odpowiada współrzędnej x (albo -1) */
   laneAt: (x: number) => number;
+  /** przesunięcie palcem w bok: dir = +1 (w lewo → następny), -1 (w prawo → poprzedni) */
+  onSwipe?: (dir: 1 | -1) => void;
 }
 
 const LANE_KEYS: Record<string, number> = {
@@ -25,6 +27,8 @@ const LANE_KEYS: Record<string, number> = {
 export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
   const pointerLane = new Map<number, number>();
   const keyLane = new Map<string, number>();
+  // śledzenie „przeciągnięcia palcem" (swipe) — pierwszy aktywny wskaźnik
+  let swipe: { id: number; x0: number; y0: number; t0: number } | null = null;
 
   canvas.addEventListener(
     "pointerdown",
@@ -33,12 +37,23 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
       const p = toGame(ev.clientX, ev.clientY, canvas);
       const lane = h.laneAt(p.x);
       pointerLane.set(ev.pointerId, lane);
+      if (swipe === null) swipe = { id: ev.pointerId, x0: p.x, y0: p.y, t0: performance.now() };
       h.onPress(lane, p.x, p.y);
     },
     { passive: false },
   );
 
   const endPointer = (ev: PointerEvent) => {
+    if (swipe && swipe.id === ev.pointerId) {
+      const p = toGame(ev.clientX, ev.clientY, canvas);
+      const dx = p.x - swipe.x0;
+      const dy = p.y - swipe.y0;
+      const dt = performance.now() - swipe.t0;
+      swipe = null;
+      if (dt < 700 && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+        h.onSwipe?.(dx < 0 ? 1 : -1);
+      }
+    }
     if (!pointerLane.has(ev.pointerId)) return;
     const lane = pointerLane.get(ev.pointerId)!;
     pointerLane.delete(ev.pointerId);
@@ -47,6 +62,7 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
   window.addEventListener("blur", () => {
+    swipe = null;
     for (const lane of pointerLane.values()) if (lane >= 0) h.onRelease(lane);
     pointerLane.clear();
     for (const lane of keyLane.values()) h.onRelease(lane);

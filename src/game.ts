@@ -1087,11 +1087,16 @@ export class Game {
     const meta = SONGS[this.hitIndex];
     if (!meta) return;
 
-    // NAGRODY: przy „wkrótce" przycisk jest na całą szerokość, wyżej
-    const rewRect = meta.playable
-      ? this.hb(HIT_REW)
-      : this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h });
-    if (inRect(rewRect, x, y)) {
+    // utwór „wkrótce": dolny przycisk na całą szerokość = odsłuch na Spotify
+    if (!meta.playable) {
+      if (inRect(this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h }), x, y)) {
+        const url = spotifyUrl(meta.id);
+        if (url) openExternal(url);
+      }
+      return;
+    }
+
+    if (inRect(this.hb(HIT_REW), x, y)) {
       this.scene = "rewards";
       return;
     }
@@ -1110,6 +1115,19 @@ export class Game {
       this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
       haptic("combo");
       void this.startPlay();
+    }
+  }
+
+  /** Przesunięcie palcem w bok na karuzeli „WYBIERZ HIT". */
+  onSwipe(dir: 1 | -1) {
+    if (this.scene !== "hits" || this.preparing || this.soundModal) return;
+    const next = this.hitIndex + dir;
+    if (dir < 0 && next >= 0) {
+      this.hitIndex = next;
+      this.preloadHitAudio();
+    } else if (dir > 0 && next <= this.maxHitIndex()) {
+      this.hitIndex = next;
+      this.preloadHitAudio();
     }
   }
 
@@ -2246,11 +2264,12 @@ export class Game {
           strokeWidth: 8,
         });
       }
+      // utwór jeszcze niedostępny → przycisk do jego odsłuchu na Spotify
       this.uiButton(
         ctx,
         this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h }),
-        "nagrody",
-        { fallback: "NAGRODY" },
+        "otworz-w-spotify",
+        { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" },
       );
       return;
     }
