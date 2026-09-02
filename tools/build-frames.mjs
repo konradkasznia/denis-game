@@ -42,9 +42,12 @@ if (fs.existsSync(arg1) && fs.statSync(arg1).isDirectory()) {
 }
 if (!fs.existsSync(SRC)) { console.error(`Brak folderu: ${SRC}`); process.exit(1); }
 
-const files = fs.readdirSync(SRC).filter((f) => /\.png$/i.test(f))
+// klatki = PNG-i, POMIJAJAC pliki robocze/wynikowe lezace w tym samym folderze
+const files = fs.readdirSync(SRC)
+  .filter((f) => /\.png$/i.test(f))
+  .filter((f) => !/^magnific_/i.test(f) && f !== "dance.png" && !/^_/.test(f))
   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-if (!files.length) { console.error(`Brak PNG w ${SRC}`); process.exit(1); }
+if (!files.length) { console.error(`Brak PNG (klatek) w ${SRC}`); process.exit(1); }
 
 // --- czas: "06f" / "0.06" / "60ms" / "6" -> ms  (TL_FPS = fps osi czasu) ---
 let TL_FPS = 30;
