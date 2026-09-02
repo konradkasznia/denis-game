@@ -1003,6 +1003,7 @@ export class Game {
   private async startPlay() {
     if (this.preparing) return;
     this.soundModal = false;
+    this.audio.stop(); // ucisz ewentualny poprzedni przebieg zanim ruszymy nowy
     const myId = ++this.prepId;
     this.preparing = true;
     this.prepStep = "przygotowanie";
@@ -1126,6 +1127,7 @@ export class Game {
   private beginSong() {
     this.awaitingStart = false;
     this.songTime = 0;
+    this.audio.stop(); // ucisz poprzedni przebieg (pauza → „OD NOWA" nie nakłada dźwięku)
     try {
       void this.audio.ctx?.resume?.();
     } catch {

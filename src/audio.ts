@@ -18,6 +18,31 @@ export class AudioEngine {
   private srcNode: AudioBufferSourceNode | null = null;
   private sfxGain: GainNode | null = null;
   private _sfxOn = true;
+  // wszystkie zaplanowane głosy syntezy (całe bary są kolejkowane z góry) —
+  // trzymamy referencje, żeby `stop()` NAPRAWDĘ je uciszył (inaczej po pauzie +
+  // „OD NOWA" stary podkład wznawia się razem z nowym → podwójny dźwięk).
+  private scheduled: AudioScheduledSourceNode[] = [];
+
+  private track<T extends AudioScheduledSourceNode>(n: T): T {
+    this.scheduled.push(n);
+    return n;
+  }
+
+  private killScheduled() {
+    for (const n of this.scheduled) {
+      try {
+        n.stop();
+      } catch {
+        /* już zatrzymany / jeszcze nie wystartował */
+      }
+      try {
+        n.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.scheduled = [];
+  }
 
   get running() {
     return this._running;
@@ -121,7 +146,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0.5, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       n.connect(lp).connect(g);
-      n.start(t);
+      this.track(n).start(t);
       n.stop(t + 0.18);
       return;
     }
@@ -139,7 +164,7 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g);
-    o.start(t);
+    this.track(o).start(t);
     o.stop(t + dur + 0.03);
   }
 
@@ -191,6 +216,7 @@ export class AudioEngine {
       /* ignore */
     }
     this.srcNode = null;
+    this.killScheduled(); // ucisz wszystkie zakolejkowane głosy podkładu
     if (this.ctx) {
       try {
         this.master?.gain.setValueAtTime(this.master.gain.value, this.ctx.currentTime);
@@ -205,6 +231,14 @@ export class AudioEngine {
   start(song: SongDef) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
+    // wyczyść wszystko z poprzedniego przebiegu (defensywnie — gdyby stop() nie padł)
+    this.killScheduled();
+    try {
+      this.srcNode?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.srcNode = null;
     if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     this.master.gain.cancelScheduledValues(ctx.currentTime);
     this.master.gain.setValueAtTime(0.9, ctx.currentTime);
@@ -281,7 +315,7 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.95, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
     o.connect(g).connect(this.master!);
-    o.start(t);
+    this.track(o).start(t);
     o.stop(t + 0.3);
   }
 
@@ -297,7 +331,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.5, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
     n.connect(bp).connect(g).connect(this.master!);
-    n.start(t);
+    this.track(n).start(t);
     n.stop(t + 0.2);
 
     const o = ctx.createOscillator();
@@ -307,7 +341,7 @@ export class AudioEngine {
     og.gain.setValueAtTime(0.25, t);
     og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
     o.connect(og).connect(this.master!);
-    o.start(t);
+    this.track(o).start(t);
     o.stop(t + 0.13);
   }
 
@@ -322,7 +356,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
     n.connect(hp).connect(g).connect(this.master!);
-    n.start(t);
+    this.track(n).start(t);
     n.stop(t + 0.06);
   }
 
@@ -339,7 +373,7 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(lp).connect(g).connect(this.master!);
-    o.start(t);
+    this.track(o).start(t);
     o.stop(t + dur + 0.05);
   }
 
@@ -353,7 +387,7 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
     o.connect(g).connect(this.master!);
-    o.start(t);
+    this.track(o).start(t);
     o.stop(t + 0.25);
   }
 }
