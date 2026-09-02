@@ -12,15 +12,24 @@ figma-ekrany/
 .vercel
 .env*
 
+# public/assets/char/<utwor>/ MA ZAWIERAĆ TYLKO pliki runtime:
+#   <utwor>/{anim.json,dance.png}  albo  <utwor>/ujecieN/{anim.json,dance.png}
+# Wszystko inne (klatki źródłowe, rendery, podglądy, PSD) → art/char-src/ ,
+# bo cały public/ leci do dist/ i do APK. Poniżej blokada przed nawrotem:
 public/assets/char/*/raw/
 public/assets/char/*/_contact.png
+public/assets/char/*/Finalne/
+public/assets/char/*/Nowy test/
+public/assets/char/**/dance-preview.gif
+public/assets/char/**/ChatGPT*
+public/assets/char/*/src.png
+public/assets/char/*/*.psd
+public/assets/char/*/*.zip
 
-# cieżkie materiały robocze (nieużywane przez grę) — trzymamy lokalnie, nie w repo/deployu
-public/assets/char/*/Finalne/*.zip
-public/assets/char/*/Finalne/*.mp3
-public/assets/char/*/Finalne/magnific_*
-public/assets/char/*/Finalne/tupanie*
-public/assets/char/*/Finalne/*.psd
+# ciężkie materiały robusze animacji — w repo, ale poza buildem
+art/char-src/**/*.psd
+art/char-src/**/*.zip
+art/char-src/**/*.mp3
 
 /Materiały robocze/
 deploy-log.txt
