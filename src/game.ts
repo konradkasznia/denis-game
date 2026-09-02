@@ -2,7 +2,7 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { deleteAccount, hasAccount, nick as accountNick, setNick } from "./account.ts";
+import { deleteAccount, hasAccount } from "./account.ts";
 import {
   checkLogin as apiCheckLogin,
   fetchMe,
@@ -12,6 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
+import { showDoc } from "./docOverlay.ts";
 import { myEntry, type Period, refreshBoard, submitScore, topN } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
@@ -102,16 +103,13 @@ const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h:
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 
-// --- ekran PROFIL ---
 // --- ekran USTAWIENIA ---
 const SET_W = VW - MARGIN * 2;
-const SET_NICK: Rect = { x: MARGIN, y: 180, w: SET_W, h: 96 };
-const SET_SFX: Rect = { x: MARGIN, y: 300, w: SET_W, h: 68 };
-const SET_TERMS: Rect = { x: MARGIN, y: 404, w: SET_W, h: 64 };
-const SET_PRIV: Rect = { x: MARGIN, y: 476, w: SET_W, h: 64 };
-const SET_CONTACT: Rect = { x: MARGIN, y: 548, w: SET_W, h: 64 };
-const SET_LOGOUT: Rect = { x: MARGIN, y: 648, w: SET_W, h: 64 };
-const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
+const SET_TERMS: Rect = { x: MARGIN, y: 246, w: SET_W, h: 96 };
+const SET_PRIV: Rect = { x: MARGIN, y: 356, w: SET_W, h: 96 };
+const SET_DELETE: Rect = { x: MARGIN, y: 560, w: SET_W, h: 96 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 670, w: SET_W, h: 96 };
+const SET_MAIL: Rect = { x: MARGIN, y: 940, w: SET_W, h: 120 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
 const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
@@ -125,16 +123,17 @@ const BOARD_BACK: Rect = { x: MARGIN, y: 1026, w: VW - MARGIN * 2, h: 100 };
 const DOC_TERMS_URL = "/regulamin.html";
 const DOC_PRIVACY_URL = "/polityka-prywatnosci.html";
 function openDoc(url: string) {
-  try {
-    const w = window.open(url, "_blank", "noopener");
-    if (!w) window.location.href = url; // popup zablokowany (częste na iOS) → nawigacja
-  } catch {
+  if (url.startsWith("mailto:")) {
     try {
       window.location.href = url;
     } catch {
       /* ignore */
     }
+    return;
   }
+  // regulamin / polityka — nakładka z iframe, żeby nie wyrzucać z aplikacji
+  const title = url.includes("regulamin") ? "Regulamin" : "Polityka prywatności";
+  showDoc(url, title);
 }
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
@@ -164,31 +163,8 @@ interface Popup {
   x: number;
 }
 
-interface Settings {
-  sfx: boolean;
-}
-
-function loadSettings(): Settings {
-  const def: Settings = { sfx: true };
-  try {
-    const raw = localStorage.getItem("denis.settings");
-    if (raw) return { ...def, ...JSON.parse(raw) };
-  } catch {
-    /* ignore */
-  }
-  return def;
-}
-
-function saveSettings(s: Settings) {
-  try {
-    localStorage.setItem("denis.settings", JSON.stringify(s));
-  } catch {
-    /* ignore */
-  }
-}
-
 const APP_VERSION = "0.9.0";
-const SUPPORT_EMAIL = "[[E-MAIL KONTAKTOWY]]";
+const SUPPORT_EMAIL = "impulsywni.media@gmail.com";
 
 function bestScore(): number {
   return Number(localStorage.getItem("denis.best") || 0);
@@ -197,7 +173,6 @@ function bestScore(): number {
 export class Game {
   private scene: Scene = "loading";
   private audio = new AudioEngine();
-  private settings = loadSettings();
 
   private bg = new Image();
   private bgReady = false;
@@ -289,8 +264,8 @@ export class Game {
     };
     this.bg.src = "assets/denis/denis-stage.png";
     setHapticsEnabled(true); // wibracje zawsze włączone
-    this.audio.setSfxEnabled(this.settings.sfx);
-    void this.syncSession(); // sprawdź sesję na serwerze, ściągnij nick / zgody
+    this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
+    void this.syncSession(); // sprawdź sesję na serwerze
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
     // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
@@ -307,12 +282,10 @@ export class Game {
     }
   }
 
-  /** Weryfikuje token sesji na serwerze i synchronizuje nazwę wyświetlaną. */
+  /** Weryfikuje token sesji na serwerze (po starcie aplikacji). */
   private async syncSession() {
     try {
-      const me = await fetchMe();
-      if (!me) return;
-      if (me.nick && accountNick() !== me.nick) setNick(me.nick);
+      await fetchMe();
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
@@ -742,17 +715,6 @@ export class Game {
     if (R.primary && inRect(R.primary, x, y)) this.submitAuth();
   }
 
-  /** Zmiana nazwy wyświetlanej z ekranu ustawień (window.prompt). */
-  private promptNick() {
-    let n: string | null = null;
-    try {
-      n = window.prompt?.("Nazwa w rankingu:", accountNick()) ?? null;
-    } catch {
-      n = null;
-    }
-    if (n !== null) setNick(n.trim());
-  }
-
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
 
   /** Najwyższy index strony dostępny w karuzeli. */
@@ -853,16 +815,9 @@ export class Game {
       this.scene = "hits";
       return;
     }
-    if (inRect(SET_NICK, x, y)) return this.promptNick();
-    if (inRect(SET_SFX, x, y)) {
-      this.settings.sfx = !this.settings.sfx;
-      this.audio.setSfxEnabled(this.settings.sfx);
-      saveSettings(this.settings);
-      return;
-    }
     if (inRect(SET_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
     if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
-    if (inRect(SET_CONTACT, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
+    if (inRect(SET_MAIL, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
     if (inRect(SET_LOGOUT, x, y)) {
       deleteAccount(); // bez backendu wylogowanie = usunięcie lokalnego konta
       this.hitIndex = 0;
@@ -2019,118 +1974,70 @@ export class Game {
     this.uiButton(ctx, REW_HOME, "powrot", { fallback: "POWRÓT" });
   }
 
-  // ---- ekran: PROFIL ---------------------------------------
+  // ---- ekran: USTAWIENIA -----------------------------------
 
-  private toggleRow(ctx: CanvasRenderingContext2D, r: Rect, lines: string[], on: boolean) {
-    ctx.fillStyle = "rgba(18,14,24,0.7)";
+  /** Wiersz-przycisk ustawień (obramowany, etykieta + „›"). */
+  private linkRow(ctx: CanvasRenderingContext2D, r: Rect, label: string, color = "#ffce8a") {
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
     roundRect(ctx, r.x, r.y, r.w, r.h, 14);
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,180,90,0.3)";
+    ctx.strokeStyle = "rgba(255,255,255,0.16)";
     ctx.lineWidth = 2;
     roundRect(ctx, r.x, r.y, r.w, r.h, 14);
     ctx.stroke();
-    const top = r.y + r.h / 2 - (lines.length - 1) * 11;
-    lines.forEach((ln, i) =>
-      text(ctx, ln, r.x + 22, top + i * 22, { size: 15, align: "left", color: "#c9b7a6" }),
-    );
-    const tw = 60;
-    const tx = r.x + r.w - tw - 20;
-    const ty = r.y + r.h / 2;
-    ctx.fillStyle = on ? "#ff9f43" : "rgba(255,255,255,0.16)";
-    roundRect(ctx, tx, ty - 16, tw, 32, 16);
-    ctx.fill();
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(on ? tx + tw - 16 : tx + 16, ty, 12, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  private linkRow(
-    ctx: CanvasRenderingContext2D,
-    r: Rect,
-    label: string,
-    color = "#ffce8a",
-  ) {
-    ctx.strokeStyle = "rgba(255,255,255,0.12)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 12);
-    ctx.stroke();
-    text(ctx, label, r.x + 22, r.y + r.h / 2, {
-      size: 18,
+    text(ctx, label, r.x + 24, r.y + r.h / 2, {
+      size: 22,
       align: "left",
-      weight: "700",
+      weight: "800",
       color,
     });
-    text(ctx, "›", r.x + r.w - 24, r.y + r.h / 2, { size: 24, align: "right", color });
+    text(ctx, "›", r.x + r.w - 26, r.y + r.h / 2, { size: 30, align: "right", color });
   }
 
   private drawProfile(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
-      size: 24,
+      size: 26,
       align: "left",
       color: "#ffce8a",
       weight: "700",
     });
-    text(ctx, "USTAWIENIA", VW / 2, 116, {
-      size: 40,
+    text(ctx, "USTAWIENIA", VW / 2, 130, {
+      size: 44,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
     });
 
-    // nick
-    ctx.fillStyle = "rgba(18,14,24,0.7)";
-    roundRect(ctx, SET_NICK.x, SET_NICK.y, SET_NICK.w, SET_NICK.h, 16);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,180,90,0.4)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, SET_NICK.x, SET_NICK.y, SET_NICK.w, SET_NICK.h, 16);
-    ctx.stroke();
-    text(ctx, "NAZWA W RANKINGU", SET_NICK.x + 22, SET_NICK.y + 30, {
-      size: 13,
-      align: "left",
-      color: "#8a7c6e",
-      letterSpacing: "3px",
-    });
-    text(ctx, accountNick(), SET_NICK.x + 22, SET_NICK.y + 64, {
-      size: 26,
-      align: "left",
-      weight: "700",
-      color: "#fff",
-    });
-    text(ctx, "ZMIEŃ ›", SET_NICK.x + SET_NICK.w - 22, SET_NICK.y + SET_NICK.h / 2, {
-      size: 18,
-      align: "right",
-      weight: "800",
-      color: "#ffce8a",
-    });
-
-    this.toggleRow(ctx, SET_SFX, ["Efekty dźwiękowe"], this.settings.sfx);
-
     this.linkRow(ctx, SET_TERMS, "Regulamin");
     this.linkRow(ctx, SET_PRIV, "Polityka prywatności");
-    this.linkRow(ctx, SET_CONTACT, "Kontakt i pomoc");
 
-    this.linkRow(ctx, SET_LOGOUT, "Wyloguj się", "#c9b7a6");
+    // Usuń konto i dane — przedostatnie, neutralny kolor
+    this.linkRow(ctx, SET_DELETE, "Usuń konto i dane", "#e0d0bd");
+    // Wyloguj się — ostatnie, czerwone
+    this.linkRow(ctx, SET_LOGOUT, "Wyloguj się", "#ff8a97");
 
-    ctx.strokeStyle = "rgba(255,107,125,0.5)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, SET_DELETE.x, SET_DELETE.y, SET_DELETE.w, SET_DELETE.h, 12);
-    ctx.stroke();
-    text(ctx, "Usuń konto i dane", SET_DELETE.x + SET_DELETE.w / 2, SET_DELETE.y + SET_DELETE.h / 2, {
+    // stopka: Impulsywni + kontakt
+    text(ctx, "IMPULSYWNI", VW / 2, SET_MAIL.y + 8, {
+      size: 22,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffce8a",
+      letterSpacing: "3px",
+    });
+    text(ctx, "kreatywne rozwiązania dla branży muzycznej", VW / 2, SET_MAIL.y + 44, {
+      size: 16,
+      color: "#c9b7a6",
+    });
+    text(ctx, SUPPORT_EMAIL, VW / 2, SET_MAIL.y + 78, {
       size: 18,
-      weight: "800",
-      color: "#ff8a97",
+      weight: "700",
+      color: "#ff9f43",
     });
 
-    text(ctx, "Kalibracja opóźnienia dźwięku jest automatyczna.", VW / 2, VH - 84, {
-      size: 13,
-      color: "#6b6055",
-    });
-    text(ctx, `DENIS Impulsywni Live · wersja ${APP_VERSION}`, VW / 2, VH - 56, {
-      size: 13,
+    text(ctx, `DENIS Impulsywni Live · wersja ${APP_VERSION}`, VW / 2, VH - 44, {
+      size: 14,
       color: "#6b6055",
     });
   }
