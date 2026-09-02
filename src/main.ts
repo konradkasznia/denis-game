@@ -2,20 +2,23 @@ import "./style.css";
 import { Game } from "./game.ts";
 import { initInput } from "./input.ts";
 import { hideSplash, initNativeShell } from "./nativeShell.ts";
-import { VW, viewport } from "./viewport.ts";
+import { VH, VW, viewport } from "./viewport.ts";
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const availW = window.innerWidth;
-  const availH = window.innerHeight;
+  // fallbacki na wypadek dziwnego momentu cyklu życia (0 / undefined) —
+  // bez nich `scale` może wyjść 0/NaN i cały render się wywala co klatkę
+  const availW = Math.max(1, window.innerWidth || document.documentElement.clientWidth || VW);
+  const availH = Math.max(1, window.innerHeight || document.documentElement.clientHeight || VH);
 
   // Wypełniamy CAŁY ekran: skala liczona z szerokości (gra jest w pionie),
   // a wysokość układu „rozciąga się" — `viewport.vh` >= VH na wyższych telefonach.
   const scale = availW / VW;
-  const vh = Math.round(availH / scale);
+  // clamp do rozsądnego zakresu — nawet gdyby availH było absurdalne
+  const vh = Math.max(VH, Math.min(VH * 3, Math.round(availH / scale) || VH));
 
   canvas.style.width = `${availW}px`;
   canvas.style.height = `${availH}px`;
@@ -103,25 +106,40 @@ async function ensureFonts() {
 // ---- pętla renderu: oszczędna dla CPU / baterii / temperatury ----------
 //  - gdy apka jest w tle / karta niewidoczna: pętla całkiem stoi
 //  - poza rozgrywką (menu, karuzela, wyniki): ~30 kl./s zamiast 60
+//
+// `loopGen` = numer pokolenia pętli. Każde włączenie bumpuje go, więc nawet
+// gdy szybko przełączymy off→on kilka razy, przeżyje TYLKO najnowsza pętla
+// (inaczej narobiłoby się kilka równoległych rAF → podwójne update()).
 let loopActive = true;
-/** Włącza/wyłącza pętlę renderu (wołane przy zejściu apki w tło). */
+let loopGen = 0;
+
+/** Włącza/wyłącza pętlę renderu (wołane przy zejściu apki w tło / powrocie). */
 export function setLoopActive(on: boolean) {
   if (on === loopActive) return;
   loopActive = on;
+  loopGen++;
   if (on) {
     last = performance.now();
-    requestAnimationFrame(frame);
+    const gen = loopGen;
+    requestAnimationFrame((t) => frame(t, gen));
   }
 }
 document.addEventListener("visibilitychange", () => {
-  setLoopActive(document.visibilityState === "visible");
+  const visible = document.visibilityState === "visible";
+  if (visible) {
+    setLoopActive(true);
+    game.onAppForeground();
+  } else {
+    game.onAppBackground(); // pauza gry/dźwięku PRZED zatrzymaniem pętli
+    setLoopActive(false);
+  }
 });
 
 let last = performance.now();
 let firstFrame = true;
-function frame(now: number) {
-  if (!loopActive) return;
-  requestAnimationFrame(frame);
+function frame(now: number, gen: number) {
+  if (!loopActive || gen !== loopGen) return; // przestarzała pętla — kończymy
+  requestAnimationFrame((t) => frame(t, gen));
 
   const elapsed = (now - last) / 1000;
   // poza grą ograniczamy do ~30 kl./s (mniej pracy GPU/CPU, telefon się nie grzeje)
@@ -139,4 +157,4 @@ function frame(now: number) {
     hideSplash(); // gra narysowana — chowamy natywny splash
   }
 }
-void ensureFonts().then(() => requestAnimationFrame(frame));
+void ensureFonts().then(() => requestAnimationFrame((t) => frame(t, loopGen)));

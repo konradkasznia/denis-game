@@ -52,8 +52,20 @@ export class AudioEngine {
     return this.ctx?.state ?? "none";
   }
 
+  private _unlocking: Promise<void> | null = null;
+
   /** Musi być wywołane w reakcji na gest użytkownika (tap / klik). */
-  async unlock() {
+  unlock(): Promise<void> {
+    // scal równoległe wywołania (GRAJ! woła unlock() 2× — w geście i w startPlay)
+    if (!this._unlocking) {
+      this._unlocking = this._unlock().finally(() => {
+        this._unlocking = null;
+      });
+    }
+    return this._unlocking;
+  }
+
+  private async _unlock() {
     if (!this.ctx) {
       const Ctx = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new Ctx();

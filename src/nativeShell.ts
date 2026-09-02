@@ -37,8 +37,13 @@ export function initNativeShell(game: Game) {
   });
 
   void App.addListener("appStateChange", ({ isActive }) => {
-    if (!isActive) game.onAppBackground();
-    setLoopActive(isActive); // w tle pętla renderu całkiem stoi (bateria / temperatura)
+    if (isActive) {
+      setLoopActive(true);
+      game.onAppForeground();
+    } else {
+      game.onAppBackground(); // pauza PRZED zatrzymaniem pętli
+      setLoopActive(false); // w tle pętla renderu całkiem stoi (bateria / temperatura)
+    }
   });
 
   // bezpiecznik: gdyby gra nie zdążyła zawołać hideSplash()

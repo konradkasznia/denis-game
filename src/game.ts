@@ -370,6 +370,20 @@ export class Game {
     }
     if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       this.songTime = this.audio.getSongTime();
+      // watchdog: dźwięk nie ruszył (AudioContext utknął w suspended) —
+      // zegar utworu stoi przy zerze; próbujemy wznowić, a po chwili poddajemy się.
+      if (this.songStartedAt && this.songTime < 0.1 && !this.preparing) {
+        const wall = performance.now() - this.songStartedAt;
+        if (wall > 1200) void this.audio.resumePlayback();
+        if (wall > 6000) {
+          this.loadError = "Nie udało się uruchomić dźwięku. Spróbuj jeszcze raz.";
+          this.audio.stop();
+          this.songStartedAt = 0;
+          this.scene = "hits";
+        }
+      } else if (this.songTime >= 0.1) {
+        this.songStartedAt = 0; // wystartowało OK — watchdog wyłączony
+      }
       this.checkMisses();
       this.resolveHeldHolds();
       this.pulseHoldHaptics();
@@ -456,9 +470,15 @@ export class Game {
     }
   }
 
+  /** Realna wysokość widoku w jednostkach gry — zawsze skończona i >= VH. */
+  private sh(): number {
+    const v = viewport.vh;
+    return Number.isFinite(v) && v >= VH ? Math.min(v, VH * 3) : VH;
+  }
+
   /** Ile pikseli „nadmiaru wysokości" (ekran wyższy niż projekt 9:16). */
   private extraH(): number {
-    return Math.max(0, viewport.vh - VH);
+    return Math.max(0, this.sh() - VH);
   }
 
   /** Przesunięcie układu: gra kotwiczy do dołu, menu wyśrodkowane, WYBIERZ HIT do góry. */
@@ -479,11 +499,11 @@ export class Game {
   /** Wypełnia CAŁY widoczny obszar (także pas ponad/pod ramką UI). */
   private fillViewport(ctx: CanvasRenderingContext2D, style: string | CanvasGradient) {
     ctx.fillStyle = style;
-    ctx.fillRect(0, -this.vdy, VW, viewport.vh);
+    ctx.fillRect(0, -this.vdy, VW, this.sh());
   }
 
   render(ctx: CanvasRenderingContext2D) {
-    ctx.clearRect(0, 0, VW, viewport.vh);
+    ctx.clearRect(0, 0, VW, this.sh());
     this.vdy = this.frameDY();
     ctx.save();
     ctx.translate(0, this.vdy);
@@ -533,7 +553,7 @@ export class Game {
         this.prepId++;
       } else {
         this.fillViewport(ctx, "rgba(4,4,10,0.78)");
-        const cy = viewport.vh / 2 - this.vdy;
+        const cy = this.sh() / 2 - this.vdy;
         const d = Math.floor((performance.now() / 300) % 4);
         text(ctx, `Wczytywanie${".".repeat(d)}`, VW / 2, cy - 40, {
           size: 36,
@@ -548,7 +568,7 @@ export class Game {
     } else if (this.loadError && this.scene === "hits") {
       const lines = wrapText(this.loadError, 46);
       lines.forEach((ln, i) =>
-        text(ctx, ln, VW / 2, viewport.vh - this.vdy - 150 + i * 26, { size: 18, color: "#ff8a97" }),
+        text(ctx, ln, VW / 2, this.sh() - this.vdy - 150 + i * 26, { size: 18, color: "#ff8a97" }),
       );
     }
 
@@ -610,6 +630,10 @@ export class Game {
       this.offlineNotice = false;
       return true;
     }
+    if (this.preparing) {
+      this.cancelPrepare();
+      return true;
+    }
     switch (this.scene) {
       case "board":
         this.scene = this.boardFrom;
@@ -636,9 +660,19 @@ export class Game {
     }
   }
 
-  /** Apka zeszła w tło — wstrzymaj rozgrywkę. */
+  /** Apka zeszła w tło — wstrzymaj rozgrywkę i dźwięk (nic się nie „przewija"). */
   onAppBackground() {
-    if (this.scene === "play" && !this.paused) this.pauseGame();
+    if (this.scene === "play") {
+      this.resumeAt = 0; // anuluj ewentualne odliczanie 3-2-1
+      if (!this.paused) this.pauseGame();
+      else this.audio.pause(); // już w menu pauzy — dobij suspend
+    }
+  }
+
+  /** Apka wróciła na wierzch. NIE wznawiamy utworu automatycznie — jeśli byliśmy
+   *  w grze, jesteśmy teraz w menu pauzy i gracz sam klika GRAJ!. */
+  onAppForeground() {
+    if (this.scene !== "play") void this.audio.resumePlayback();
   }
 
   /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
@@ -1124,6 +1158,8 @@ export class Game {
   }
 
   /** Uruchamia utwór z bieżącego gestu użytkownika (odblokowuje audio na iOS). */
+  private songStartedAt = 0; // performance.now() startu utworu — dla watchdoga
+
   private beginSong() {
     this.awaitingStart = false;
     this.songTime = 0;
@@ -1134,6 +1170,7 @@ export class Game {
       /* ignore */
     }
     this.audio.start(this.song);
+    this.songStartedAt = performance.now();
   }
 
   /** Przerywa trwające wczytywanie i wraca do karuzeli. */
@@ -1141,6 +1178,8 @@ export class Game {
     this.prepId++;
     this.preparing = false;
     this.loadError = "";
+    this.songStartedAt = 0;
+    this.audio.stop();
     this.scene = "hits";
   }
 
@@ -1423,7 +1462,7 @@ export class Game {
     // w grze z animowaną postacią i bez własnego tła: czysta ciemna scena
     // (żeby nie było drugiego Denisa z domyślnego zdjęcia)
     const top = -this.vdy;
-    const vh = viewport.vh;
+    const vh = this.sh();
     const img = this.songBg ?? (plain ? null : this.bgReady ? this.bg : null);
     if (img && img.width) {
       const iw = img.width;
@@ -1480,7 +1519,7 @@ export class Game {
 
   private drawLoading(ctx: CanvasRenderingContext2D) {
     this.fillViewport(ctx, "#07070d");
-    text(ctx, "wczytywanie…", VW / 2, viewport.vh / 2 - this.vdy, { size: 34, color: "#ffce8a" });
+    text(ctx, "wczytywanie…", VW / 2, this.sh() / 2 - this.vdy, { size: 34, color: "#ffce8a" });
   }
 
   // ---- ekran: rejestracja / logowanie --------------------------
@@ -1843,7 +1882,7 @@ export class Game {
    *  `gray` = wersja czarno-biała (dla zablokowanego poziomu). */
   private drawUiBg(ctx: CanvasRenderingContext2D, gray = false) {
     const top = -this.vdy;
-    const vh = viewport.vh;
+    const vh = this.sh();
     const midY = top + vh / 2;
     const bg = this.uiImg("stage-bg.png");
     if (imgReady(bg)) {
@@ -2334,7 +2373,7 @@ export class Game {
       const left = Math.ceil((this.resumeAt - performance.now()) / 1000);
       if (left >= 1) {
         const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
-        text(ctx, String(left), VW / 2, viewport.vh / 2 - this.vdy, {
+        text(ctx, String(left), VW / 2, this.sh() / 2 - this.vdy, {
           size: 200 - frac * 40,
           weight: "900",
           font: HEAD_FONT,
@@ -2609,7 +2648,7 @@ export class Game {
     const f = n - rel;
     ctx.save();
     ctx.globalAlpha = clamp(1 - f, 0.15, 1);
-    text(ctx, String(n), VW / 2, viewport.vh / 2 - this.vdy - 60, {
+    text(ctx, String(n), VW / 2, this.sh() / 2 - this.vdy - 60, {
       size: 150 + f * 50,
       weight: "800",
       color: "#fff7ec",
