@@ -55,7 +55,15 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characterScale: 0.95,
     characterY: 704,
   },
-  pogrzebowka: { title: "Pogrzebówka", artist: "Denis", bpm: 150, bars: 30 }, // bpm tymczasowe, do mp3
+  pogrzebowka: {
+    title: "Pogrzebówka",
+    artist: "Denis",
+    bpm: 150, // tymczasowe, do mp3
+    bars: 30,
+    characters: [{ at: 0, sprite: "assets/char/pogrzebowka/ujecie1" }],
+    characterScale: 0.95,
+    characterY: 704,
+  },
 };
 
 interface RawChart {

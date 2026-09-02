@@ -176,6 +176,34 @@ interface Popup {
   x: number;
 }
 
+// ---- efekt combo (co 10) — per utwór ----------------------------------
+type FxKind = "confetti" | "smoke" | "roses";
+interface FxParticle {
+  kind: FxKind;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rot: number;
+  vr: number;
+  w: number; // konfetti/płatek: długość; dym: promień
+  h: number; // konfetti/płatek: szerokość
+  color: string;
+  life: number;
+  ttl: number;
+  swayA: number;
+  swayF: number;
+  swayP: number;
+  grow: number; // dym: przyrost promienia px/s
+}
+/** Który efekt leci przy combo co 10 dla danego utworu (domyślnie konfetti). */
+const COMBO_FX: Record<string, FxKind> = {
+  "ksiaze-z-bajki": "roses",
+  pogrzebowka: "smoke",
+};
+const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
+const SMOKE_COLORS = ["154,154,164", "138,140,150", "170,168,176"];
+
 const APP_VERSION = "0.9.0";
 const SUPPORT_EMAIL = "impulsywni.media@gmail.com";
 
@@ -233,12 +261,8 @@ export class Game {
 
   private popups: Popup[] = [];
   private hitFx: { lane: number; at: number; kind: Judgement }[] = [];
-  private confetti: {
-    x: number; y: number; vx: number; vy: number;
-    rot: number; vr: number; w: number; h: number;
-    color: string; life: number; ttl: number;
-    swayA: number; swayF: number; swayP: number;
-  }[] = [];
+  // efekt przy combo co 10 — per utwór: konfetti / dym / spadające róże
+  private fx: FxParticle[] = [];
   private laneFlash = [0, 0, 0, 0];
   private lanePress = [0, 0, 0, 0];
   private comboPopAt = -10;
@@ -395,21 +419,32 @@ export class Game {
     for (let i = 0; i < LANES; i++) this.lanePress[i] = lerp(this.lanePress[i], 0, 0.2);
     this.shake *= Math.pow(0.0025, dt); // szybki zanik trzęsienia (~0.85/klatkę)
     if (this.shake < 0.15) this.shake = 0;
-    this.updateConfetti(dt);
+    this.updateFx(dt);
   }
 
-  // ---- confetti (wybuch za postacią przy combo co 10) ----------------
+  // ---- efekt combo (co 10) — konfetti / dym / spadające róże ----------
   private static readonly CONFETTI_COLORS = [
     "#ff5e7e", "#ffd24c", "#8affc1", "#8ab6ff", "#ff9f43", "#ffffff",
   ];
 
-  private burstConfetti(x: number, y: number) {
-    const n = 82;
-    for (let i = 0; i < n; i++) {
+  /** Efekt przypisany do bieżącego utworu. */
+  private comboFxKind(): FxKind {
+    return COMBO_FX[this.trackId] ?? "confetti";
+  }
+
+  private burstFx(kind: FxKind, x: number, y: number) {
+    if (kind === "smoke") this.spawnSmoke(x, y);
+    else if (kind === "roses") this.spawnRoses(x, y);
+    else this.spawnConfetti(x, y);
+    if (this.fx.length > 360) this.fx.splice(0, this.fx.length - 360);
+  }
+
+  private spawnConfetti(x: number, y: number) {
+    for (let i = 0; i < 82; i++) {
       const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.25;
       const spd = 240 + Math.random() * 430;
-      const col = Game.CONFETTI_COLORS[(Math.random() * Game.CONFETTI_COLORS.length) | 0];
-      this.confetti.push({
+      this.fx.push({
+        kind: "confetti",
         x: x + (Math.random() - 0.5) * 70,
         y: y + (Math.random() - 0.5) * 46,
         vx: Math.cos(ang) * spd + (Math.random() - 0.5) * 130,
@@ -418,45 +453,139 @@ export class Game {
         vr: (Math.random() - 0.5) * 14,
         w: 8 + Math.random() * 13,
         h: 5 + Math.random() * 8,
-        color: col,
+        color: Game.CONFETTI_COLORS[(Math.random() * Game.CONFETTI_COLORS.length) | 0],
         life: 0,
         ttl: 1.7 + Math.random() * 1.1,
-        swayA: 24 + Math.random() * 46, // amplituda dryfu (px/s)
-        swayF: 1.6 + Math.random() * 1.8, // częstotliwość
+        swayA: 24 + Math.random() * 46,
+        swayF: 1.6 + Math.random() * 1.8,
         swayP: Math.random() * Math.PI * 2,
+        grow: 0,
       });
     }
-    if (this.confetti.length > 340) this.confetti.splice(0, this.confetti.length - 340);
   }
 
-  private updateConfetti(dt: number) {
-    if (!this.confetti.length) return;
-    const GRAV = 780;
-    const drag = Math.pow(0.55, dt); // łagodny opór — poziomy pęd gaśnie, zostaje dryf
-    for (const p of this.confetti) {
+  /** Dym — kłęby unoszące się do góry i rozmywające (Pogrzebówka). */
+  private spawnSmoke(x: number, y: number) {
+    for (let i = 0; i < 28; i++) {
+      this.fx.push({
+        kind: "smoke",
+        x: x + (Math.random() - 0.5) * 120,
+        y: y + (Math.random() - 0.5) * 40 + 20,
+        vx: (Math.random() - 0.5) * 54,
+        vy: -46 - Math.random() * 84, // unosi się
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.7,
+        w: 26 + Math.random() * 30, // promień startowy
+        h: 0,
+        color: SMOKE_COLORS[(Math.random() * SMOKE_COLORS.length) | 0],
+        life: 0,
+        ttl: 2.4 + Math.random() * 1.6,
+        swayA: 16 + Math.random() * 30,
+        swayF: 0.7 + Math.random() * 1.1,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 60 + Math.random() * 55,
+      });
+    }
+  }
+
+  /** Spadające płatki róż (Książę z bajki). */
+  private spawnRoses(_x: number, _y: number) {
+    for (let i = 0; i < 24; i++) {
+      this.fx.push({
+        kind: "roses",
+        x: Math.random() * VW,
+        y: -30 - Math.random() * 160, // startują nad ekranem, rozłożone w czasie
+        vx: (Math.random() - 0.5) * 40,
+        vy: 70 + Math.random() * 90, // opadają powoli
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 5,
+        w: 15 + Math.random() * 12, // długość płatka
+        h: 9 + Math.random() * 7, // szerokość
+        color: ROSE_COLORS[(Math.random() * ROSE_COLORS.length) | 0],
+        life: 0,
+        ttl: 4.5 + Math.random() * 2,
+        swayA: 46 + Math.random() * 60, // mocne trzepotanie
+        swayF: 1.8 + Math.random() * 2.2,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 0,
+      });
+    }
+  }
+
+  private updateFx(dt: number) {
+    if (!this.fx.length) return;
+    const confDrag = Math.pow(0.55, dt);
+    const roseDrag = Math.pow(0.85, dt);
+    for (const p of this.fx) {
       p.life += dt;
-      p.vy += GRAV * dt;
-      p.vx *= drag;
+      if (p.kind === "confetti") {
+        p.vy += 780 * dt;
+        p.vx *= confDrag;
+      } else if (p.kind === "roses") {
+        p.vy += 60 * dt; // lekkie przyspieszenie
+        p.vx *= roseDrag;
+      } else {
+        // dym: bez grawitacji, lekko zwalnia
+        p.vx *= Math.pow(0.6, dt);
+        p.vy *= Math.pow(0.72, dt);
+        p.w += p.grow * dt; // pęcznieje
+      }
       const sway = Math.sin(p.life * p.swayF + p.swayP) * p.swayA;
       p.x += (p.vx + sway) * dt;
       p.y += p.vy * dt;
       p.rot += p.vr * dt;
     }
-    this.confetti = this.confetti.filter((p) => p.life < p.ttl && p.y < VH + 40);
+    this.fx = this.fx.filter((p) => p.life < p.ttl && p.y < this.sh() + 60 && p.y > -260);
   }
 
-  private drawConfetti(ctx: CanvasRenderingContext2D) {
-    if (!this.confetti.length) return;
-    for (const p of this.confetti) {
-      const fade = p.life > p.ttl - 0.35 ? Math.max(0, (p.ttl - p.life) / 0.35) : 1;
-      const flutter = Math.cos(p.life * 12 + p.x * 0.05); // migotanie „papierka"
+  private drawFx(ctx: CanvasRenderingContext2D) {
+    if (!this.fx.length) return;
+    for (const p of this.fx) {
+      if (p.kind === "smoke") {
+        // dym: kłąb jako radialny gradient, wjeżdża i powoli gaśnie
+        const inA = Math.min(1, p.life / 0.22);
+        const outA = Math.pow(Math.max(0, 1 - p.life / p.ttl), 0.7);
+        const a = inA * outA * 0.4;
+        if (a <= 0.003) continue;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.w);
+        g.addColorStop(0, `rgba(${p.color},${a})`);
+        g.addColorStop(0.6, `rgba(${p.color},${a * 0.55})`);
+        g.addColorStop(1, `rgba(${p.color},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.w, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+
+      const fade = p.life > p.ttl - 0.5 ? Math.max(0, (p.ttl - p.life) / 0.5) : 1;
+      const flutter = Math.cos(p.life * 12 + p.x * 0.05);
       ctx.save();
       ctx.globalAlpha = fade;
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
-      ctx.scale(1, 0.35 + 0.65 * Math.abs(flutter));
-      ctx.fillStyle = p.color;
-      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+
+      if (p.kind === "roses") {
+        // płatek: dwie krzywe, „trzepocze" przez skalowanie w poprzek
+        ctx.scale(1, 0.45 + 0.55 * Math.abs(flutter));
+        const l = p.w;
+        const wdt = p.h;
+        ctx.beginPath();
+        ctx.moveTo(0, -l / 2);
+        ctx.quadraticCurveTo(wdt, -l * 0.12, 0, l / 2);
+        ctx.quadraticCurveTo(-wdt, -l * 0.12, 0, -l / 2);
+        ctx.closePath();
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        ctx.strokeStyle = "rgba(90,10,25,0.35)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        // konfetti
+        ctx.scale(1, 0.35 + 0.65 * Math.abs(flutter));
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      }
       ctx.restore();
     }
   }
@@ -945,7 +1074,7 @@ export class Game {
     if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
-      this.burstConfetti(VW / 2, 660);
+      this.burstFx("confetti", VW / 2, 660);
       haptic("combo");
       this.trackId = meta.id;
       void this.startPlay();
@@ -1089,7 +1218,7 @@ export class Game {
     this.held = [null, null, null, null];
     this.popups = [];
     this.hitFx = [];
-    this.confetti = [];
+    this.fx = [];
     this.shake = 0;
     this.bannerAt = -10;
     this.flowUpAt = -10;
@@ -1390,7 +1519,7 @@ export class Game {
       haptic("combo");
       this.pushBanner(`COMBO ×${this.combo}`);
       const cy = (this.song.characterY ?? 706) - 210 * (this.song.characterScale ?? 1);
-      this.burstConfetti(VW / 2, cy);
+      this.burstFx(this.comboFxKind(), VW / 2, cy);
     }
 
     this.pushPopup(JUDGE_LABEL[j], JUDGE_COLOR[j], lane);
@@ -2059,7 +2188,7 @@ export class Game {
     this.drawSelectChar(ctx, idx, unlocked);
 
     // confetti (po kliknięciu GRAJ!)
-    this.drawConfetti(ctx);
+    this.drawFx(ctx);
 
     // --- poziom „wkrótce" (utwór jeszcze niedostępny) ---
     if (!meta.playable) {
@@ -2285,7 +2414,7 @@ export class Game {
 
     this.drawPlayfield(ctx, pulse);
     this.drawNotes(ctx);
-    this.drawConfetti(ctx); // za postacią
+    this.drawFx(ctx); // za postacią
     this.drawCharacter(ctx); // pierwszy plan — przed nutami
     this.drawJudgePopups(ctx);
     this.drawHud(ctx);

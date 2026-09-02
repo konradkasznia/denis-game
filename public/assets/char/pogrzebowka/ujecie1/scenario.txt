@@ -1,0 +1,6 @@
+# Pogrzebowka - ujecie 1 (5 klatek, kazda 3f @ 30fps)
+3f
+3f
+3f
+3f
+3f
