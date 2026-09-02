@@ -1585,30 +1585,47 @@ export class Game {
     tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
 
     const rows = topN(this.boardSongId, this.boardPeriod, 10);
-    const rowH = 56;
-    let y = 250;
-    rows.forEach((r) => {
+    const rowH = 52;
+    const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }, ry: number) => {
       if (r.me) {
         ctx.fillStyle = "rgba(255,159,67,0.18)";
-        roundRect(ctx, MARGIN - 6, y - rowH / 2 + 4, VW - (MARGIN - 6) * 2, rowH - 8, 12);
+        roundRect(ctx, MARGIN - 6, ry - rowH / 2 + 3, VW - (MARGIN - 6) * 2, rowH - 6, 12);
         ctx.fill();
       }
       const col = r.me ? "#ffce8a" : "#fff";
       const medal =
         r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
-      text(ctx, `${r.rank}`, MARGIN + 12, y, { size: 22, align: "left", weight: "800", color: medal });
-      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 72, y, { size: 21, align: "left", color: col });
-      text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, y, {
+      text(ctx, `${r.rank}`, MARGIN + 12, ry, { size: 22, align: "left", weight: "800", color: medal });
+      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 72, ry, { size: 21, align: "left", color: col });
+      text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, ry, {
         size: 21,
         align: "right",
         weight: "700",
         color: col,
       });
+    };
+
+    let y = 244;
+    rows.forEach((r) => {
+      drawRow(r, y);
       y += rowH;
     });
 
-    // TWÓJ NAJLEPSZY WYNIK
     const me = myEntry(this.boardSongId, this.boardPeriod);
+
+    // moja pozycja poza TOP 10 — pod cienką kreską
+    if (me && me.rank > 10) {
+      const ly = y + 6;
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(MARGIN + 8, ly);
+      ctx.lineTo(VW - MARGIN - 8, ly);
+      ctx.stroke();
+      drawRow({ rank: me.rank, nick: me.nick, score: me.score, me: true }, ly + 6 + rowH / 2);
+    }
+
+    // TWÓJ NAJLEPSZY WYNIK
     const b = BOARD_BEST;
     ctx.fillStyle = "rgba(255,159,67,0.14)";
     roundRect(ctx, b.x, b.y, b.w, b.h, 16);

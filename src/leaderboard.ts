@@ -162,7 +162,11 @@ export function rankOf(songId: string, period: Period): number {
 
 /** Wpis gracza (z miejscem) albo null, gdy nie ma jeszcze wyniku w tej zakładce. */
 export function myEntry(songId: string, period: Period): Entry | null {
-  return fullBoard(songId, period).find((e) => e.me) ?? null;
+  const inList = fullBoard(songId, period).find((e) => e.me);
+  if (inList) return inList;
+  const rb = remote.get(rkey(songId, period));
+  if (rb?.me) return { rank: rb.me.rank, nick: myNick(), score: rb.me.score, me: true };
+  return null;
 }
 
 /** Ile punktów brakuje graczowi do TOP `n` (0 = już w top). */
