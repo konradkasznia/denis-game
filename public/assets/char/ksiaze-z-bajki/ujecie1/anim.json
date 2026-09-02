@@ -1,0 +1,14 @@
+{
+  "type": "sheet",
+  "src": "dance.png",
+  "frames": 5,
+  "cols": 5,
+  "fps": 8,
+  "frameMs": [
+    100,
+    100,
+    100,
+    100,
+    200
+  ]
+}

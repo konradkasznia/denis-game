@@ -22,11 +22,16 @@ public/assets/char/*/Finalne/
 public/assets/char/*/Nowy test/
 public/assets/char/**/dance-preview.gif
 public/assets/char/**/ChatGPT*
+public/assets/char/**/magnific_*
 public/assets/char/*/src.png
 public/assets/char/*/*.psd
 public/assets/char/*/*.zip
+# luźne klatki źródłowe (1.png, 01.png, 12.png…) — należą do art/char-src/, nie do buildu
+public/assets/char/**/[0-9].png
+public/assets/char/**/[0-9][0-9].png
 
-# ciężkie materiały robusze animacji — w repo, ale poza buildem
+# materiały robocze animacji — w repo są tylko finalne klatki + scenario.txt
+art/char-src/**/_raw/
 art/char-src/**/*.psd
 art/char-src/**/*.zip
 art/char-src/**/*.mp3

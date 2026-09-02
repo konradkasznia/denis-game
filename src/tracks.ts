@@ -45,7 +45,16 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characterScale: 0.95,
     characterY: 704,
   },
-  "ksiaze-z-bajki": { title: "Książę z bajki", artist: "Denis", bpm: 112, bars: 28 },
+  "ksiaze-z-bajki": {
+    title: "Książę z bajki",
+    artist: "Denis",
+    bpm: 112,
+    bars: 28,
+    // na razie tylko ujęcie 1 (książę z bukietem); 2–4 dojdą, wtedy rotacja
+    characters: [{ at: 0, sprite: "assets/char/ksiaze-z-bajki/ujecie1" }],
+    characterScale: 0.95,
+    characterY: 704,
+  },
   pogrzebowka: { title: "Pogrzebówka", artist: "Denis", bpm: 150, bars: 30 }, // bpm tymczasowe, do mp3
 };
 
