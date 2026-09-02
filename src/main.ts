@@ -12,7 +12,16 @@ function resize() {
   // fallbacki na wypadek dziwnego momentu cyklu życia (0 / undefined) —
   // bez nich `scale` może wyjść 0/NaN i cały render się wywala co klatkę
   const availW = Math.max(1, window.innerWidth || document.documentElement.clientWidth || VW);
-  const availH = Math.max(1, window.innerHeight || document.documentElement.clientHeight || VH);
+  // iOS Safari zaniża `innerHeight` o pasek narzędzi, przez co gra „myśli", że
+  // ekran jest niższy niż jest (pusty pas u dołu, ucięta grafika u góry).
+  // `#app` ma `position:fixed;inset:0`, więc `documentElement.clientHeight`
+  // (layout viewport) opisuje realny obszar — bierzemy większą z wartości.
+  const availH = Math.max(
+    1,
+    window.innerHeight || 0,
+    document.documentElement.clientHeight || 0,
+    window.visualViewport?.height || 0,
+  );
 
   // Wypełniamy CAŁY ekran: skala liczona z szerokości (gra jest w pionie),
   // a wysokość układu „rozciąga się" — `viewport.vh` >= VH na wyższych telefonach.

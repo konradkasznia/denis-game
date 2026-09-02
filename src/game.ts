@@ -33,6 +33,7 @@ import {
   recordStars,
   SONGS,
   spotifyUrl,
+  UNLOCK_STARS,
 } from "./songs.ts";
 import { VH, viewport, VW } from "./viewport.ts";
 import {
@@ -160,11 +161,12 @@ const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 
 // --- ekran rejestracji / logowania: głowa + rozmieszczenie pionowe ---
 const AUTH_F1_Y = 268; // górna krawędź pierwszego pola (nick) — bez przesunięcia
-const AUTH_HEAD_W = 280; // szerokość grafiki głowy
+const AUTH_HEAD_W = 250; // szerokość grafiki głowy
 const AUTH_HEAD_AR = 1182 / 1330; // wys/szer head.png
-const AUTH_HEAD_GAP = 46; // odstęp głowa → pierwsze pole
+const AUTH_HEAD_GAP = 40; // odstęp głowa → pierwsze pole
 const AUTH_HEAD_H = Math.round(AUTH_HEAD_W * AUTH_HEAD_AR);
-const AUTH_TOP = AUTH_F1_Y - AUTH_HEAD_GAP - AUTH_HEAD_H; // górna krawędź bloku
+const AUTH_TOP = AUTH_F1_Y - AUTH_HEAD_GAP - AUTH_HEAD_H; // górna krawędź bloku (głowa)
+const AUTH_MIN_TOP = 46; // minimalny margines głowy od górnej krawędzi (nie ucinać)
 const AUTH_BOT_REG = 1078; // dolna krawędź bloku (link polityki) — tryb rejestracji
 const AUTH_BOT_LOGIN = 968; // — tryb logowania
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
@@ -885,13 +887,18 @@ export class Game {
     if (this.scene !== "play") void this.audio.resumePlayback();
   }
 
-  /** Pionowe przesunięcie całego bloku rejestracji/logowania — wyśrodkowuje go
-   *  na wyższych ekranach (głowa ma oddech u góry, nie ma pustki u dołu).
-   *  Liczone BEZ `authRects()`, żeby nie było rekurencji. */
+  /** Pionowe przesunięcie całego bloku rejestracji/logowania.
+   *  Cel: głowa ZAWSZE ma margines od góry (nie jest ucinana), a blok jest
+   *  wyśrodkowany w dostępnej wysokości. Niezależne od tego, czy `extraH()`
+   *  wyszło > 0 (na iOS Safari `innerHeight` bywa zaniżone). Liczone BEZ
+   *  `authRects()`, żeby nie było rekurencji. */
   private authShift(): number {
     const bot = this.authMode === "register" ? AUTH_BOT_REG : AUTH_BOT_LOGIN;
-    const free = this.sh() - (bot - AUTH_TOP);
-    return Math.round(clamp(free / 2 - AUTH_TOP, 0, this.extraH()));
+    const free = this.sh() - (bot - AUTH_TOP); // wolne miejsce w pionie
+    const centered = free / 2 - AUTH_TOP; // przesunięcie centrujące blok
+    const minShift = AUTH_MIN_TOP - AUTH_TOP; // tyle, by głowa miała margines
+    const maxShift = Math.max(minShift, this.sh() - bot - 12); // by dół nie uciekł z ekranu
+    return Math.round(clamp(centered, minShift, maxShift));
   }
 
   /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
@@ -1253,10 +1260,12 @@ export class Game {
     const passed = this.rating() >= PASS_RATING;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
 
-    // KONTYNUUJ → ekran wyboru piosenki: zaliczone → następna, nie → ta sama
+    // KONTYNUUJ → ekran wyboru: następny poziom TYLKO gdy zaliczony ten TERAZ
+    // i następny jest odblokowany (≥4★). Inaczej zostajemy na tym samym
+    // (do poprawy wyniku na 4 gwiazdki albo ponownej próby).
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
-      const target = passed ? idx + 1 : idx;
-      this.hitIndex = clamp(Math.max(0, target), 0, this.maxHitIndex());
+      const target = passed && idx >= 0 && levelUnlocked(idx + 1) ? idx + 1 : Math.max(0, idx);
+      this.hitIndex = clamp(target, 0, this.maxHitIndex());
       this.enterHits();
       return;
     }
@@ -3253,11 +3262,15 @@ export class Game {
       glowBlur: 14,
     });
 
+    const hasNext = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length && SONGS[lvlIdx + 1].playable;
+    const nextUnlocked = hasNext && levelUnlocked(lvlIdx + 1); // po recordStars() w finish()
+    const starsNow = Math.floor(this.starFill());
+
     if (revealDone) {
       const vFade = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
       ctx.save();
       ctx.globalAlpha = vFade;
-      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - 42, {
+      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - 52, {
         size: passed ? 42 : 36,
         weight: "900",
         font: HEAD_FONT,
@@ -3266,6 +3279,22 @@ export class Game {
         glowBlur: 18,
         letterSpacing: "1px",
       });
+      // zaliczone, ale za mało gwiazdek na kolejny poziom
+      if (passed && hasNext && !nextUnlocked) {
+        text(
+          ctx,
+          `Zdobądź ${UNLOCK_STARS} gwiazdki, aby odblokować następny poziom (masz ${starsNow})`,
+          cx,
+          gp.y + gp.h - 14,
+          { size: 19, weight: "800", color: "#ffce8a" },
+        );
+      } else if (passed && nextUnlocked) {
+        text(ctx, "Następny poziom odblokowany!", cx, gp.y + gp.h - 14, {
+          size: 19,
+          weight: "800",
+          color: "#8affc1",
+        });
+      }
       ctx.restore();
     }
 

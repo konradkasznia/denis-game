@@ -184,11 +184,13 @@ await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && ga.authMode === "register", "bez konta start na ekranie PIERWSZY RAZ");
 ga.authLogin = "TestGracz";
 ga.authPassword = "Haslo123!";
-ga.onPress(1, 360, 690); // STWÓRZ KONTO bez zgody -> blokada
+const aR = ga.authRects(); // blok jest przesuwany w pionie (authShift) — bierzemy realne rects
+const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
+ga.onPress(1, ...mid(aR.primary)); // STWÓRZ KONTO bez zgody -> blokada
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && !!ga.authError, "rejestracja bez zgody na regulamin zablokowana");
-ga.onPress(1, 360, 584); // checkbox: akceptuję regulamin
-ga.onPress(1, 360, 690); // STWÓRZ KONTO
+ga.onPress(1, aR.terms.x + 20, aR.terms.y + aR.terms.h / 2); // checkbox: akceptuję regulamin
+ga.onPress(1, ...mid(ga.authRects().primary)); // STWÓRZ KONTO
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "hits", "po rejestracji z akceptacją -> od razu WYBIERZ HIT");
 const savedAcc = JSON.parse(localStorage.getItem("denis.account"));
