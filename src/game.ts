@@ -12,14 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
-import {
-  gapToTop,
-  myEntry,
-  type Period,
-  refreshBoard,
-  submitScore,
-  topN,
-} from "./leaderboard.ts";
+import { myEntry, type Period, refreshBoard, submitScore, topN } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
@@ -120,12 +113,11 @@ const SET_CONTACT: Rect = { x: MARGIN, y: 548, w: SET_W, h: 64 };
 const SET_LOGOUT: Rect = { x: MARGIN, y: 648, w: SET_W, h: 64 };
 const SET_DELETE: Rect = { x: MARGIN, y: 720, w: SET_W, h: 64 };
 
-// --- strzałki na tablicy wyników (między utworami) ---
-const BOARD_ARROW_L: Rect = { x: 44, y: 1188, w: 60, h: 60 };
-const BOARD_ARROW_R: Rect = { x: VW - 104, y: 1188, w: 60, h: 60 };
-// --- zakładki tablicy: „ten miesiąc" | „wszystkie" ---
-const BOARD_TAB_M: Rect = { x: MARGIN, y: 152, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
-const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 152, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+// --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
+const BOARD_TAB_M: Rect = { x: MARGIN, y: 150, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 150, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_BEST: Rect = { x: MARGIN, y: 856, w: VW - MARGIN * 2, h: 138 };
+const BOARD_BACK: Rect = { x: MARGIN, y: 1026, w: VW - MARGIN * 2, h: 100 };
 
 // logowanie / rejestracja — layout liczony w Game.authRects()
 
@@ -837,7 +829,7 @@ export class Game {
   }
 
   private handleBoardTap(x: number, y: number) {
-    if (x < 0 || inRect(BACK, x, y)) {
+    if (x < 0 || inRect(BACK, x, y) || inRect(BOARD_BACK, x, y)) {
       this.scene = "hits";
       return;
     }
@@ -849,15 +841,6 @@ export class Game {
     if (inRect(BOARD_TAB_A, x, y) && this.boardPeriod !== "all") {
       this.boardPeriod = "all";
       void refreshBoard(this.boardSongId, "all");
-      return;
-    }
-    const i = SONGS.findIndex((s) => s.id === this.boardSongId);
-    let ni = i;
-    if (inRect(BOARD_ARROW_L, x, y) && i > 0) ni = i - 1;
-    else if (inRect(BOARD_ARROW_R, x, y) && i < SONGS.length - 1) ni = i + 1;
-    if (ni !== i) {
-      this.boardSongId = SONGS[ni].id;
-      void refreshBoard(this.boardSongId, this.boardPeriod);
     }
   }
 
@@ -1564,19 +1547,14 @@ export class Game {
 
   private drawBoard(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
-    const i = SONGS.findIndex((s) => s.id === this.boardSongId);
-    const meta = SONGS[i];
+    const meta = SONGS.find((s) => s.id === this.boardSongId);
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
       size: 24,
       align: "left",
       color: "#ffce8a",
       weight: "700",
     });
-    // strzałki między utworami
-    this.arrowBtn(ctx, BOARD_ARROW_L, "left", i > 0);
-    this.arrowBtn(ctx, BOARD_ARROW_R, "right", i < SONGS.length - 1);
-    text(ctx, "INNY UTWÓR", VW / 2, 1218, { size: 15, color: "#8a7c6e", letterSpacing: "3px" });
-    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 96, {
+    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 94, {
       size: 32,
       weight: "900",
       font: HEAD_FONT,
@@ -1607,61 +1585,69 @@ export class Game {
     tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
 
     const rows = topN(this.boardSongId, this.boardPeriod, 10);
-    const rowH = 60;
-    let y = 262;
-    const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }) => {
+    const rowH = 56;
+    let y = 250;
+    rows.forEach((r) => {
       if (r.me) {
         ctx.fillStyle = "rgba(255,159,67,0.18)";
         roundRect(ctx, MARGIN - 6, y - rowH / 2 + 4, VW - (MARGIN - 6) * 2, rowH - 8, 12);
         ctx.fill();
       }
       const col = r.me ? "#ffce8a" : "#fff";
-      const medal = r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
-      text(ctx, `${r.rank}`, MARGIN + 14, y, { size: 24, align: "left", weight: "800", color: medal });
-      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 78, y, {
-        size: 22,
-        align: "left",
-        color: col,
-      });
+      const medal =
+        r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
+      text(ctx, `${r.rank}`, MARGIN + 12, y, { size: 22, align: "left", weight: "800", color: medal });
+      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 72, y, { size: 21, align: "left", color: col });
       text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, y, {
-        size: 22,
+        size: 21,
         align: "right",
         weight: "700",
         color: col,
       });
       y += rowH;
-    };
-    rows.forEach(drawRow);
+    });
 
+    // TWÓJ NAJLEPSZY WYNIK
     const me = myEntry(this.boardSongId, this.boardPeriod);
-    if (!me) {
-      const msg =
-        this.boardPeriod === "month"
-          ? "Zagraj tę rundę w tym miesiącu, żeby trafić do tablicy"
-          : "Zagraj tę rundę, żeby trafić do tablicy";
-      wrapText(msg, 32).forEach((ln, k) =>
-        text(ctx, ln, VW / 2, y + 60 + k * 26, { size: 18, color: "#9a8c7e" }),
-      );
-      return;
-    }
-    if (me.rank > 10) {
-      y += 12;
-      text(ctx, "· · ·", VW / 2, y, { size: 26, color: "#6b6055" });
-      y += 54;
-      drawRow(me);
-      const gap = gapToTop(this.boardSongId, this.boardPeriod, 10);
-      text(ctx, `do TOP 10 brakuje Ci ${gap.toLocaleString("pl-PL")} pkt`, VW / 2, y + 20, {
+    const b = BOARD_BEST;
+    ctx.fillStyle = "rgba(255,159,67,0.14)";
+    roundRect(ctx, b.x, b.y, b.w, b.h, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,206,138,0.42)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, b.x, b.y, b.w, b.h, 16);
+    ctx.stroke();
+    text(ctx, "TWÓJ NAJLEPSZY WYNIK", VW / 2, b.y + 30, {
+      size: 16,
+      weight: "800",
+      color: "#ffce8a",
+      letterSpacing: "3px",
+    });
+    if (me) {
+      text(ctx, me.score.toLocaleString("pl-PL"), VW / 2, b.y + 76, {
+        size: 42,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff7ec",
+        shadows: HEAD_SHADOWS,
+      });
+      text(ctx, `miejsce ${me.rank}`, VW / 2, b.y + 114, {
         size: 18,
         weight: "700",
-        color: "#ff8a97",
+        color: "#c9b7a6",
       });
     } else {
-      text(ctx, "Jesteś w TOP 10! 🔥", VW / 2, y + 40, {
-        size: 20,
-        weight: "800",
-        color: "#8affc1",
-      });
+      text(ctx, "—", VW / 2, b.y + 76, { size: 42, weight: "900", font: HEAD_FONT, color: "#6b6055" });
+      text(
+        ctx,
+        this.boardPeriod === "month" ? "zagraj tę rundę w tym miesiącu" : "zagraj tę rundę",
+        VW / 2,
+        b.y + 114,
+        { size: 16, color: "#9a8c7e" },
+      );
     }
+
+    this.uiButton(ctx, BOARD_BACK, "powrot", { fallback: "POWRÓT" });
   }
 
   // ---- modal „włącz dźwięk" ----------------------------------
