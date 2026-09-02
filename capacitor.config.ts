@@ -16,8 +16,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 3000,
-      launchAutoHide: false, // chowamy ręcznie, gdy gra gotowa (main.ts)
+      // chowamy ręcznie po 1. klatce (main.ts); auto-hide = twardy bezpiecznik
+      launchShowDuration: 2500,
+      launchAutoHide: true,
       backgroundColor: "#0b0b12",
       showSpinner: false,
       androidScaleType: "CENTER_CROP",
