@@ -125,6 +125,27 @@ export function recordStars(id: string, stars: number) {
   }
 }
 
+/** Scala postęp gwiazdkowy z serwera (z /api/auth/me) do lokalnej mapy —
+ *  bierze wyższą wartość per utwór. Wołane po starcie i po zalogowaniu, żeby
+ *  odblokowane poziomy wróciły po wyczyszczeniu localStorage / na nowym telefonie. */
+export function mergeServerStars(server: Record<string, { stars?: number }>): void {
+  const m = starsMap();
+  let changed = false;
+  for (const [id, v] of Object.entries(server || {})) {
+    const s = Math.max(0, Math.min(5, Math.round(v?.stars ?? 0)));
+    if (s > (m[id] ?? 0)) {
+      m[id] = s;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  try {
+    localStorage.setItem(STARS_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;

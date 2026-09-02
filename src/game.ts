@@ -2,7 +2,7 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { deleteAccount, hasAccount } from "./account.ts";
+import { clearSession, deleteAccount, hasAccount } from "./account.ts";
 import {
   checkLogin as apiCheckLogin,
   fetchMe,
@@ -13,7 +13,14 @@ import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
-import { myEntry, type Period, refreshBoard, submitScore, topN } from "./leaderboard.ts";
+import {
+  mergeServerBest,
+  myEntry,
+  type Period,
+  refreshBoard,
+  submitScore,
+  topN,
+} from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
@@ -22,6 +29,7 @@ import {
   clearedStreak,
   levelUnlocked,
   markDiscovered,
+  mergeServerStars,
   recordStars,
   SONGS,
   spotifyUrl,
@@ -327,10 +335,18 @@ export class Game {
     }
   }
 
-  /** Weryfikuje token sesji na serwerze (po starcie aplikacji). */
+  /** Weryfikuje sesję na serwerze i odtwarza postęp (po starcie / po zalogowaniu).
+   *  Serwer jest źródłem prawdy o odblokowanych poziomach — dzięki temu progres
+   *  wraca po wyczyszczeniu localStorage, na nowym telefonie i po ponownym
+   *  zalogowaniu. Scalanie bierze zawsze wyższą wartość (lokalną lub serwerową). */
   private async syncSession() {
     try {
-      await fetchMe();
+      const me = await fetchMe();
+      if (me?.progress) {
+        mergeServerStars(me.progress);
+        mergeServerBest(me.progress);
+        this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
+      }
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
@@ -994,6 +1010,7 @@ export class Game {
       this.authBusy = false;
       if (r.ok) {
         this.clearAuthError();
+        void this.syncSession(); // odtwórz postęp tego konta z serwera
         this.enterHitsFresh();
       } else {
         this.setAuthError(r.error ?? fail);
@@ -1160,7 +1177,9 @@ export class Game {
     if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
     if (inRect(SET_MAIL, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
     if (inRect(SET_LOGOUT, x, y)) {
-      deleteAccount(); // bez backendu wylogowanie = usunięcie lokalnego konta
+      // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze i wrócą
+      // po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię na tym urządzeniu.
+      clearSession();
       this.hitIndex = 0;
       this.gotoStart();
       return;

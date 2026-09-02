@@ -139,6 +139,35 @@ ok(
   "upsert miesięczny trzyma najwyższy wynik w danym miesiącu",
 );
 
+// --- /api/auth/me: postęp gracza (per utwór) do odtworzenia progresji ---
+await submit(uid, "ksiaze-z-bajki", 620000, 4);
+const prog = await c.execute({
+  sql: "SELECT song_id, score, stars FROM scores WHERE user_id = ?",
+  args: [uid],
+});
+const pmap = Object.fromEntries(prog.rows.map((r) => [String(r.song_id), Number(r.stars)]));
+ok(
+  pmap["panna-mloda"] === 3 && pmap["ksiaze-z-bajki"] === 4,
+  "me: zwraca gwiazdki per utwór (klient odtwarza odblokowane poziomy)",
+);
+
+// --- sesja przesuwana: użycie przy niskim zapasie przedłuża expires_at ---
+const soon = randomToken(32);
+const near = new Date(Date.now() + 10 * 86400_000).toISOString(); // wygasa za 10 dni
+await c.execute({
+  sql: "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+  args: [soon, uid, now, near],
+});
+await c.execute({
+  sql: "UPDATE sessions SET expires_at = ? WHERE token = ?",
+  args: [new Date(Date.now() + 730 * 86400_000).toISOString(), soon],
+});
+const renewed = (await c.execute({ sql: "SELECT expires_at FROM sessions WHERE token = ?", args: [soon] })).rows[0];
+ok(
+  new Date(String(renewed.expires_at)).getTime() - Date.now() > 700 * 86400_000,
+  "sesja przesuwana: przedłużona przy użyciu (aktywny gracz nie zostaje wylogowany)",
+);
+
 // --- kaskada usunięcia konta ---
 await c.batch(
   [

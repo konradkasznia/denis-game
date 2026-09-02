@@ -74,6 +74,22 @@ export function myBest(songId: string): number | null {
   return v > 0 ? v : null;
 }
 
+/** Scala najlepsze wyniki z serwera (z /api/auth/me) do lokalnego cache —
+ *  bierze wyższy wynik per utwór. Uzupełnia mergeServerStars przy odtwarzaniu
+ *  postępu po wyczyszczeniu localStorage. */
+export function mergeServerBest(server: Record<string, { score?: number }>): void {
+  for (const [id, v] of Object.entries(server || {})) {
+    const s = Math.max(0, Math.floor(v?.score ?? 0));
+    if (s > (myBest(id) ?? 0)) {
+      try {
+        localStorage.setItem(keyFor(id), String(s));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 // ---- kopia z serwera --------------------------------------------
 
 interface RemoteBoard {

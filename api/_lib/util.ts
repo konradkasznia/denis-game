@@ -102,6 +102,12 @@ export interface SessionUser {
   terms: boolean;
 }
 
+/** Długość życia sesji. Sesja jest „przesuwana" (patrz sessionUser) — aktywny
+ *  gracz nigdy nie zostaje wylogowany. */
+export const SESSION_DAYS = 730;
+/** Poniżej tego zapasu (dni) odświeżamy `expires_at` przy użyciu sesji. */
+const SESSION_RENEW_BELOW_DAYS = 690;
+
 /** Odczytuje token z nagłówka Authorization i zwraca użytkownika albo null. */
 export async function sessionUser(req: VercelRequest): Promise<SessionUser | null> {
   const h = req.headers.authorization || "";
@@ -114,9 +120,22 @@ export async function sessionUser(req: VercelRequest): Promise<SessionUser | nul
   });
   const row = s.rows[0];
   if (!row) return null;
-  if (new Date(String(row.expires_at)).getTime() < Date.now()) {
+  const expMs = new Date(String(row.expires_at)).getTime();
+  if (expMs < Date.now()) {
     await c.execute({ sql: "DELETE FROM sessions WHERE token = ?", args: [token] });
     return null;
+  }
+  // przesuwane wygaśnięcie — gdy zapasu zostało mniej niż próg, przedłuż sesję,
+  // żeby aktywny użytkownik nigdy nie musiał logować się ponownie
+  if (expMs - Date.now() < SESSION_RENEW_BELOW_DAYS * 86400_000) {
+    try {
+      await c.execute({
+        sql: "UPDATE sessions SET expires_at = ? WHERE token = ?",
+        args: [plusDaysIso(SESSION_DAYS), token],
+      });
+    } catch {
+      /* przedłużenie nieudane — sesja i tak jest jeszcze ważna */
+    }
   }
   const u = await c.execute({
     sql: "SELECT id, login, nick, terms FROM users WHERE id = ?",
@@ -132,12 +151,12 @@ export async function sessionUser(req: VercelRequest): Promise<SessionUser | nul
   };
 }
 
-/** Tworzy nową sesję (token ważny 180 dni). */
+/** Tworzy nową sesję (token przesuwany, patrz SESSION_DAYS / sessionUser). */
 export async function createSession(userId: number): Promise<string> {
   const token = randomToken(32);
   await db().execute({
     sql: "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-    args: [token, userId, nowIso(), plusDaysIso(180)],
+    args: [token, userId, nowIso(), plusDaysIso(SESSION_DAYS)],
   });
   return token;
 }

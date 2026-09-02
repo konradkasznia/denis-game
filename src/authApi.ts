@@ -176,14 +176,22 @@ export function currentLogin(): string {
   }
 }
 
-/** Sprawdza sesję po stronie serwera (po starcie aplikacji). */
-export async function fetchMe(): Promise<{ login: string; nick: string } | null> {
+export interface Me {
+  login: string;
+  nick: string;
+  progress?: Record<string, { score: number; stars: number }>;
+}
+
+/** Sprawdza sesję po stronie serwera (po starcie aplikacji / po zalogowaniu).
+ *  UWAGA: przy 401 NIE czyścimy tokena ani konta — użytkownik zostaje
+ *  zalogowany, dopóki sam się nie wyloguje (priorytet: nie wyrzucać z sesji
+ *  na żadnej platformie). Gra działa wtedy na lokalnej kopii danych. */
+export async function fetchMe(): Promise<Me | null> {
   if (!backendReachable() || !getToken()) return null;
   try {
-    const r = await api<{ login: string; nick: string }>("/api/auth/me", { auth: true });
-    return { login: r.login, nick: r.nick };
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401) clearToken();
+    const r = await api<Me>("/api/auth/me", { auth: true });
+    return { login: r.login, nick: r.nick, progress: r.progress };
+  } catch {
     return null;
   }
 }
