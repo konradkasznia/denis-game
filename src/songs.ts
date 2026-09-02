@@ -28,7 +28,7 @@ export const SONGS: SongMeta[] = [
     title: "Panna Młoda",
     artist: "Denis",
     accent: "#ff5e7e",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Panna%20M%C5%82oda",
+    spotifyUrl: "https://open.spotify.com/track/5xRECw5U5q3feZ63AMPOYZ",
     playable: true,
   },
   {
@@ -36,7 +36,7 @@ export const SONGS: SongMeta[] = [
     title: "Książę z bajki",
     artist: "Denis",
     accent: "#8ab6ff",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Ksi%C4%85%C5%BC%C4%99%20z%20bajki",
+    spotifyUrl: "https://open.spotify.com/track/2rqt00ehpIhLjxuy2OTPa7",
     playable: true,
   },
   {
@@ -44,7 +44,7 @@ export const SONGS: SongMeta[] = [
     title: "Pogrzebówka",
     artist: "Denis",
     accent: "#ffd24c",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Pogrzeb%C3%B3wka",
+    spotifyUrl: "https://open.spotify.com/track/69CAp6C1Uj31gDryQJHdyl",
     playable: true,
   },
   {
@@ -52,7 +52,7 @@ export const SONGS: SongMeta[] = [
     title: "Pani policjantko",
     artist: "Denis",
     accent: "#8ab6ff",
-    spotifyUrl: "https://open.spotify.com/search/Denis%20Pani%20policjantko",
+    spotifyUrl: "https://open.spotify.com/track/1aIjxCDYeK0oECqNYMk9Cx",
     playable: false, // wkrótce
   },
 ];

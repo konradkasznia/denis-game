@@ -135,6 +135,19 @@ function openDoc(url: string) {
   const title = url.includes("regulamin") ? "Regulamin" : "Polityka prywatności";
   showDoc(url, title);
 }
+/** Otwiera link poza grą (Spotify itp.). Nowa karta; gdy zablokowana — nawigacja. */
+function openExternal(url: string) {
+  try {
+    const w = window.open(url, "_blank", "noopener");
+    if (!w) window.location.href = url;
+  } catch {
+    try {
+      window.location.href = url;
+    } catch {
+      /* ignore */
+    }
+  }
+}
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
@@ -892,13 +905,7 @@ export class Game {
     }
     if (inRect(RES_SPOTIFY, x, y)) {
       const url = spotifyUrl(this.trackId);
-      if (url) {
-        try {
-          window.open?.(url, "_blank", "noopener");
-        } catch {
-          /* ignore */
-        }
-      }
+      if (url) openExternal(url);
       return;
     }
     if (inRect(RES_BOARD, x, y)) {
@@ -2883,7 +2890,7 @@ export class Game {
     ctx.globalAlpha = fadeIn;
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
-    this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "ZAPISZ NA SPOTIFY", style: "dark-green" });
+    this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
     this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
 
     ctx.restore();
