@@ -161,11 +161,10 @@ const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
 
 // --- ekran rejestracji / logowania: głowa + rozmieszczenie pionowe ---
 const AUTH_F1_Y = 268; // górna krawędź pierwszego pola (nick) — bez przesunięcia
-const AUTH_HEAD_W = 250; // szerokość grafiki głowy
+const AUTH_HEAD_W_MIN = 250; // szerokość głowy przy wysokości bazowej
+const AUTH_HEAD_W_MAX = 400; // …i przy dużym zapasie wysokości
 const AUTH_HEAD_AR = 1182 / 1330; // wys/szer head.png
 const AUTH_HEAD_GAP = 40; // odstęp głowa → pierwsze pole
-const AUTH_HEAD_H = Math.round(AUTH_HEAD_W * AUTH_HEAD_AR);
-const AUTH_TOP = AUTH_F1_Y - AUTH_HEAD_GAP - AUTH_HEAD_H; // górna krawędź bloku (głowa)
 const AUTH_MIN_TOP = 46; // minimalny margines głowy od górnej krawędzi (nie ucinać)
 const AUTH_BOT_REG = 1078; // dolna krawędź bloku (link polityki) — tryb rejestracji
 const AUTH_BOT_LOGIN = 968; // — tryb logowania
@@ -887,6 +886,18 @@ export class Game {
     if (this.scene !== "play") void this.audio.resumePlayback();
   }
 
+  /** Szerokość głowy Denisa na ekranie auth — rośnie z zapasem wysokości. */
+  private authHeadW(): number {
+    return Math.round(clamp(AUTH_HEAD_W_MIN + this.extraH() * 0.55, AUTH_HEAD_W_MIN, AUTH_HEAD_W_MAX));
+  }
+  private authHeadH(): number {
+    return Math.round(this.authHeadW() * AUTH_HEAD_AR);
+  }
+  /** Górna krawędź bloku auth (czubek głowy) przed przesunięciem. */
+  private authTop(): number {
+    return AUTH_F1_Y - AUTH_HEAD_GAP - this.authHeadH();
+  }
+
   /** Pionowe przesunięcie całego bloku rejestracji/logowania.
    *  Cel: głowa ZAWSZE ma margines od góry (nie jest ucinana), a blok jest
    *  wyśrodkowany w dostępnej wysokości. Niezależne od tego, czy `extraH()`
@@ -894,9 +905,10 @@ export class Game {
    *  `authRects()`, żeby nie było rekurencji. */
   private authShift(): number {
     const bot = this.authMode === "register" ? AUTH_BOT_REG : AUTH_BOT_LOGIN;
-    const free = this.sh() - (bot - AUTH_TOP); // wolne miejsce w pionie
-    const centered = free / 2 - AUTH_TOP; // przesunięcie centrujące blok
-    const minShift = AUTH_MIN_TOP - AUTH_TOP; // tyle, by głowa miała margines
+    const top = this.authTop();
+    const free = this.sh() - (bot - top); // wolne miejsce w pionie
+    const centered = free / 2 - top; // przesunięcie centrujące blok
+    const minShift = AUTH_MIN_TOP - top; // tyle, by głowa miała margines
     const maxShift = Math.max(minShift, this.sh() - bot - 12); // by dół nie uciekł z ekranu
     return Math.round(clamp(centered, minShift, maxShift));
   }
@@ -1838,11 +1850,12 @@ export class Game {
     const R = this.authRects() as Record<string, Rect | undefined>;
     const reg = this.authMode === "register";
 
-    // duża głowa Denisa na górze (zamiast nagłówka „STWÓRZ KONTO / ZALOGUJ SIĘ")
+    // głowa Denisa na górze (zamiast nagłówka „STWÓRZ KONTO / ZALOGUJ SIĘ")
+    // — na wyższych ekranach większa
     const head = this.uiImg("head.png");
     if (imgReady(head)) {
-      const hw = AUTH_HEAD_W;
-      const hh = (head.naturalHeight / head.naturalWidth) * hw;
+      const hw = this.authHeadW();
+      const hh = hw * (head.naturalHeight / head.naturalWidth);
       const headBottom = (R.f1?.y ?? AUTH_F1_Y) - AUTH_HEAD_GAP; // odstęp nad pierwszym polem
       ctx.drawImage(head, VW / 2 - hw / 2, headBottom - hh, hw, hh);
     } else {
