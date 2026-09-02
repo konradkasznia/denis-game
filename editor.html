@@ -30,11 +30,25 @@
       a { color: #ff9f43; }
       #drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
         text-align: center; color: #9a8c7e; font-size: 16px; pointer-events: none; }
+      #help { position: fixed; inset: 0; z-index: 50; background: #0b0b12; display: none;
+        overflow-y: auto; padding: 28px 22px 60px; }
+      #help.on { display: block; }
+      #help .inner { max-width: 720px; margin: 0 auto; line-height: 1.6; }
+      #help h1 { font-size: 22px; color: #ffce8a; margin: 0 0 4px; }
+      #help h2 { font-size: 17px; color: #ffce8a; margin: 26px 0 8px; }
+      #help kbd { background: #17131d; border: 1px solid #34344a; border-radius: 5px;
+        padding: 1px 6px; font: 12px/1 ui-monospace, monospace; color: #ffce8a; }
+      #help li { margin: 5px 0; }
+      #help .close { position: fixed; top: 16px; right: 18px; }
     </style>
   </head>
   <body>
     <div id="app">
       <div class="bar">
+        <label>projekt
+          <select id="proj"></select>
+        </label>
+        <button class="ghost" id="delproj">usuń projekt</button>
         <label>MP3 <input type="file" id="file" accept="audio/*" /></label>
         <label>id <input type="text" id="sid" value="nowy-utwor" /></label>
         <label>tytuł <input type="text" id="title" value="Nowy utwór" /></label>
@@ -62,8 +76,20 @@
         </label>
         <label><input type="checkbox" id="metro" /> metronom</label>
         <label><input type="checkbox" id="ntick" checked /> tik nut</label>
+        <label>ujęcie
+          <select id="ujsel">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
         <button id="play">► graj</button>
+        <button class="ghost" id="newproj">nowy</button>
         <span class="val" id="time">0:00,0</span>
+        <span id="saved" style="color:#7fdc9a; font-size:12px;"></span>
+        <span style="flex:1"></span>
+        <button class="ghost" id="helpbtn">Instrukcja</button>
       </div>
 
       <div id="wrap">
@@ -73,10 +99,103 @@
 
       <div class="bar foot">
         <span>nut: <span class="val" id="cnt">0</span></span>
+        <button class="ghost" id="aligngrid">wyrównaj do siatki</button>
         <button class="ghost" id="loadjson">wgraj JSON</button>
         <input type="file" id="jsonfile" accept=".json,application/json" style="display:none" />
         <button id="export">eksportuj JSON</button>
-        <span>klik = postaw nutę · przeciągnij w dół = przytrzymanie · klik w nutę = usuń · Z = cofnij · spacja = graj · ← → = przewiń · kółko = zoom</span>
+        <span>klik = nuta · przeciągnij nutę = przesuń · przeciągnij w dół z pustego = przytrzymanie · prawy klik w nutę = usuń · prawy klik w tor = przeskok · lewa kolumna: klik = wstaw ujęcie, prawy klik = usuń · Z = cofnij · spacja = graj · ← → = przewiń · kółko = zoom</span>
+      </div>
+    </div>
+    <div id="help">
+      <button class="close" id="helpclose">✕ zamknij</button>
+      <div class="inner">
+        <h1>Edytor beatmap DENIS — instrukcja</h1>
+        <p style="color:#9a8c7e">Wersja 1.2 · narzędzie do robienia map nut (beatmap) do gry rytmicznej z Denisem.</p>
+
+        <h2>Do czego to służy</h2>
+        <p>Wczytujesz plik MP3, ustawiasz tempo, klikasz albo „wygrywasz” nuty na siatce, słuchasz czy
+          grają w rytm, ustawiasz które ujęcie postaci leci w której sekundzie — i eksportujesz gotowy
+          plik JSON. Ten plik + MP3 wysyłasz Konradowi, on wrzuca do gry.</p>
+
+        <h2>Projekty (praca się zapisuje)</h2>
+        <ul>
+          <li>Wszystko, co ustawisz, <b>zapisuje się automatycznie w tej przeglądarce</b> (napis
+            „zapisano ✓” u góry). Możesz zamknąć kartę i wrócić później — projekt się wczyta.</li>
+          <li>Zapisywany jest też <b>plik MP3</b>, więc nie musisz go wgrywać od nowa.</li>
+          <li>Wiele utworów: lista <b>projekt</b> u góry. „＋ nowy projekt…” zakłada kolejny.
+            „usuń projekt” kasuje go z przeglądarki (wyeksportowany plik zostaje).</li>
+          <li>To zapis <b>lokalny</b> — działa na tym komputerze i w tej przeglądarce. Ważne mapy
+            eksportuj do pliku i wysyłaj Konradowi.</li>
+        </ul>
+
+        <h2>Krok po kroku</h2>
+        <ol>
+          <li>Po wejściu jest wczytany projekt <b>Panna Młoda</b> (mp3 + istniejące nuty + ujęcia).</li>
+          <li>Nowy utwór: „＋ nowy projekt…”, wpisz <b>id</b> (bez spacji i polskich znaków, np.
+            <code>ksiaze-z-bajki</code>), przeciągnij <b>MP3</b> na okno, wpisz <b>tytuł</b>.</li>
+          <li>Ustaw <b>BPM</b> — wpisz ręcznie albo klikaj <b>„wystukaj BPM”</b> równo w rytm (min. 3 razy).</li>
+          <li>Ustaw <b>offset</b> (przyciski −5 / +5 ms) tak, aby pozioma siatka pokrywała się z uderzeniami
+            stopy. Pomarańczowe linie = początek taktu, jaśniejsze = beaty, ciemne = podpodziały.</li>
+          <li><b>siatka</b> (1/4, 1/8…) = do której kratki „przyklejają się” nuty.</li>
+          <li>Rób nuty na dwa sposoby: <b>klikając myszką</b> w torach, albo <b>nagrywając Live</b>
+            (patrz niżej).</li>
+          <li><kbd>spacja</kbd> = odsłuch. Włącz <b>metronom</b> i <b>tik nut</b> — słyszysz czy nuty
+            trafiają w bit. Zwolnij <b>tempo</b> do 0,5–0,75× w trudnych miejscach.</li>
+          <li>Jak skończysz — <b>„eksportuj JSON”</b>. Wyślij ten plik + użyty MP3.</li>
+        </ol>
+
+        <h2>Nagrywanie Live</h2>
+        <ul>
+          <li>Wciśnij <kbd>spacja</kbd> (graj) i „wygrywaj” utwór klawiszami
+            <kbd>C</kbd> <kbd>V</kbd> <kbd>B</kbd> <kbd>N</kbd> (4 tory).</li>
+          <li><b>Kliknięcie</b> stawia zwykłą nutę w tym momencie. <b>Przytrzymanie klawisza</b>
+            stawia nutę do przytrzymania (długi klocek) — tak długą, jak trzymasz.</li>
+          <li>Nagrane nuty mają <b>surowy czas</b> (nie są przyklejone do siatki). Potem:
+            <b>„wyrównaj do siatki”</b> przyciąga wszystkie na kratkę, albo poprawiasz pojedyncze
+            myszką.</li>
+          <li><kbd>spacja</kbd> pauzuje. Cofasz się <kbd>←</kbd> i nagrywasz fragment od nowa
+            (stare nuty zostają — usuń je prawym klikiem albo <kbd>Z</kbd>).</li>
+        </ul>
+
+        <h2>Nuty (myszką)</h2>
+        <ul>
+          <li><b>Klik w pusty tor</b> — postaw zwykłą nutę (tap).</li>
+          <li><b>Przeciągnij w dół z pustego miejsca</b> — nuta do przytrzymania (z ogonem).</li>
+          <li><b>Przeciągnij nutę za środek</b> — przesuń ją (zmienia tor i czas, na siatkę).</li>
+          <li><b>Przeciągnij nutę za dolny koniec</b> — rozciągnij / skróć przytrzymanie.</li>
+          <li><b>Prawy klik w nutę</b> — usuń.</li>
+          <li><b>„wyrównaj do siatki”</b> — przyciąga wszystkie nuty i znaczniki ujęć na kratkę
+            (przy aktualnej gęstości siatki).</li>
+          <li>Kolor: czerwona = równo na beat, niebieska = między beatami, zielony pasek = przytrzymanie.</li>
+        </ul>
+
+        <h2>Ujęcia postaci (lewa kolumna)</h2>
+        <ul>
+          <li>W grze postać animuje się w pętli; co jakiś czas zmienia się „ujęcie” (uj.1–uj.4).</li>
+          <li>Wybierz numer w polu <b>ujęcie</b> u góry, potem <b>kliknij w lewą kolumnę</b> na wysokości
+            sekundy, od której to ujęcie ma lecieć.</li>
+          <li><b>Przeciągnij różowy znacznik</b> — przesuń moment zmiany. <b>Prawy klik</b> — usuń.</li>
+          <li>W prawym dolnym rogu jest <b>podgląd na żywo</b> — widzisz jak postać tańczy i jak
+            przełączają się ujęcia w trakcie odsłuchu.</li>
+        </ul>
+
+        <h2>Skróty</h2>
+        <ul>
+          <li><kbd>spacja</kbd> — graj / pauza</li>
+          <li><kbd>C</kbd> <kbd>V</kbd> <kbd>B</kbd> <kbd>N</kbd> — nagrywanie nut w trakcie grania</li>
+          <li><kbd>←</kbd> <kbd>→</kbd> — przewiń o beat (z <kbd>Shift</kbd> = o takt)</li>
+          <li><kbd>Z</kbd> — cofnij</li>
+          <li><b>kółko myszy</b> — przewijanie, z <kbd>Ctrl</kbd>/<kbd>Shift</kbd> = zoom (gęstość widoku)</li>
+          <li><b>prawy klik w pusty tor</b> — przeskocz odtwarzanie w to miejsce</li>
+        </ul>
+
+        <h2>Czego jeszcze nie ma (v1.2)</h2>
+        <ul>
+          <li>Brak „zagraj w prawdziwym silniku gry” — weryfikujesz słuchem (tiki + muzyka).</li>
+          <li>Brak zaznaczania wielu nut naraz i kopiowania fragmentów.</li>
+          <li>Nie działa dobrze na telefonie — rób na komputerze.</li>
+          <li>Zapis jest lokalny (ta przeglądarka). Gotowe mapy eksportuj do pliku.</li>
+        </ul>
       </div>
     </div>
     <script type="module" src="/src/editor.ts"></script>
