@@ -60,8 +60,8 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     artist: "Denis",
     bpm: 150, // tymczasowe, do mp3
     bars: 30,
-    // ujęcia 1 (idle) i 4 (Denis pali w fotelu) gotowe; 2/3 dojdą
-    characters: rotateShots("assets/char/pogrzebowka", [1, 4], 52),
+    // ujęcia 1 (idle), 2 (akordeon), 4 (pali w fotelu) gotowe; 3 dojdzie
+    characters: rotateShots("assets/char/pogrzebowka", [1, 2, 4], 52),
     characterScale: 0.95,
     characterY: 704,
   },

@@ -1,0 +1,9 @@
+# Pogrzebowka - ujecie 2 (Denis gra na akordeonie, kucnieta poza)
+# os czasu 30 fps. Cykl miecha: zamkniety -> otwieranie -> rozciagniety -> domykanie
+#   klatki: 1=miech zamkniety, 2=lekko otwarty, 3=rozciagniety (pociagniecie),
+#           4=zamkniety (inna reka), 5=w polowie domykania
+1 - 4f
+2 - 3f
+3 - 6f
+5 - 3f
+4 - 4f

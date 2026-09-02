@@ -1,11 +1,11 @@
-# Ksiaze z bajki - ujecie 1 (5 klatek, os czasu 30 fps)
-# odtwarzanie "tam i z powrotem" (ping-pong) zamiast twardej petli 5->1:
-#   1 2 3 4 5 4 3 2  ->  (petla) 1 ...
-1 - 3f
-2 - 3f
-3 - 3f
-4 - 3f
-5 - 6f
-4 - 3f
-3 - 3f
-2 - 3f
+# Ksiaze z bajki - ujecie 1 (ping-pong 1 2 3 4 5 4 3 2, os czasu 30 fps)
+# klatki: 1=na wprost z bukietem, 2/4=obrot+krok w lewo, 3=usmiech (peak),
+#         5=powrot na wprost. Dwa "uderzenia" usmiechu na cykl, spokojne kolysanie.
+1 - 240ms
+2 - 90ms
+3 - 300ms
+4 - 90ms
+5 - 150ms
+4 - 90ms
+3 - 240ms
+2 - 90ms
