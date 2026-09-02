@@ -90,8 +90,44 @@ export function rawToSong(raw: RawChart): SongDef {
   };
 }
 
+/** Baza API (dla apki natywnej ustawiane przez VITE_API_BASE; na webie puste = ten sam host). */
+function apiBase(): string {
+  try {
+    const b = (import.meta as { env?: Record<string, string> }).env?.VITE_API_BASE;
+    if (b) return b.replace(/\/+$/, "");
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+/** Beatmapa opublikowana z edytora (jeśli jest) — ma pierwszeństwo przed plikiem w repo. */
+async function fetchPublishedChart(id: string): Promise<RawChart | null> {
+  try {
+    if (typeof fetch !== "function") return null;
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 4000) : null;
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase()}/api/chart?songId=${encodeURIComponent(id)}`, { signal: ctrl?.signal });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!res.ok) return null;
+    const j = (await res.json()) as { ok?: boolean; chart?: RawChart };
+    if (j?.ok && j.chart && Array.isArray(j.chart.notes) && j.chart.notes.length) return j.chart;
+  } catch {
+    /* brak backendu / offline / timeout → lecimy dalej na plik */
+  }
+  return null;
+}
+
 export async function loadTrack(id: string): Promise<SongDef> {
-  // 1. prawdziwy utwór z pliku beatmapy
+  // 1. beatmapa opublikowana z edytora (Turso)
+  const published = await fetchPublishedChart(id);
+  if (published) return rawToSong(published);
+
+  // 2. prawdziwy utwór z pliku beatmapy w repo
   try {
     const res = await fetch(`charts/${id}.json`);
     if (res.ok) {
@@ -101,7 +137,7 @@ export async function loadTrack(id: string): Promise<SongDef> {
   } catch {
     /* brak pliku albo to nie JSON — lecimy na podkład */
   }
-  // 2. syntezowany podkład
+  // 3. syntezowany podkład
   const cfg = SYNTH_TRACKS[id] ?? SYNTH_TRACKS.rozgrzewka;
   return buildSynthSong({ id: id === "placeholder-01" ? "rozgrzewka" : id, ...cfg });
 }

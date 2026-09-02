@@ -46,6 +46,12 @@ export const SCHEMA_SQL: string[] = [
     ts INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS rate_limits_k_idx ON rate_limits (k, ts)`,
+  // Beatmapy publikowane z edytora — nadpisują pliki `public/charts/<id>.json`.
+  `CREATE TABLE IF NOT EXISTS charts (
+    song_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
 ];
 
 /**

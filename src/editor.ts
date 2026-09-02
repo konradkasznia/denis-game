@@ -8,7 +8,9 @@
 import { Character } from "./character.ts";
 
 const LANES = 4;
-const GUTTER = 58; // lewa kolumna: fala + oś ujęć postaci
+const WAVE = 46; // 1. kolumna: fala dźwiękowa — klik = przewiń utwór do tego miejsca
+const SEGCOL = 46; // 2. kolumna: oś ujęć postaci — klik = wstaw / chwyć znacznik ujęcia
+const GUTTER = WAVE + SEGCOL; // cała lewa strefa przed torami nut
 // klawisze nagrywania Live (C V B N) + alias na klawisze gry (D F J K)
 const LANE_KEYS: Record<string, number> = {
   KeyC: 0, KeyV: 1, KeyB: 2, KeyN: 3,
@@ -381,6 +383,14 @@ function stop() {
   }
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
 }
+/** Przewiń odtwarzanie do sekundy `t` (resync, gdy gra). */
+function seekTo(t: number) {
+  const was = playing;
+  if (was) stop();
+  audioTime = Math.max(0, Math.min(duration(), t));
+  view.top = audioTime - (H() * 0.7) / view.pps;
+  if (was) play();
+}
 function beep(freq: number, when: number, gain = 0.22) {
   const o = actx.createOscillator();
   const g = actx.createGain();
@@ -423,20 +433,25 @@ function draw() {
   const tTop = view.top;
   const tBot = view.top + h / view.pps;
 
-  // fala dźwiękowa w lewej kolumnie
+  // 1. kolumna: fala dźwiękowa (klik = przewiń)
   if (peaks.length) {
     ctx2d.fillStyle = "rgba(120,150,255,0.35)";
-    const cx = GUTTER * 0.5;
+    const cx = WAVE * 0.5;
     for (let y = 0; y < h; y += 2) {
       const t = tOf(y);
       if (t < 0 || t > duration()) continue;
       const p = peaks[Math.floor(t * peaksPerSec)] || 0;
-      const half = p * (GUTTER * 0.42);
+      const half = p * (WAVE * 0.42);
       ctx2d.fillRect(cx - half, y, half * 2, 2);
     }
   }
+  // 2. kolumna: tło osi ujęć + pionowe linie działowe
+  ctx2d.fillStyle = "rgba(255,120,200,0.05)";
+  ctx2d.fillRect(WAVE, 0, SEGCOL, h);
   ctx2d.strokeStyle = "rgba(255,255,255,0.14)";
   ctx2d.beginPath();
+  ctx2d.moveTo(WAVE, 0);
+  ctx2d.lineTo(WAVE, h);
   ctx2d.moveTo(GUTTER, 0);
   ctx2d.lineTo(GUTTER, h);
   ctx2d.stroke();
@@ -481,7 +496,7 @@ function draw() {
     }
   }
 
-  // oś ujęć postaci (w lewej kolumnie)
+  // oś ujęć postaci (2. kolumna)
   const sorted = segments.slice().sort((a, b) => a.at - b.at);
   for (const seg of sorted) {
     const y = yOf(seg.at);
@@ -489,14 +504,14 @@ function draw() {
     ctx2d.strokeStyle = "rgba(255,120,200,0.5)";
     ctx2d.lineWidth = 1;
     ctx2d.beginPath();
-    ctx2d.moveTo(0, y);
+    ctx2d.moveTo(WAVE, y);
     ctx2d.lineTo(w, y);
     ctx2d.stroke();
     ctx2d.fillStyle = "#ff78c8";
-    ctx2d.fillRect(2, y - 9, GUTTER - 6, 18);
+    ctx2d.fillRect(WAVE + 3, y - 9, SEGCOL - 6, 18);
     ctx2d.fillStyle = "#1a0d12";
     ctx2d.font = "bold 11px system-ui";
-    ctx2d.fillText(`uj.${seg.uj}`, 8, y + 4);
+    ctx2d.fillText(`uj.${seg.uj}`, WAVE + 8, y + 4);
   }
 
   // nuty
@@ -523,7 +538,12 @@ function draw() {
   ctx2d.lineTo(w, py);
   ctx2d.stroke();
 
-  // etykiety klawiszy
+  // etykiety kolumn i klawiszy
+  ctx2d.fillStyle = "rgba(255,255,255,0.35)";
+  ctx2d.font = "10px system-ui";
+  ctx2d.fillText("fala", 6, 14);
+  ctx2d.fillStyle = "rgba(255,120,200,0.6)";
+  ctx2d.fillText("ujęcia", WAVE + 5, 14);
   ctx2d.fillStyle = "rgba(255,255,255,0.35)";
   ctx2d.font = "11px system-ui";
   ["D", "F", "J", "K"].forEach((c, i) => ctx2d.fillText(c, laneX(i) + laneW() / 2 - 3, 14));
@@ -612,8 +632,13 @@ cv.addEventListener("pointerdown", (e) => {
     /* brak aktywnego wskaźnika */
   }
 
+  if (x < WAVE) {
+    // 1. kolumna (fala) → przewiń utwór do tego miejsca
+    seekTo(tOf(y));
+    return;
+  }
   if (x < GUTTER) {
-    // lewa kolumna: wstaw / złap znacznik ujęcia
+    // 2. kolumna (oś ujęć) → wstaw / złap znacznik ujęcia
     const hit = segAt(y);
     if (hit) {
       pushHistory();
@@ -675,6 +700,10 @@ cv.addEventListener("contextmenu", (e) => {
   const r = cv.getBoundingClientRect();
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
+  if (x < WAVE) {
+    seekTo(tOf(y));
+    return;
+  }
   if (x < GUTTER) {
     const hs = segAt(y);
     if (hs) {
@@ -689,8 +718,7 @@ cv.addEventListener("contextmenu", (e) => {
     notes = notes.filter((n) => n !== hn);
     return;
   }
-  audioTime = Math.max(0, Math.min(duration(), tOf(y)));
-  if (!playing) view.top = audioTime - (H() * 0.7) / view.pps;
+  seekTo(tOf(y));
 });
 
 cv.addEventListener(
@@ -718,6 +746,17 @@ window.addEventListener("keydown", (e) => {
     const d = (e.code === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? beatLen() * 4 : beatLen());
     audioTime = Math.max(0, Math.min(duration(), audioTime + d));
     if (!playing) view.top = audioTime - (H() * 0.7) / view.pps;
+  } else if (/^Digit[1-4]$/.test(e.code) && !e.repeat) {
+    // 1–4 = wstaw znacznik ujęcia w miejscu odtwarzania (można w trakcie grania)
+    const uj = Number(e.code.slice(5));
+    pushHistory();
+    ujSel.value = String(uj);
+    const at = Math.max(0, snapTime(audioTime));
+    const ex = segments.find((s) => Math.abs(s.at - at) < 0.001);
+    if (ex) ex.uj = uj;
+    else segments.push({ at, uj });
+    segments.sort((a, b) => a.at - b.at);
+    syncCharacter();
   } else if (LANE_KEYS[e.code] !== undefined && playing && !e.repeat) {
     // nagrywanie Live: keydown = start nuty (czas surowy, wyrównasz później)
     const lane = LANE_KEYS[e.code];
@@ -847,9 +886,9 @@ function applyChart(raw: RawChart) {
   markDirty();
 }
 
-$<HTMLButtonElement>("export").addEventListener("click", () => {
+function buildChart() {
   const id = songId();
-  const out = {
+  return {
     id,
     title: titleInput.value.trim() || id,
     artist: "Denis",
@@ -868,11 +907,58 @@ $<HTMLButtonElement>("export").addEventListener("click", () => {
       .sort((a, b) => a.time - b.time || a.lane - b.lane)
       .map((n) => ({ lane: n.lane, time: +n.time.toFixed(3), dur: n.dur ? +n.dur.toFixed(3) : 0 })),
   };
+}
+
+$<HTMLButtonElement>("export").addEventListener("click", () => {
+  const out = buildChart();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
-  a.download = `${id}.json`;
+  a.download = `${out.id}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+// ---- „Wyślij do aplikacji" — publikacja mapy prosto do gry -----
+
+const PUBKEY = "editor.pubkey";
+const pubStat = $<HTMLSpanElement>("pubstat");
+function setPub(msg: string, err = false) {
+  pubStat.textContent = msg;
+  pubStat.style.color = err ? "#ff8a97" : "#7fdc9a";
+}
+$<HTMLButtonElement>("publish").addEventListener("click", async () => {
+  const chart = buildChart();
+  if (!chart.notes.length) {
+    setPub("mapa nie ma nut — najpierw dodaj nuty", true);
+    return;
+  }
+  let key = localStorage.getItem(PUBKEY) || "";
+  if (!key) {
+    key = (prompt("Hasło publikacji (to samo, którym logujesz się do edytora):") || "").trim();
+    if (!key) return;
+    localStorage.setItem(PUBKEY, key);
+  }
+  setPub("wysyłam…");
+  try {
+    const r = await fetch("/api/chart", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-editor-key": key },
+      body: JSON.stringify({ chart }),
+    });
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (r.status === 401) {
+      localStorage.removeItem(PUBKEY);
+      setPub("złe hasło publikacji — kliknij jeszcze raz i wpisz poprawne", true);
+      return;
+    }
+    if (!r.ok || !j.ok) {
+      setPub(j.error || `błąd serwera (${r.status})`, true);
+      return;
+    }
+    setPub(`wysłano do gry ✓  ${chart.notes.length} nut · ${chart.characters.length} ujęć`);
+  } catch {
+    setPub("brak połączenia z serwerem (publikacja działa tylko z wersji online)", true);
+  }
 });
 
 // ---- start / wczytanie projektu ------------------------
