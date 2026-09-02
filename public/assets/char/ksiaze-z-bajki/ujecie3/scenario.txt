@@ -1,0 +1,8 @@
+# Ksiaze z bajki - ujecie 3 (5 klatek, 7 krokow z powrotem 4-5-4-5)
+1 - 3f
+2 - 3f
+3 - 4f
+4 - 6f
+5 - 3f
+4 - 6f
+5 - 3f

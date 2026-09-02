@@ -50,8 +50,8 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     artist: "Denis",
     bpm: 112,
     bars: 28,
-    // ujęcia 1–2 gotowe (3–4 dojdą); rotacja co 4 s (docelowe sekundy do mp3)
-    characters: rotateShots("assets/char/ksiaze-z-bajki", [1, 2], 52),
+    // ujęcia 1–3 gotowe (4 dojdzie); rotacja co 4 s (docelowe sekundy do mp3)
+    characters: rotateShots("assets/char/ksiaze-z-bajki", [1, 2, 3], 52),
     characterScale: 0.95,
     characterY: 704,
   },
