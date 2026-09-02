@@ -30,6 +30,8 @@ export interface FieldSpec {
   reveal?: { revealed: boolean; onToggle: () => void };
   /** ikonka statusu po prawej w polu: zielony ✓ / czerwony ✗ (nieklikalna). */
   status?: "ok" | "bad" | null;
+  /** czerwony obrys pola, gdy błąd dotyczy tego inputu. */
+  error?: boolean;
 }
 
 const EYE_OPEN =
@@ -84,7 +86,9 @@ export class FieldOverlay {
       const st = document.createElement("style");
       st.textContent =
         "#field-overlay input::placeholder{color:#7a6c5e;font-weight:600}" +
-        "#field-overlay input:focus{border-color:#ff9f43;background:rgba(14,11,18,0.92)}";
+        "#field-overlay input:focus{border-color:#ff9f43;background:rgba(14,11,18,0.92)}" +
+        "#field-overlay input.fld-err{border-color:#ff3b3b;box-shadow:0 0 0 2px rgba(255,59,59,0.38)}" +
+        "#field-overlay input.fld-err:focus{border-color:#ff6161}";
       document.head.appendChild(st);
       this.styleInjected = true;
     }
@@ -105,7 +109,7 @@ export class FieldOverlay {
       specs
         .map(
           (s) =>
-            `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}:${s.reveal ? +s.reveal.revealed : "n"}:${s.status ?? "n"}`,
+            `${s.key}:${s.type}:${s.x},${s.y},${s.w},${s.h}:${s.reveal ? +s.reveal.revealed : "n"}:${s.status ?? "n"}:${s.error ? "e" : "n"}`,
         )
         .join(";")
     );
@@ -174,6 +178,8 @@ export class FieldOverlay {
       }
       // wartość z zewnątrz podmieniamy tylko gdy pole nie jest edytowane
       if (document.activeElement !== el && el.value !== s.value) el.value = s.value;
+
+      el.classList.toggle("fld-err", !!s.error);
 
       // oczko w polu
       if (s.reveal) {

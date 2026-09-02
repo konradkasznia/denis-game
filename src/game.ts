@@ -241,6 +241,9 @@ export class Game {
   private authTerms = false;
   private authShowPw = false;
   private authError = "";
+  /** którego pola dotyczy błąd (czerwony obrys): "login" | "password" | "both" | null */
+  private authErrorField: "login" | "password" | "both" | null = null;
+  private authErrorCloseRect: Rect | null = null;
   private authBusy = false;
   private modalOkRect: Rect | null = null;
   /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
@@ -582,11 +585,26 @@ export class Game {
 
   private setAuthMode(m: "login" | "register") {
     this.authMode = m;
-    this.authError = "";
+    this.clearAuthError();
     this.authPassword = "";
     this.authShowPw = false;
     this.authLoginState = "";
     this.fields.clear(); // pola powstaną od nowa z właściwymi wartościami
+  }
+
+  private clearAuthError() {
+    this.authError = "";
+    this.authErrorField = null;
+    this.authErrorCloseRect = null;
+  }
+
+  /** Ustawia komunikat błędu + zgaduje, którego pola dotyczy (czerwony obrys). */
+  private setAuthError(msg: string) {
+    this.authError = msg;
+    const m = msg.toLowerCase();
+    const pw = m.includes("hasł");
+    const lg = m.includes("login") || m.includes("nick");
+    this.authErrorField = pw && lg ? "both" : pw ? "password" : lg ? "login" : null;
   }
 
   /** Przelicza pozycje pól <input> (wołane przy resize / zmianie orientacji / klawiaturze). */
@@ -630,9 +648,10 @@ export class Game {
                 ? "bad"
                 : null
             : null,
+        error: this.authErrorField === "login" || this.authErrorField === "both",
         onInput: (v) => {
           this.authLogin = v.replace(/\s/g, "").slice(0, 18);
-          this.authError = "";
+          this.clearAuthError();
           if (reg) this.queueLoginCheck();
         },
       });
@@ -646,9 +665,10 @@ export class Game {
         autocomplete: reg ? "new-password" : "current-password",
         enterKeyHint: "go",
         x: R.f2.x, y: R.f2.y, w: R.f2.w, h: R.f2.h,
+        error: this.authErrorField === "password" || this.authErrorField === "both",
         onInput: (v) => {
           this.authPassword = v;
-          this.authError = "";
+          this.clearAuthError();
         },
         onEnter: () => this.submitAuth(),
         reveal: {
@@ -686,10 +706,10 @@ export class Game {
     const done = (r: { ok: boolean; error?: string }, fail: string) => {
       this.authBusy = false;
       if (r.ok) {
-        this.authError = "";
+        this.clearAuthError();
         this.enterHitsFresh();
       } else {
-        this.authError = r.error ?? fail;
+        this.setAuthError(r.error ?? fail);
       }
     };
     if (this.authMode === "register") {
@@ -707,13 +727,19 @@ export class Game {
     if (x < 0) return; // klawiatura / spacja — nic nie rób
     // stuknięcie w canvas = poza polami (pola i oczko to elementy DOM) → chowamy klawiaturę
     this.fields.blur();
+
+    // ✕ na banerze błędu (u góry ekranu)
+    if (this.authError && this.authErrorCloseRect && inRect(this.authErrorCloseRect, x, y)) {
+      this.clearAuthError();
+      return;
+    }
     const R = this.authRects() as Record<string, Rect | undefined>;
 
     if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
     if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
     if (R.terms && inRect(R.terms, x, y)) {
       this.authTerms = !this.authTerms;
-      if (this.authTerms) this.authError = "";
+      if (this.authTerms) this.clearAuthError();
       return;
     }
     if (R.alt1 && inRect(R.alt1, x, y)) {
@@ -1481,36 +1507,59 @@ export class Game {
     if (R.docT) this.authLink(ctx, R.docT, "REGULAMIN", "#ffb64a");
     if (R.docP) this.authLink(ctx, R.docP, "POLITYKA PRYWATNOŚCI", "#ffb64a");
 
-    // komunikaty
-    if (this.authBusy) {
-      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 17, weight: "800", color: "#ffce8a" });
-    } else if (this.authError) {
-      // ostro czerwony baner nad polami — musi rzucać się w oczy
-      const lines = wrapText(this.authError, 30);
-      const size = lines.length >= 3 ? 20 : 26;
-      const lh = size + 7;
-      const padV = 14;
-      const bx = 34;
-      const bw = VW - 68;
-      const bh = lines.length * lh + padV * 2;
-      const bottom = (R.f1?.y ?? 250) - 10;
-      const by = Math.max(172, bottom - bh);
+    // komunikat błędu — czerwony baner u góry, SZEROKOŚĆ JAK INPUT, z ✕ do zamknięcia
+    if (this.authError) {
+      const bx = 56;
+      const bw = VW - 112; // ta sama szerokość co pola / przyciski
+      const lines = wrapText(this.authError, 28);
+      const size = lines.length >= 3 ? 18 : 22;
+      const lh = size + 8;
+      const padV = 16;
+      const bh = Math.max(70, lines.length * lh + padV * 2);
+      const by = 22;
+
       ctx.save();
-      ctx.fillStyle = "rgba(150,14,14,0.34)";
-      roundRect(ctx, bx, by, bw, bh, 16);
+      ctx.fillStyle = "#d21f1f";
+      roundRect(ctx, bx, by, bw, bh, 14);
       ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#ff2323";
-      roundRect(ctx, bx, by, bw, bh, 16);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#7d0d0d";
+      roundRect(ctx, bx, by, bw, bh, 14);
       ctx.stroke();
       ctx.restore();
+
+      const close: Rect = { x: bx + bw - 54, y: by + (bh - 48) / 2, w: 48, h: 48 };
+      this.authErrorCloseRect = close;
+
       lines.forEach((ln, i) =>
-        text(ctx, ln, VW / 2, by + padV + lh / 2 + i * lh, {
+        text(ctx, ln, bx + 20, by + padV + lh / 2 + i * lh, {
           size,
           weight: "900",
-          color: "#ff3131",
+          color: "#fff",
+          align: "left",
         }),
       );
+
+      ctx.save();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      const ccx = close.x + close.w / 2;
+      const ccy = close.y + close.h / 2;
+      const cr = 11;
+      ctx.beginPath();
+      ctx.moveTo(ccx - cr, ccy - cr);
+      ctx.lineTo(ccx + cr, ccy + cr);
+      ctx.moveTo(ccx + cr, ccy - cr);
+      ctx.lineTo(ccx - cr, ccy + cr);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      this.authErrorCloseRect = null;
+    }
+
+    if (this.authBusy) {
+      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 17, weight: "800", color: "#ffce8a" });
     }
   }
 
