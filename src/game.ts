@@ -157,6 +157,16 @@ function openExternal(url: string) {
   }
 }
 const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
+
+// --- ekran rejestracji / logowania: głowa + rozmieszczenie pionowe ---
+const AUTH_F1_Y = 268; // górna krawędź pierwszego pola (nick) — bez przesunięcia
+const AUTH_HEAD_W = 280; // szerokość grafiki głowy
+const AUTH_HEAD_AR = 1182 / 1330; // wys/szer head.png
+const AUTH_HEAD_GAP = 46; // odstęp głowa → pierwsze pole
+const AUTH_HEAD_H = Math.round(AUTH_HEAD_W * AUTH_HEAD_AR);
+const AUTH_TOP = AUTH_F1_Y - AUTH_HEAD_GAP - AUTH_HEAD_H; // górna krawędź bloku
+const AUTH_BOT_REG = 1078; // dolna krawędź bloku (link polityki) — tryb rejestracji
+const AUTH_BOT_LOGIN = 968; // — tryb logowania
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
 const PZ_MENU: Rect = { x: MARGIN, y: 800, w: VW - MARGIN * 2, h: 96 };
@@ -875,6 +885,15 @@ export class Game {
     if (this.scene !== "play") void this.audio.resumePlayback();
   }
 
+  /** Pionowe przesunięcie całego bloku rejestracji/logowania — wyśrodkowuje go
+   *  na wyższych ekranach (głowa ma oddech u góry, nie ma pustki u dołu).
+   *  Liczone BEZ `authRects()`, żeby nie było rekurencji. */
+  private authShift(): number {
+    const bot = this.authMode === "register" ? AUTH_BOT_REG : AUTH_BOT_LOGIN;
+    const free = this.sh() - (bot - AUTH_TOP);
+    return Math.round(clamp(free / 2 - AUTH_TOP, 0, this.extraH()));
+  }
+
   /** Rozkład pól/przycisków ekranu „STWÓRZ KONTO" / „ZALOGUJ SIĘ". */
   private authRects() {
     const reg = this.authMode === "register";
@@ -882,30 +901,31 @@ export class Game {
     const cx = 56;
     const cw = VW - 112;
     const btnH = 104;
+    const dy = this.authShift();
     // pola blisko siebie w obu trybach (odstęp ~14 px jak w logowaniu)
-    const f1: Rect = { x: cx, y: 268, w: cw, h: 86 };
-    const f2: Rect = { x: cx, y: 368, w: cw, h: 86 };
+    const f1: Rect = { x: cx, y: AUTH_F1_Y + dy, w: cw, h: 86 };
+    const f2: Rect = { x: cx, y: 368 + dy, w: cw, h: 86 };
     if (reg) {
       return {
         f1,
         f2,
-        hint: { x: cx, y: 468, w: cw, h: 66 } as Rect, // 2 linie pod hasłem
-        terms: { x: cx, y: 552, w: cw, h: 76 } as Rect,
-        primary: { x: cx, y: 648, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
-        altLabel: { x: cx, y: 786, w: cw, h: 34 } as Rect,
-        alt1: { x: cx, y: 826, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
-        docT: { x: cx, y: 968, w: cw, h: 52 } as Rect,
-        docP: { x: cx, y: 1026, w: cw, h: 52 } as Rect,
+        hint: { x: cx, y: 468 + dy, w: cw, h: 66 } as Rect, // 2 linie pod hasłem
+        terms: { x: cx, y: 552 + dy, w: cw, h: 76 } as Rect,
+        primary: { x: cx, y: 648 + dy, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+        altLabel: { x: cx, y: 786 + dy, w: cw, h: 34 } as Rect,
+        alt1: { x: cx, y: 826 + dy, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+        docT: { x: cx, y: 968 + dy, w: cw, h: 52 } as Rect,
+        docP: { x: cx, y: 1026 + dy, w: cw, h: 52 } as Rect,
       };
     }
     return {
       f1,
       f2,
-      primary: { x: cx, y: 512, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
-      altLabel: { x: cx, y: 668, w: cw, h: 34 } as Rect,
-      alt1: { x: cx, y: 708, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
-      docT: { x: cx, y: 858, w: cw, h: 52 } as Rect,
-      docP: { x: cx, y: 916, w: cw, h: 52 } as Rect,
+      primary: { x: cx, y: 512 + dy, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+      altLabel: { x: cx, y: 668 + dy, w: cw, h: 34 } as Rect,
+      alt1: { x: cx, y: 708 + dy, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+      docT: { x: cx, y: 858 + dy, w: cw, h: 52 } as Rect,
+      docP: { x: cx, y: 916 + dy, w: cw, h: 52 } as Rect,
     };
   }
 
@@ -1812,10 +1832,10 @@ export class Game {
     // duża głowa Denisa na górze (zamiast nagłówka „STWÓRZ KONTO / ZALOGUJ SIĘ")
     const head = this.uiImg("head.png");
     if (imgReady(head)) {
-      const hw = 320;
+      const hw = AUTH_HEAD_W;
       const hh = (head.naturalHeight / head.naturalWidth) * hw;
-      const f1y = (R.f1?.y ?? 268) - 6; // dolna krawędź tuż nad pierwszym polem
-      ctx.drawImage(head, VW / 2 - hw / 2, f1y - hh, hw, hh);
+      const headBottom = (R.f1?.y ?? AUTH_F1_Y) - AUTH_HEAD_GAP; // odstęp nad pierwszym polem
+      ctx.drawImage(head, VW / 2 - hw / 2, headBottom - hh, hw, hh);
     } else {
       text(ctx, reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ", VW / 2, 150, {
         size: 58,
