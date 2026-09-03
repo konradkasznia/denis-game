@@ -23,6 +23,7 @@ type SynthCfg = {
   characterScale?: number;
   characterY?: number;
   events?: SongEvent[];
+  bombs?: { lane: number; time: number }[];
 };
 
 /** naprzemienne ujęcia postaci co `every` s przez `secs` s utworu */
@@ -65,6 +66,32 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characters: rotateShots("assets/char/pogrzebowka", [1, 2, 3, 4], 52),
     characterScale: 0.95,
     characterY: 704,
+    // przykładowy układ przeszkód: reflektor kilka razy + serie bomb
+    events: [
+      { type: "spotlight", at: 13, dur: 5 },
+      { type: "spotlight", at: 26, dur: 6 },
+      { type: "spotlight", at: 36.5, dur: 5 },
+    ],
+    bombs: [
+      // seria 1 (~8-11 s)
+      { lane: 2, time: 8.2 },
+      { lane: 1, time: 9.4 },
+      { lane: 0, time: 10.6 },
+      // seria 2 (~19-23 s)
+      { lane: 3, time: 19.4 },
+      { lane: 2, time: 20.6 },
+      { lane: 1, time: 22.2 },
+      { lane: 0, time: 23.4 },
+      // seria 3 (~30-34 s)
+      { lane: 0, time: 30.6 },
+      { lane: 1, time: 31.8 },
+      { lane: 2, time: 33.4 },
+      // seria 4 (~41-45 s)
+      { lane: 3, time: 41.4 },
+      { lane: 2, time: 42.6 },
+      { lane: 1, time: 43.8 },
+      { lane: 3, time: 45.0 },
+    ],
   },
   "byleby-nie-byla-ciepla": {
     title: "Byleby nie była ciepła",

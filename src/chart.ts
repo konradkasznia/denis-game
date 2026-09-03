@@ -99,6 +99,8 @@ export interface SynthOpts {
   characterScale?: number;
   characterY?: number;
   events?: SongEvent[];
+  /** bomby — nuty-pułapki dokładane do wygenerowanego strumienia (tap = -100 pkt) */
+  bombs?: { lane: number; time: number }[];
 }
 
 function build(o: SynthOpts): SongDef {
@@ -170,6 +172,17 @@ function build(o: SynthOpts): SongDef {
     );
   });
 
+  // 5. Bomby — nuty-pułapki dokładane do strumienia. Usuwamy zwykłą nutę w tym
+  //    samym torze bardzo blisko bomby (żeby okno trafienia nie było dwuznaczne).
+  for (const b of o.bombs ?? []) {
+    const lane = Math.max(0, Math.min(LANES - 1, Math.round(b.lane)));
+    const time = +b.time.toFixed(4);
+    for (let i = cleaned.length - 1; i >= 0; i--) {
+      if (cleaned[i].lane === lane && Math.abs(cleaned[i].time - time) < 0.16) cleaned.splice(i, 1);
+    }
+    cleaned.push(mkNote(lane, time, 0, true));
+  }
+
   cleaned.sort((a, b) => a.time - b.time || a.lane - b.lane);
   const duration = bars * barLen;
 
@@ -203,5 +216,5 @@ const DEFAULT_SYNTH: SynthOpts = {
 /** Syntezowany podkład testowy dla utworu bez pliku audio. */
 export function buildSynthSong(opts?: Partial<SynthOpts>): SongDef {
   const s = build({ ...DEFAULT_SYNTH, ...opts });
-  return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur)) };
+  return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur, n.bomb)) };
 }
