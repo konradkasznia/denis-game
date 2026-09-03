@@ -75,8 +75,8 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characterY: 704,
     // poziom 5 — mechanika lodu: ekran zamarza, trzeba rozbić 10 tapnięć
     events: [
-      { type: "ice", at: 20, taps: 10 },
-      { type: "ice", at: 46, taps: 12 },
+      { type: "ice", at: 20, taps: 20 },
+      { type: "ice", at: 46, taps: 24 },
     ],
   },
 };

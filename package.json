@@ -27,6 +27,7 @@
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
     "@libsql/client": "^0.14.0",
+    "lottie-web": "^5.13.0",
     "onesignal-cordova-plugin": "^5.5.4"
   }
 }

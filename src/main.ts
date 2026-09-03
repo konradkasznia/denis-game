@@ -2,7 +2,10 @@ import "./style.css";
 import { Game } from "./game.ts";
 import { initInput } from "./input.ts";
 import { hideSplash, initNativeShell } from "./nativeShell.ts";
+import { initSplash, splashGameReady } from "./splash.ts";
 import { VH, VW, viewport } from "./viewport.ts";
+
+initSplash();
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -164,7 +167,8 @@ function frame(now: number, gen: number) {
   ctx.restore();
   if (firstFrame) {
     firstFrame = false;
-    hideSplash(); // gra narysowana — chowamy natywny splash
+    hideSplash(); // gra narysowana — chowamy natywny splash (Capacitor)
+    splashGameReady(); // ...i pozwalamy zejść ekranowi powitalnemu (web)
   }
 }
 void ensureFonts().then(() => requestAnimationFrame((t) => frame(t, loopGen)));

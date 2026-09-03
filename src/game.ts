@@ -473,7 +473,7 @@ export class Game {
           const e = evs[i];
           if (e.type === "ice" && !this.iceFired.has(i) && this.songTime >= e.at) {
             this.iceFired.add(i);
-            this.triggerIce(e.taps ?? 10);
+            this.triggerIce(e.taps ?? 20);
           }
         }
       }
