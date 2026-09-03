@@ -31,6 +31,7 @@ interface Note {
   lane: number;
   time: number;
   dur: number;
+  bomb?: boolean;
 }
 interface Seg {
   at: number;
@@ -55,6 +56,7 @@ const ujSel = $<HTMLSelectElement>("ujsel");
 const obstSel = $<HTMLSelectElement>("obstsel");
 const metroChk = $<HTMLInputElement>("metro");
 const ntickChk = $<HTMLInputElement>("ntick");
+const bombChk = $<HTMLInputElement>("bombmode");
 const playBtn = $<HTMLButtonElement>("play");
 const timeLbl = $<HTMLSpanElement>("time");
 const cntLbl = $<HTMLSpanElement>("cnt");
@@ -577,6 +579,25 @@ function draw() {
     const bw = laneW() - 10;
     const y = yOf(n.time);
     const onBeat = Math.abs(((n.time - off) / beat) % 1) < 0.02;
+    if (n.bomb) {
+      // bomba — czarny krążek z czerwoną obwódką i literką „B"
+      const cx = x + bw / 2;
+      ctx2d.fillStyle = "#0b0b10";
+      ctx2d.strokeStyle = "#ff5a3c";
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      ctx2d.arc(cx, y, 9, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.stroke();
+      ctx2d.fillStyle = "#ff5a3c";
+      ctx2d.font = "bold 11px system-ui";
+      ctx2d.textAlign = "center";
+      ctx2d.textBaseline = "middle";
+      ctx2d.fillText("B", cx, y + 0.5);
+      ctx2d.textAlign = "left";
+      ctx2d.textBaseline = "alphabetic";
+      continue;
+    }
     if (n.dur > 0) {
       ctx2d.fillStyle = "rgba(99,153,34,0.6)";
       ctx2d.fillRect(x, y, bw, n.dur * view.pps);
@@ -745,6 +766,7 @@ cv.addEventListener("pointerdown", (e) => {
   const startT = Math.max(0, snapTime(tOf(y)));
   pushHistory();
   const note: Note = { lane, time: startT, dur: 0 };
+  if (bombChk.checked) note.bomb = true; // tryb bomb — stawiamy bombę zamiast nuty
   notes.push(note);
   drag = { mode: "create", note, startT };
 });
@@ -954,7 +976,7 @@ interface RawChart {
   title?: string;
   bpm?: number;
   gridOffset?: number;
-  notes?: { lane: number; time: number; dur?: number }[];
+  notes?: { lane: number; time: number; dur?: number; bomb?: boolean }[];
   characters?: { at: number; sprite: string }[];
   events?: { type: string; at: number; taps?: number; dur?: number }[];
 }
@@ -964,7 +986,12 @@ function applyChart(raw: RawChart) {
   if (raw.title) titleInput.value = raw.title;
   if (raw.bpm) bpmInput.value = String(raw.bpm);
   if (raw.gridOffset != null) offsetInput.value = String(Math.round(raw.gridOffset * 1000));
-  notes = (raw.notes || []).map((n) => ({ lane: n.lane, time: n.time, dur: n.dur || 0 }));
+  notes = (raw.notes || []).map((n) => ({
+    lane: n.lane,
+    time: n.time,
+    dur: n.dur || 0,
+    ...(n.bomb ? { bomb: true as const } : {}),
+  }));
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
   segments = (raw.characters || []).map((c) => ({
     at: c.at,
@@ -1008,7 +1035,12 @@ function buildChart() {
     notes: notes
       .slice()
       .sort((a, b) => a.time - b.time || a.lane - b.lane)
-      .map((n) => ({ lane: n.lane, time: +n.time.toFixed(3), dur: n.dur ? +n.dur.toFixed(3) : 0 })),
+      .map((n) => ({
+        lane: n.lane,
+        time: +n.time.toFixed(3),
+        dur: n.dur ? +n.dur.toFixed(3) : 0,
+        ...(n.bomb ? { bomb: true } : {}),
+      })),
   };
 }
 
@@ -1159,7 +1191,12 @@ async function persistSeed(cfg: SeedCfg) {
     // panna-mloda: dołóż prawdziwe nuty + rotację ujęć z gotowego chartu
     try {
       const raw = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
-      p.notes = (raw.notes || []).map((n) => ({ lane: n.lane, time: n.time, dur: n.dur || 0 }));
+      p.notes = (raw.notes || []).map((n) => ({
+        lane: n.lane,
+        time: n.time,
+        dur: n.dur || 0,
+        ...(n.bomb ? { bomb: true as const } : {}),
+      }));
       p.bpm = raw.bpm || cfg.bpm;
       p.offsetMs = Math.round((raw.gridOffset ?? 0) * 1000);
       let cs = (raw.characters || []).map((c) => ({

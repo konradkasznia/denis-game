@@ -96,7 +96,7 @@ interface RawChart {
   characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
-  notes: { lane: number; time: number; dur?: number }[];
+  notes: { lane: number; time: number; dur?: number; bomb?: boolean }[];
   events?: SongEvent[];
 }
 
@@ -104,7 +104,7 @@ const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)))
 
 export function rawToSong(raw: RawChart): SongDef {
   const notes: Note[] = raw.notes
-    .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0))
+    .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
   return {
     id: raw.id,

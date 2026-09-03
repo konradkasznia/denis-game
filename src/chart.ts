@@ -12,6 +12,8 @@ export interface Note {
   time: number;
   /** długość nuty trzymanej w sekundach; 0 = zwykły tap */
   dur: number;
+  /** bomba — tapnięcie karze (-100 pkt) i ogłusza gracza na 3 s; omijać */
+  bomb?: boolean;
   // --- stan runtime ---
   /** rozliczona do końca (można pominąć w dalszej logice) */
   judged: boolean;
@@ -69,8 +71,19 @@ export const LANES = 4;
 // żeby granie było płynne i miało sens muzyczny.
 const LANE_PATTERN = [0, 1, 2, 3, 2, 1, 0, 2, 3, 1, 2, 0, 1, 3, 2, 1];
 
-export function mkNote(lane: number, time: number, dur = 0): Note {
-  return { lane, time: +time.toFixed(4), dur, judged: false, hit: false, holding: false, headJ: null, judgedAt: 0 };
+export function mkNote(lane: number, time: number, dur = 0, bomb = false): Note {
+  const n: Note = {
+    lane,
+    time: +time.toFixed(4),
+    dur,
+    judged: false,
+    hit: false,
+    holding: false,
+    headJ: null,
+    judgedAt: 0,
+  };
+  if (bomb) n.bomb = true;
+  return n;
 }
 
 export interface SynthOpts {

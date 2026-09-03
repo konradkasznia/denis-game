@@ -322,6 +322,9 @@ export class Game {
   private evFired = new Set<number>(); // indeksy zdarzeń (przeszkód) już uruchomionych
   private spotlightStart = -10; // songTime początku reflektora
   private spotlightUntil = -10; // songTime końca reflektora
+  private bombAt = -10; // songTime ostatniego wybuchu (animacja)
+  private bombUntil = -10; // songTime końca ogłuszenia (blokada tapów, 3 s)
+  private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
   private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
   private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
@@ -1793,6 +1796,8 @@ export class Game {
     this.iceShatterAt = -10;
     this.spotlightStart = -10;
     this.spotlightUntil = -10;
+    this.bombAt = -10;
+    this.bombUntil = -10;
     this.audio.stop(); // ucisz poprzedni przebieg (pauza → „OD NOWA" nie nakłada dźwięku)
     try {
       void this.audio.ctx?.resume?.();
@@ -1859,9 +1864,15 @@ export class Game {
 
   private pressLane(lane: number) {
     this.lanePress[lane] = 1;
+    // ogłuszenie po bombie — tapy nie działają przez 3 s (nuty lecą dalej)
+    if (this.songTime < this.bombUntil) return;
     const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
     if (!picked) return;
     const { note, absDt } = picked;
+    if (note.bomb) {
+      this.triggerBomb(note, lane);
+      return;
+    }
     const j = classify(absDt) ?? "good";
     note.hit = true;
     note.headJ = j;
@@ -1874,6 +1885,28 @@ export class Game {
       note.judged = true;
       this.apply(j, lane);
     }
+  }
+
+  /** Tapnięcie w bombę: kara -100 pkt, zbite combo, wybuch i 3 s ogłuszenia. */
+  private triggerBomb(note: Note, lane: number) {
+    note.judged = true;
+    note.hit = false;
+    note.headJ = null;
+    note.judgedAt = this.songTime;
+    this.bombAt = this.songTime;
+    this.bombUntil = this.songTime + 3;
+    this.bombLane = lane;
+    this.score = Math.max(0, this.score - 100);
+    this.combo = 0;
+    this.flow = 0;
+    this.flowTier = 0;
+    this.health = clamp(this.health - 0.12, 0, 1);
+    this.denisMissAt = this.songTime;
+    this.shake = Math.max(this.shake, 18);
+    this.audio.sfx("miss");
+    haptic("miss");
+    this.pushPopup("-100", "#ff5a3c", lane);
+    this.pushBanner("BOMBA!");
   }
 
   private releaseLane(lane: number) {
@@ -1940,13 +1973,20 @@ export class Game {
   private checkMisses() {
     const off = this.offsetSec();
     for (const n of this.song.notes) {
-      if (isMissed(n, this.songTime, off)) {
+      if (!isMissed(n, this.songTime, off)) continue;
+      if (n.bomb) {
+        // ominięta bomba = dobra gra, żadnej kary; po prostu znika
         n.judged = true;
         n.hit = false;
-        n.headJ = "miss";
+        n.headJ = null;
         n.judgedAt = n.time + 0.145;
-        this.apply("miss", n.lane);
+        continue;
       }
+      n.judged = true;
+      n.hit = false;
+      n.headJ = "miss";
+      n.judgedAt = n.time + 0.145;
+      this.apply("miss", n.lane);
     }
   }
 
@@ -3083,6 +3123,7 @@ export class Game {
     this.drawIce(ctx); // tafla lodu — pod HUD (gracz widzi spadające życie)
     this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
+    this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
     this.drawHud(ctx);
     this.drawCountdown(ctx);
     if (this.paused) this.drawPause(ctx);
@@ -3387,6 +3428,11 @@ export class Game {
       const r = RECEPTOR_R * this.sizeAtE(e);
       const col = LANE_COLORS[n.lane];
       const a = clamp(alpha, 0, 1);
+
+      if (n.bomb) {
+        this.drawBombNote(ctx, x, y, r, a);
+        continue;
+      }
 
       if (NOTE_SKIN[this.trackId] === "skull") {
         // czaszki „szczękają" w rytm — wszystkie zsynchronizowane po songTime
@@ -3853,6 +3899,127 @@ export class Game {
     gT.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = gT;
     ctx.fillRect(0, top, VW, 200);
+  }
+
+  /** Głowa „bomby" — ciemna kula z zapalonym lontem. Bez shadowBlur (wydajność). */
+  private drawBombNote(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    r: number,
+    a: number,
+  ) {
+    ctx.save();
+    ctx.globalAlpha = a;
+    // poświata ostrzegawcza
+    const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 1.9);
+    glow.addColorStop(0, "rgba(255,80,40,0.5)");
+    glow.addColorStop(1, "rgba(255,80,40,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+    // korpus
+    const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.2, x, y, r);
+    body.addColorStop(0, "#4a4a52");
+    body.addColorStop(0.5, "#20202a");
+    body.addColorStop(1, "#0b0b10");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    // refleks
+    ctx.fillStyle = "rgba(255,255,255,0.28)";
+    ctx.beginPath();
+    ctx.arc(x - r * 0.34, y - r * 0.36, r * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+    // szyjka + lont
+    ctx.strokeStyle = "#6b5330";
+    ctx.lineWidth = Math.max(2, r * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(x, y - r * 0.9);
+    ctx.quadraticCurveTo(x + r * 0.5, y - r * 1.5, x + r * 0.15, y - r * 1.8);
+    ctx.stroke();
+    // iskra na końcu lontu — migocze
+    const spark = 0.6 + 0.4 * Math.sin(this.songTime * 40 + x);
+    const sx = x + r * 0.15;
+    const sy = y - r * 1.8;
+    const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 0.6);
+    sg.addColorStop(0, `rgba(255,240,180,${spark})`);
+    sg.addColorStop(0.4, `rgba(255,150,40,${spark * 0.8})`);
+    sg.addColorStop(1, "rgba(255,80,20,0)");
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Wybuch bomby + 3 s ogłuszenia (blokada tapów). Krótki błysk ~0.7 s,
+   *  potem czerwona winieta z odliczaniem do końca blokady. */
+  private drawBomb(ctx: CanvasRenderingContext2D) {
+    const since = this.songTime - this.bombAt;
+    const left = this.bombUntil - this.songTime;
+    if (left <= 0 || since < 0) return;
+
+    const top = -this.vdy;
+    const H = this.sh();
+    const cx = this.hitX(this.bombLane);
+    const cy = this.hitY();
+
+    // 1. rozbłysk + fala uderzeniowa (0..0.7 s)
+    const blast = clamp(since / 0.7, 0, 1);
+    if (blast < 1) {
+      const k = 1 - blast;
+      // biały flash całego ekranu
+      ctx.save();
+      ctx.fillStyle = `rgba(255,240,220,${0.6 * k * k})`;
+      ctx.fillRect(0, top, VW, H);
+      ctx.restore();
+      // kula ognia
+      const fr = 40 + blast * 360;
+      const fg = ctx.createRadialGradient(cx, cy, 0, cx, cy, fr);
+      fg.addColorStop(0, `rgba(255,245,200,${0.9 * k})`);
+      fg.addColorStop(0.35, `rgba(255,150,40,${0.8 * k})`);
+      fg.addColorStop(0.7, `rgba(200,40,20,${0.5 * k})`);
+      fg.addColorStop(1, "rgba(80,10,10,0)");
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.arc(cx, cy, fr, 0, Math.PI * 2);
+      ctx.fill();
+      // pierścień fali
+      ctx.strokeStyle = `rgba(255,220,180,${0.7 * k})`;
+      ctx.lineWidth = 6 * k + 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, blast * 460, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 2. ogłuszenie — czerwona winieta + „NIE KLIKAJ" + odliczanie
+    const stun = clamp(left / 3, 0, 1);
+    const vg = ctx.createRadialGradient(VW / 2, cy, 120, VW / 2, cy, VW * 0.95);
+    vg.addColorStop(0, "rgba(60,0,0,0)");
+    vg.addColorStop(1, `rgba(120,10,10,${0.5 * stun})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, top, VW, H);
+
+    if (blast >= 0.6) {
+      const fade = clamp((left) / 3, 0, 1);
+      text(ctx, "OGŁUSZONY", VW / 2, cy - 120, {
+        size: 42,
+        weight: "800",
+        color: `rgba(255,210,200,${fade})`,
+        glow: "#ff3b2f",
+        glowBlur: 24,
+      });
+      text(ctx, String(Math.ceil(left)), VW / 2, cy - 40, {
+        size: 90,
+        weight: "800",
+        color: `rgba(255,255,255,${fade})`,
+        glow: "#ff3b2f",
+        glowBlur: 30,
+      });
+    }
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
