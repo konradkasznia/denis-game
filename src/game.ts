@@ -29,6 +29,7 @@ import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
 import {
   bestStars,
   clearedStreak,
+  devUnlocked,
   levelUnlocked,
   markDiscovered,
   mergeServerStars,
@@ -208,7 +209,7 @@ interface Popup {
 }
 
 // ---- efekt combo (co 10) — per utwór ----------------------------------
-type FxKind = "confetti" | "smoke" | "roses";
+type FxKind = "confetti" | "smoke" | "roses" | "iceShard";
 interface FxParticle {
   kind: FxKind;
   x: number;
@@ -306,6 +307,13 @@ export class Game {
   private bannerTxt = "";
   private bannerAt = -10;
   private shake = 0;
+  // --- mechanika lodu (poziom „Byleby nie była ciepła") ---
+  private iceActive = false;
+  private iceTapsLeft = 0;
+  private iceStartAt = -10; // songTime pojawienia się tafli (animacja zamarzania)
+  private iceShatterAt = -10; // songTime rozbicia (animacja znikania)
+  private iceFired = new Set<number>(); // indeksy zdarzeń już uruchomionych
+  private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -451,6 +459,17 @@ export class Game {
         }
       } else if (this.songTime >= 0.1) {
         this.songStartedAt = 0; // wystartowało OK — watchdog wyłączony
+      }
+      // zdarzenia na osi czasu (lód) — nuty i tak lecą dalej (kara za zwłokę)
+      const evs = this.song.events;
+      if (evs) {
+        for (let i = 0; i < evs.length; i++) {
+          const e = evs[i];
+          if (e.type === "ice" && !this.iceFired.has(i) && this.songTime >= e.at) {
+            this.iceFired.add(i);
+            this.triggerIce(e.taps ?? 10);
+          }
+        }
       }
       this.checkMisses();
       this.resolveHeldHolds();
@@ -603,6 +622,9 @@ export class Game {
         // po wystrzale opór hamuje pęd, potem łagodne opadanie z trzepotaniem
         p.vx *= roseDrag;
         p.vy = p.vy * roseVDrag + 130 * dt;
+      } else if (p.kind === "iceShard") {
+        p.vx *= Math.pow(0.6, dt);
+        p.vy += 900 * dt; // grawitacja — odłamki lecą i spadają
       } else {
         // dym: wznosi się, S-owy skręt (2 częstotliwości), rośnie umiarkowanie
         p.vx *= smokeXDrag;
@@ -680,6 +702,22 @@ export class Game {
         ctx.fillStyle = p.color;
         ctx.fill();
         ctx.strokeStyle = "rgba(90,10,25,0.35)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else if (p.kind === "iceShard") {
+        // odłamek lodu — nieregularny trójkąt, lodowaty połysk
+        const s = p.w;
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s * 0.7, s * 0.5);
+        ctx.lineTo(-s * 0.55, s * 0.7);
+        ctx.closePath();
+        const gg = ctx.createLinearGradient(-s, -s, s, s);
+        gg.addColorStop(0, "rgba(255,255,255,0.95)");
+        gg.addColorStop(1, "rgba(150,210,255,0.7)");
+        ctx.fillStyle = gg;
+        ctx.fill();
+        ctx.strokeStyle = "rgba(120,180,235,0.8)";
         ctx.lineWidth = 1;
         ctx.stroke();
       } else {
@@ -878,10 +916,81 @@ export class Game {
         if (this.resumeAt) return; // trwa odliczanie
         return this.handlePauseTap(x, y);
       }
+      // lód: każde tapnięcie idzie w rozbijanie tafli (nie w tory, nie w pauzę)
+      if (this.iceActive) return this.iceTap(x, y);
       if (x >= 0 && inRect(PAUSE_RECT, x, y)) return this.pauseGame();
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
       if (lane < 0) lane = this.laneAtX(x);
       if (lane >= 0) this.pressLane(lane);
+    }
+  }
+
+  /** Uruchamia „zamrożenie ekranu" — gra leci dalej w tle. */
+  private triggerIce(taps: number) {
+    this.iceActive = true;
+    this.iceTapsLeft = Math.max(1, taps);
+    this.iceStartAt = this.songTime;
+    this.iceCracks = [];
+    // puść trzymane nuty (jak przy pauzie) — nie da się ich utrzymać przez lód
+    for (let l = 0; l < LANES; l++) {
+      const h = this.held[l];
+      if (h) {
+        h.holding = false;
+        h.judged = true;
+        this.held[l] = null;
+      }
+    }
+    this.shake = Math.max(this.shake, 9);
+    haptic("flowUp");
+    this.audio.sfx("iceForm");
+  }
+
+  private iceTap(x: number, y: number) {
+    if (!this.iceActive || this.iceTapsLeft <= 0) return;
+    this.iceTapsLeft--;
+    this.iceCracks.push({
+      x,
+      y,
+      a: Math.random() * Math.PI * 2,
+      born: this.songTime,
+      len: 70 + Math.random() * 60,
+    });
+    this.spawnIceShards(x, y, 6);
+    this.shake = Math.max(this.shake, 4);
+    haptic("holdTick");
+    this.audio.sfx("iceCrack");
+    if (this.iceTapsLeft <= 0) {
+      this.iceActive = false;
+      this.iceShatterAt = this.songTime;
+      this.spawnIceShards(x, y, 26);
+      this.shake = Math.max(this.shake, 16);
+      haptic("combo");
+      this.audio.sfx("iceShatter");
+    }
+  }
+
+  private spawnIceShards(x: number, y: number, n: number) {
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 180 + Math.random() * 420;
+      this.fx.push({
+        kind: "iceShard",
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 120,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 14,
+        w: 5 + Math.random() * 9,
+        h: 0,
+        color: "#cfeeff",
+        life: 0,
+        ttl: 0.6 + Math.random() * 0.6,
+        swayA: 0,
+        swayF: 0,
+        swayP: 0,
+        grow: 0,
+      });
     }
   }
 
@@ -1199,7 +1308,9 @@ export class Game {
 
   /** Najwyższy index strony dostępny w karuzeli. */
   private maxHitIndex(): number {
-    return Math.max(1, Math.min(SONGS.length - 1, clearedStreak() + 1));
+    if (devUnlocked()) return SONGS.length - 1; // konto Konrad — wszystkie poziomy
+    const lastPublic = SONGS.map((s) => !s.devOnly).lastIndexOf(true);
+    return Math.max(1, Math.min(lastPublic, clearedStreak() + 1));
   }
 
   private enterHits() {
@@ -1519,6 +1630,12 @@ export class Game {
   private beginSong() {
     this.awaitingStart = false;
     this.songTime = 0;
+    this.iceActive = false;
+    this.iceTapsLeft = 0;
+    this.iceCracks = [];
+    this.iceFired.clear();
+    this.iceStartAt = -10;
+    this.iceShatterAt = -10;
     this.audio.stop(); // ucisz poprzedni przebieg (pauza → „OD NOWA" nie nakłada dźwięku)
     try {
       void this.audio.ctx?.resume?.();
@@ -2747,6 +2864,7 @@ export class Game {
     this.drawFx(ctx); // za postacią
     this.drawCharacter(ctx); // pierwszy plan — przed nutami
     this.drawJudgePopups(ctx);
+    this.drawIce(ctx); // tafla lodu — pod HUD (gracz widzi spadające życie)
     this.drawHud(ctx);
     this.drawCountdown(ctx);
     if (this.paused) this.drawPause(ctx);
@@ -3102,6 +3220,100 @@ export class Game {
         color: p.color,
         glow: p.color,
         glowBlur: 12,
+      });
+      ctx.restore();
+    }
+  }
+
+  // ---- lód (poziom „Byleby nie była ciepła") ------------------------
+
+  private drawIce(ctx: CanvasRenderingContext2D) {
+    const sinceShatter = this.songTime - this.iceShatterAt;
+    const shattering = !this.iceActive && sinceShatter >= 0 && sinceShatter < 0.45;
+    if (!this.iceActive && !shattering) return;
+
+    const formT = clamp((this.songTime - this.iceStartAt) / 0.32, 0, 1);
+    const baseA = this.iceActive ? 0.5 * formT : 0.5 * (1 - sinceShatter / 0.45);
+    const a = clamp(baseA, 0, 0.55);
+    const top = -this.vdy;
+    const H = this.sh();
+
+    ctx.save();
+    // tafla
+    this.fillViewport(ctx, `rgba(206,234,255,${a})`);
+    // mróz przy krawędziach — winieta + deterministyczne kryształy
+    const vg = ctx.createRadialGradient(VW / 2, top + H / 2, H * 0.28, VW / 2, top + H / 2, H * 0.62);
+    vg.addColorStop(0, "rgba(255,255,255,0)");
+    vg.addColorStop(1, `rgba(255,255,255,${a * 0.9})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, top, VW, H);
+    ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`;
+    let seed = 1337;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < 46; i++) {
+      const ex = rnd();
+      const x = ex < 0.5 ? rnd() * VW * 0.28 : VW - rnd() * VW * 0.28;
+      const y = top + rnd() * H;
+      const r = 3 + rnd() * 9;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const ang = (k / 6) * Math.PI * 2;
+        const rr = k % 2 ? r * 0.4 : r;
+        ctx[k ? "lineTo" : "moveTo"](x + Math.cos(ang) * rr, y + Math.sin(ang) * rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    // pęknięcia od każdego tapnięcia
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineCap = "round";
+    for (const c of this.iceCracks) {
+      const grow = clamp((this.songTime - c.born) / 0.22, 0, 1);
+      const branches = 4;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = "rgba(140,205,255,0.9)";
+      ctx.shadowBlur = 6;
+      for (let b = 0; b < branches; b++) {
+        const ang = c.a + (b / branches) * Math.PI * 2 + (b % 2 ? 0.3 : -0.2);
+        let px = c.x;
+        let py = c.y;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        const segs = 3;
+        for (let s = 1; s <= segs; s++) {
+          const t = (s / segs) * c.len * grow;
+          px = c.x + Math.cos(ang) * t + (((c.born * 97 + b * 13 + s) % 7) - 3) * 3;
+          py = c.y + Math.sin(ang) * t + (((c.born * 53 + b * 7 + s) % 7) - 3) * 3;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+
+    // licznik „ROZBIJ LÓD!"
+    if (this.iceActive) {
+      const beat = 1 + Math.sin(this.songTime * 14) * 0.06;
+      ctx.save();
+      ctx.translate(VW / 2, this.sh() / 2 - this.vdy - 30);
+      text(ctx, "ROZBIJ LÓD!", 0, -46, {
+        size: 40,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#eaf7ff",
+        glow: "#7fd4ff",
+        glowBlur: 22,
+        letterSpacing: "2px",
+      });
+      ctx.scale(beat, beat);
+      text(ctx, String(this.iceTapsLeft), 0, 44, {
+        size: 96,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffffff",
+        glow: "#8fd4ff",
+        glowBlur: 30,
       });
       ctx.restore();
     }

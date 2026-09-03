@@ -16,6 +16,8 @@ export interface SongMeta {
   spotifyUrl?: string;
   /** czy mamy komplet do zagrania (audio + chart) */
   playable: boolean;
+  /** poziom testowy — widoczny/grywalny tylko na koncie dewelopera (login Konrad) */
+  devOnly?: boolean;
 }
 
 // Kolejność = kolejność rund. „Kolejna runda" prowadzi do następnego playable.
@@ -55,12 +57,33 @@ export const SONGS: SongMeta[] = [
     spotifyUrl: "https://open.spotify.com/track/1aIjxCDYeK0oECqNYMk9Cx",
     playable: false, // wkrótce
   },
+  {
+    id: "byleby-nie-byla-ciepla",
+    title: "Byleby nie była ciepła",
+    artist: "Denis",
+    accent: "#7fd4ff",
+    playable: true,
+    devOnly: true, // poziom 5 — test mechaniki lodu, tylko konto Konrad
+  },
 ];
+
+/** Konto dewelopera — odblokowuje poziomy oznaczone `devOnly`. */
+export function devUnlocked(): boolean {
+  try {
+    const l = (localStorage.getItem("denis.login") || "").trim().toLowerCase();
+    return l === "konrad" || l === "konraddd";
+  } catch {
+    return false;
+  }
+}
 
 /** Następna runda po utworze `id` (albo null, gdy to ostatnia). */
 export function nextRound(id: string): string | null {
   const i = SONGS.findIndex((s) => s.id === id);
-  for (let j = i + 1; j < SONGS.length; j++) if (SONGS[j].playable) return SONGS[j].id;
+  for (let j = i + 1; j < SONGS.length; j++) {
+    const s = SONGS[j];
+    if (s.playable && (!s.devOnly || devUnlocked())) return s.id;
+  }
   return null;
 }
 
@@ -149,6 +172,7 @@ export function mergeServerStars(server: Record<string, { stars?: number }>): vo
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
+  if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
   const prev = SONGS[index - 1];
   return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
 }

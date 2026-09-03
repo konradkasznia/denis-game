@@ -6,7 +6,7 @@
 // Beatmapy trzymamy jako zwykłe assety (fetch), nie importy — dzięki temu
 // edytor będzie mógł je nadpisywać, a testy czytać przez `fs`.
 
-import { buildSynthSong, LANES, mkNote, type Note, type SongDef } from "./chart.ts";
+import { buildSynthSong, LANES, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
 
@@ -22,6 +22,7 @@ type SynthCfg = {
   characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
+  events?: SongEvent[];
 };
 
 /** naprzemienne ujęcia postaci co `every` s przez `secs` s utworu */
@@ -65,6 +66,19 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characterScale: 0.95,
     characterY: 704,
   },
+  "byleby-nie-byla-ciepla": {
+    title: "Byleby nie była ciepła",
+    artist: "Denis",
+    bpm: 140, // tymczasowe, do mp3
+    bars: 30,
+    characterScale: 0.95,
+    characterY: 704,
+    // poziom 5 — mechanika lodu: ekran zamarza, trzeba rozbić 10 tapnięć
+    events: [
+      { type: "ice", at: 20, taps: 10 },
+      { type: "ice", at: 46, taps: 12 },
+    ],
+  },
 };
 
 interface RawChart {
@@ -81,6 +95,7 @@ interface RawChart {
   characterScale?: number;
   characterY?: number;
   notes: { lane: number; time: number; dur?: number }[];
+  events?: SongEvent[];
 }
 
 const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)));
@@ -104,6 +119,7 @@ export function rawToSong(raw: RawChart): SongDef {
     characterScale: raw.characterScale,
     characterY: raw.characterY,
     notes,
+    events: raw.events,
     duration: raw.duration,
   };
 }

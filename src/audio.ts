@@ -142,12 +142,87 @@ export class AudioEngine {
   }
 
   /** Krótki dźwięk reakcji na trafienie (nakłada się na muzykę). */
-  sfx(kind: "perfect" | "great" | "good" | "miss" | "flow" | "combo") {
+  sfx(
+    kind:
+      | "perfect"
+      | "great"
+      | "good"
+      | "miss"
+      | "flow"
+      | "combo"
+      | "iceForm"
+      | "iceCrack"
+      | "iceShatter",
+  ) {
     if (!this._sfxOn || !this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
     const g = ctx.createGain();
     g.connect(this.sfxGain);
+
+    if (kind === "iceForm" || kind === "iceCrack" || kind === "iceShatter") {
+      const n = ctx.createBufferSource();
+      n.buffer = this.noiseBuffer;
+      const bp = ctx.createBiquadFilter();
+      if (kind === "iceForm") {
+        // narastające „zamarzanie" — szum przez pasmo opadające, z lekkim brzękiem
+        bp.type = "bandpass";
+        bp.Q.value = 6;
+        bp.frequency.setValueAtTime(5200, t);
+        bp.frequency.exponentialRampToValueAtTime(900, t + 0.5);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.5, t + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+        n.connect(bp).connect(g);
+        this.track(n).start(t);
+        n.stop(t + 0.6);
+      } else if (kind === "iceCrack") {
+        // pojedynczy trzask — krótki, ostry, wysoki
+        bp.type = "highpass";
+        bp.frequency.value = 2600;
+        g.gain.setValueAtTime(0.6, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+        n.connect(bp).connect(g);
+        this.track(n).start(t);
+        n.stop(t + 0.1);
+        const o = ctx.createOscillator();
+        o.type = "square";
+        o.frequency.setValueAtTime(1800 + Math.random() * 1400, t);
+        o.frequency.exponentialRampToValueAtTime(400, t + 0.05);
+        const og = ctx.createGain();
+        og.gain.setValueAtTime(0.14, t);
+        og.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+        o.connect(og).connect(this.sfxGain);
+        this.track(o).start(t);
+        o.stop(t + 0.08);
+      } else {
+        // rozbicie — mocny wybuch szumu + spadające odłamki
+        bp.type = "bandpass";
+        bp.Q.value = 1.4;
+        bp.frequency.setValueAtTime(3400, t);
+        bp.frequency.exponentialRampToValueAtTime(700, t + 0.4);
+        g.gain.setValueAtTime(0.8, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+        n.connect(bp).connect(g);
+        this.track(n).start(t);
+        n.stop(t + 0.5);
+        for (let i = 0; i < 5; i++) {
+          const o = ctx.createOscillator();
+          o.type = "triangle";
+          const f = 1400 + Math.random() * 2200;
+          const st = t + 0.02 + Math.random() * 0.18;
+          o.frequency.setValueAtTime(f, st);
+          o.frequency.exponentialRampToValueAtTime(f * 0.4, st + 0.12);
+          const og = ctx.createGain();
+          og.gain.setValueAtTime(0.12, st);
+          og.gain.exponentialRampToValueAtTime(0.0001, st + 0.14);
+          o.connect(og).connect(this.sfxGain);
+          this.track(o).start(st);
+          o.stop(st + 0.16);
+        }
+      }
+      return;
+    }
 
     if (kind === "miss") {
       const n = ctx.createBufferSource();

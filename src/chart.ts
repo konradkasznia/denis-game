@@ -25,6 +25,15 @@ export interface Note {
   judgedAt: number;
 }
 
+/** Zdarzenie na osi czasu utworu (poza nutami) — np. „zamrożenie ekranu". */
+export interface SongEvent {
+  type: "ice";
+  /** sekunda utworu, w której się uruchamia */
+  at: number;
+  /** ile tapnięć trzeba, by rozbić lód */
+  taps?: number;
+}
+
 export interface SongDef {
   id: string;
   title: string;
@@ -46,6 +55,8 @@ export interface SongDef {
   characterScale?: number;
   characterY?: number;
   notes: Note[];
+  /** zdarzenia na osi czasu (np. lód) */
+  events?: SongEvent[];
   /** całkowita długość utworu w sekundach */
   duration: number;
 }
@@ -72,6 +83,7 @@ export interface SynthOpts {
   characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
+  events?: SongEvent[];
 }
 
 function build(o: SynthOpts): SongDef {
@@ -160,6 +172,7 @@ function build(o: SynthOpts): SongDef {
     characterScale: o.characterScale,
     characterY: o.characterY,
     notes: cleaned,
+    events: o.events,
     duration,
   };
 }
