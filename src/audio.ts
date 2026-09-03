@@ -14,6 +14,10 @@ export class AudioEngine {
   private noiseBuffer: AudioBuffer | null = null;
   private startTime = 0;
   private _running = false;
+  // awaryjny zegar na performance.now() — używany, gdy AudioContext.currentTime
+  // nie rusza (błąd iOS Safari: state="running", a zegar stoi na 0)
+  private wallStartMs = 0;
+  private ctxAtStart = 0;
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
@@ -83,53 +87,52 @@ export class AudioEngine {
   }
 
   private async _unlock() {
+    // KLUCZOWE dla iOS: kontekst i „kopnięcie" muszą powstać synchronicznie
+    // w geście. Żadnego await PRZED tym. Nie zamykamy/nie odbudowujemy ctx
+    // poza gestem — to daje `state:running` z martwym zegarem (`currentTime`
+    // stoi na 0), czyli dokładnie objaw który gonimy.
     if (!this.ctx) this.buildCtx();
-    const tap = () => {
-      // klasyczny trik odblokowania audio na iOS: krótki cichy bufor w geście
-      try {
-        const s = this.ctx!.createBufferSource();
-        s.buffer = this.ctx!.createBuffer(1, 1, 22050);
-        s.connect(this.ctx!.destination);
-        s.start(0);
-      } catch {
-        /* ignore */
-      }
-    };
-    tap();
-    // resume() na iOS potrafi wisieć — próbujemy, ale nie blokujemy w nieskończoność
-    if (this.ctx!.state === "suspended") {
+    const ctx = this.ctx!;
+
+    // (1) cichy bufor — klasyczny odblokowywacz
+    try {
+      const s = ctx.createBufferSource();
+      s.buffer = ctx.createBuffer(1, 1, 22050);
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch {
+      /* ignore */
+    }
+    // (2) krótki oscylator na zerowym wzmocnieniu — WYMUSZA uruchomienie
+    //     wątku renderu audio, przez co `currentTime` faktycznie rusza
+    //     (samo `resume()` na iOS bywa niewystarczające).
+    try {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      o.connect(g).connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.05);
+    } catch {
+      /* ignore */
+    }
+
+    if (ctx.state !== "running") {
       this.resumeTries++;
       await Promise.race([
-        this.ctx!.resume().then(
+        ctx.resume().then(
           () => {},
           (e) => {
             this.lastAudioErr = String((e as Error)?.message || e).slice(0, 60);
           },
         ),
-        new Promise((r) => setTimeout(r, 2000)),
+        new Promise((r) => setTimeout(r, 1500)),
       ]);
     }
-    // wciąż zablokowany kontekst (typowe na iOS po nieudanej próbie) — zbuduj
-    // świeży i odblokuj go w TYM SAMYM geście
-    if (this.ctx!.state !== "running") {
-      try {
-        await this.ctx!.close();
-      } catch {
-        /* ignore */
-      }
-      this.buildCtx();
-      this.ctxRebuilt = true;
-      tap();
-      this.resumeTries++;
-      await Promise.race([
-        this.ctx!.resume().then(
-          () => {},
-          (e) => {
-            this.lastAudioErr = String((e as Error)?.message || e).slice(0, 60);
-          },
-        ),
-        new Promise((r) => setTimeout(r, 2000)),
-      ]);
+    // poczekaj aż zegar naprawdę ruszy (do ~1.2 s). Jeśli nie ruszy —
+    // `start()` i tak ustawi startTime bezpiecznie względem tego, co jest.
+    for (let i = 0; i < 12 && this.ctx!.currentTime === 0; i++) {
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 
@@ -161,25 +164,35 @@ export class AudioEngine {
     });
   }
 
-  /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem). */
+  /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem).
+   *  Preferuje zegar AudioContextu; gdy ten stoi (błąd iOS), przechodzi na
+   *  performance.now(), żeby gra w ogóle ruszyła. */
   getSongTime(): number {
     if (!this.ctx || !this._running) return 0;
-    return this.ctx.currentTime - this.startTime;
+    const ctxT = this.ctx.currentTime - this.startTime;
+    if (!this.wallStartMs) return ctxT;
+    const wallT = (performance.now() - this.wallStartMs) / 1000 - 0.25;
+    // zegar ctx uznajemy za „żywy", jeśli posunął się choć trochę od startu
+    const ctxAdvanced = this.ctx.currentTime - this.ctxAtStart > 0.05;
+    return ctxAdvanced ? ctxT : wallT;
+  }
+
+  /** Czy zegar AudioContextu faktycznie chodzi (do diagnostyki / watchdoga). */
+  clockAlive(): boolean {
+    return !!this.ctx && this.ctx.currentTime - this.ctxAtStart > 0.05;
   }
 
   // --- diagnostyka (do ekranu błędu na telefonie) ---
   resumeTries = 0;
-  ctxRebuilt = false;
   lastAudioErr = "";
   diag(): string {
     const c = this.ctx;
     return [
       `state=${c ? c.state : "brak"}`,
       `t=${c ? c.currentTime.toFixed(2) : "-"}`,
-      `start=${this.startTime.toFixed(2)}`,
+      `clock=${this.clockAlive() ? "ok" : "MARTWY"}`,
       `run=${this._running ? 1 : 0}`,
       `resume×${this.resumeTries}`,
-      this.ctxRebuilt ? "rebuilt" : "",
       this.lastAudioErr ? `err:${this.lastAudioErr}` : "",
     ]
       .filter(Boolean)
@@ -402,6 +415,8 @@ export class AudioEngine {
     if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     this.master.gain.cancelScheduledValues(ctx.currentTime);
     this.master.gain.setValueAtTime(0.9, ctx.currentTime);
+    this.wallStartMs = performance.now();
+    this.ctxAtStart = ctx.currentTime;
 
     // --- prawdziwy plik audio ---
     if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
@@ -411,8 +426,28 @@ export class AudioEngine {
       const t0 = ctx.currentTime + 0.25;
       this.startTime = t0;
       this._running = true;
+      // jeśli zegar ctx nie ruszy w ~0.4 s (błąd iOS), wystartuj źródło „od razu"
+      // (bez czasu docelowego), żeby dźwięk w ogóle poszedł
       src.start(t0);
       this.srcNode = src;
+      setTimeout(() => {
+        if (this._running && this.srcNode === src && !this.clockAlive()) {
+          try {
+            src.stop();
+          } catch {
+            /* ignore */
+          }
+          try {
+            const s2 = ctx.createBufferSource();
+            s2.buffer = src.buffer;
+            s2.connect(this.master!);
+            s2.start();
+            this.srcNode = s2;
+          } catch {
+            /* ignore */
+          }
+        }
+      }, 450);
       return;
     }
 
