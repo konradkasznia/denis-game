@@ -1582,14 +1582,6 @@ export class Game {
       }
       if (!guard()) return;
       this.song = song;
-      // rozgrzej bufor tafli lodu w tle ekranu ładowania (nigdy nie blokuj gry)
-      if (song.events?.some((e) => e.type === "ice")) {
-        try {
-          this.ensureIceLayer(Math.max(1, Math.ceil(this.sh())));
-        } catch {
-          /* brak lodu w buforze → drawIce zbuduje w locie */
-        }
-      }
     } catch (e) {
       if (guard()) {
         this.loadError = `Nie udało się wczytać utworu (${(e as Error).message || e}). Sprawdź połączenie i spróbuj ponownie.`;
@@ -3331,17 +3323,17 @@ export class Game {
       }
     }
 
-    // 2. tafla — zbuforowana grafika (budowana raz, zwykle już w `startPlay`)
+    // 2. tafla — zbuforowana grafika (budowana raz, stały rozmiar, rozciągana)
     let layer: HTMLCanvasElement | null = null;
     try {
-      layer = this.ensureIceLayer(Math.max(1, Math.ceil(H)));
+      layer = this.ensureIceLayer();
     } catch {
       layer = null; // awaria budowy → sam korpus poniżej
     }
     ctx.save();
     ctx.globalAlpha = A;
     if (layer) {
-      ctx.drawImage(layer, 0, top);
+      ctx.drawImage(layer, 0, top, VW, H);
     } else {
       // fallback bez tafli — samo chłodne przyciemnienie, żeby lód był czytelny
       ctx.fillStyle = "rgba(200,226,245,0.9)";
@@ -3403,21 +3395,20 @@ export class Game {
     }
   }
 
-  /** Buduje (raz) i zwraca bufor tafli lodu dla wysokości `LH`. Wołane z
-   *  `beginSong()` (rozgrzewka podczas ładowania) i z `drawIce()` (fallback). */
-  private ensureIceLayer(LH: number): HTMLCanvasElement | null {
-    const LW = VW;
+  /** Buduje (raz) bufor tafli lodu w STAŁYM rozmiarze projektu (VW×VH) —
+   *  przy rysowaniu jest rozciągany do realnej wysokości ekranu. Stały,
+   *  mały canvas = brak presji pamięci canvasu na iOS Safari. */
+  private ensureIceLayer(): HTMLCanvasElement | null {
     let layer = this.iceLayer;
     if (!layer) layer = this.iceLayer = document.createElement("canvas");
-    const key = `${LW}x${LH}`;
-    if (layer.width !== LW || layer.height !== LH || this.iceLayerKey !== key) {
-      layer.width = LW;
-      layer.height = LH;
+    if (this.iceLayerKey !== "1") {
+      layer.width = VW;
+      layer.height = VH;
       const lx = layer.getContext("2d");
       if (!lx) return null;
-      lx.clearRect(0, 0, LW, LH);
-      this.drawIceSheet(lx, LW, LH);
-      this.iceLayerKey = key;
+      lx.clearRect(0, 0, VW, VH);
+      this.drawIceSheet(lx, VW, VH);
+      this.iceLayerKey = "1";
     }
     return layer;
   }
