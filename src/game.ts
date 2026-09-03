@@ -504,7 +504,19 @@ export class Game {
       this.checkMisses();
       this.resolveHeldHolds();
       this.pulseHoldHaptics();
-      if (this.songTime > this.song.duration + 0.6 && this.allJudged()) {
+      if (this.songTime > this.song.duration + 0.6) {
+        // koniec utworu: cokolwiek zostało nierozliczone = pudło (np. zegar
+        // audio się zaciął i nuty nie zdążyły przelecieć — bez tego wynik
+        // liczył się tylko z trafień i wychodziło 100% mimo „ominiętych" nut)
+        for (const n of this.song.notes) {
+          if (n.judged) continue;
+          n.judged = true;
+          n.hit = false;
+          if (!n.bomb) {
+            n.headJ = "miss";
+            this.apply("miss", n.lane);
+          }
+        }
         this.finish();
       }
     }
@@ -2112,9 +2124,6 @@ export class Game {
     return this.starsFor(clamp(this.rating(), 0, 1));
   }
 
-  private allJudged() {
-    return this.song.notes.every((n) => n.judged);
-  }
 
   // ---- projekcja perspektywiczna toru ---------------------------
   //
