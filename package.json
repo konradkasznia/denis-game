@@ -26,6 +26,7 @@
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
-    "@libsql/client": "^0.14.0"
+    "@libsql/client": "^0.14.0",
+    "onesignal-cordova-plugin": "^5.5.4"
   }
 }

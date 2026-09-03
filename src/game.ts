@@ -12,6 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
+import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
@@ -117,9 +118,10 @@ const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 const SET_W = VW - MARGIN * 2;
 const SET_TERMS: Rect = { x: MARGIN, y: 246, w: SET_W, h: 96 };
 const SET_PRIV: Rect = { x: MARGIN, y: 356, w: SET_W, h: 96 };
-const SET_DELETE: Rect = { x: MARGIN, y: 560, w: SET_W, h: 96 };
-const SET_LOGOUT: Rect = { x: MARGIN, y: 670, w: SET_W, h: 96 };
-const SET_MAIL: Rect = { x: MARGIN, y: 940, w: SET_W, h: 120 };
+const SET_PUSH: Rect = { x: MARGIN, y: 462, w: SET_W, h: 96 }; // przełącznik powiadomień
+const SET_DELETE: Rect = { x: MARGIN, y: 590, w: SET_W, h: 96 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 700, w: SET_W, h: 96 };
+const SET_MAIL: Rect = { x: MARGIN, y: 952, w: SET_W, h: 120 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
 const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
@@ -342,6 +344,7 @@ export class Game {
     setHapticsEnabled(true); // wibracje zawsze włączone
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
     void this.syncSession(); // sprawdź sesję na serwerze
+    void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
     // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
@@ -351,7 +354,7 @@ export class Game {
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
       "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kontynuuj.png",
-      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
+      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png", "button-powiadom-mnie.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
       loadImg(`assets/ui/${n}`);
@@ -939,6 +942,7 @@ export class Game {
    *  w grze, jesteśmy teraz w menu pauzy i gracz sam klika GRAJ!. */
   onAppForeground() {
     if (this.scene !== "play") void this.audio.resumePlayback();
+    void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
   }
 
   /** Szerokość głowy Denisa na ekranie auth — rośnie z zapasem wysokości. */
@@ -1202,6 +1206,7 @@ export class Game {
     if (x < 0) return;
     if (inRect(HIT_GEAR, x, y)) {
       this.scene = "profile";
+      void syncPushState(); // przełącznik ma odbić stan zgód systemowych
       return;
     }
     if (inRect(HIT_ARROW_L, x, y)) {
@@ -1221,9 +1226,15 @@ export class Game {
     const meta = SONGS[this.hitIndex];
     if (!meta) return;
 
-    // utwór „wkrótce": dolny przycisk na całą szerokość = odsłuch na Spotify
+    // utwór „wkrótce": „Powiadom mnie" (górny) + odsłuch na Spotify (dolny)
     if (!meta.playable) {
-      if (inRect(this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h }), x, y)) {
+      const wide = { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
+      const spotBelow = { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_REW.h };
+      if (inRect(this.hb(wide), x, y)) {
+        if (!pushOptedInSync()) void enablePush();
+        return;
+      }
+      if (inRect(this.hb(spotBelow), x, y)) {
         const url = spotifyUrl(meta.id);
         if (url) openExternal(url);
       }
@@ -1293,6 +1304,11 @@ export class Game {
     if (inRect(SET_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
     if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
     if (inRect(SET_MAIL, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
+    if (inRect(SET_PUSH, x, y)) {
+      if (pushOptedInSync()) void disablePush();
+      else void enablePush();
+      return;
+    }
     if (inRect(SET_LOGOUT, x, y)) {
       // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze i wrócą
       // po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię na tym urządzeniu.
@@ -2395,13 +2411,22 @@ export class Game {
     if (!meta.playable) {
       // czerwona pieczątka „WKRÓTCE" ukośnie na postaci
       this.drawCharStamp(ctx, "wkrotce.png", -13, "WKRÓTCE");
-      // utwór jeszcze niedostępny → przycisk do jego odsłuchu na Spotify
-      this.uiButton(
-        ctx,
-        this.hb({ x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h }),
-        "otworz-w-spotify",
-        { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" },
-      );
+
+      const wide = { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
+      const spotBelow = { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_REW.h };
+
+      // „Powiadom mnie" — daj znać, gdy poziom będzie gotowy
+      const notified = pushOptedInSync();
+      this.uiButton(ctx, this.hb(wide), "powiadom-mnie", {
+        fallback: notified ? "POWIADOMIMY CIĘ ✓" : "POWIADOM MNIE",
+        style: "gold",
+        disabled: notified,
+      });
+      // + odsłuch utworu na Spotify
+      this.uiButton(ctx, this.hb(spotBelow), "otworz-w-spotify", {
+        fallback: "OTWÓRZ W SPOTIFY",
+        style: "dark-green",
+      });
       return;
     }
 
@@ -2547,6 +2572,36 @@ export class Game {
     text(ctx, "›", r.x + r.w - 26, r.y + r.h / 2, { size: 30, align: "right", color });
   }
 
+  /** Wiersz ustawień z przełącznikiem on/off (pigułka po prawej). */
+  private toggleRow(ctx: CanvasRenderingContext2D, r: Rect, label: string, sub: string, on: boolean) {
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.16)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
+    ctx.stroke();
+    text(ctx, label, r.x + 24, r.y + r.h / 2 - 11, {
+      size: 21,
+      align: "left",
+      weight: "800",
+      color: "#ffce8a",
+    });
+    text(ctx, sub, r.x + 24, r.y + r.h / 2 + 15, { size: 14, align: "left", color: "#9a8c7e" });
+    // pigułka
+    const pw = 68;
+    const ph = 34;
+    const px = r.x + r.w - pw - 20;
+    const py = r.y + (r.h - ph) / 2;
+    ctx.fillStyle = on ? "#e8971c" : "rgba(255,255,255,0.14)";
+    roundRect(ctx, px, py, pw, ph, ph / 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff7ec";
+    ctx.beginPath();
+    ctx.arc(on ? px + pw - ph / 2 : px + ph / 2, py + ph / 2, ph / 2 - 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   private drawProfile(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
@@ -2565,6 +2620,15 @@ export class Game {
 
     this.linkRow(ctx, SET_TERMS, "Regulamin");
     this.linkRow(ctx, SET_PRIV, "Polityka prywatności");
+
+    // Powiadomienia o nowej zawartości (nowe poziomy / utwory)
+    this.toggleRow(
+      ctx,
+      SET_PUSH,
+      "Powiadomienia o nowej zawartości",
+      "Nowe poziomy i utwory. Nie wysyłamy reklam.",
+      pushOptedInSync(),
+    );
 
     // Usuń konto i dane — przedostatnie, neutralny kolor
     this.linkRow(ctx, SET_DELETE, "Usuń konto i dane", "#e0d0bd");
