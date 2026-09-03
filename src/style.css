@@ -59,7 +59,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: #000;
+  background: #0b0b12; /* zgodne z natywnym splashem (Capacitor) — brak przeskoku */
   display: flex;
   align-items: center;
   justify-content: center;
