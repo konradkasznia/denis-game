@@ -318,6 +318,7 @@ export class Game {
   private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
   private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
   private iceLayerKey = ""; // `${W}x${H}` — przerysuj warstwę przy zmianie rozmiaru
+  private canvasFilterOK: boolean | null = null; // czy WebView wspiera ctx.filter
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -1697,6 +1698,10 @@ export class Game {
     }
     this.audio.start(this.song);
     this.songStartedAt = performance.now();
+    // rozgrzej bufor tafli lodu, żeby wejście lodu nie szarpnęło klatką
+    if (this.song.events?.some((e) => e.type === "ice")) {
+      this.ensureIceLayer(Math.max(1, Math.ceil(this.sh())));
+    }
   }
 
   /** Przerywa trwające wczytywanie i wraca do karuzeli. */
@@ -3293,48 +3298,43 @@ export class Game {
     const H = this.sh();
     const cv = ctx.canvas;
 
-    // 1. rozmycie tła — postać + nuty za taflą
-    if (blurPx > 0.4 && cv.width > 0 && cv.height > 0) {
+    // 1. rozmycie tła — postać + nuty za taflą.
+    //    Robione na 1/3 rozdzielczości (blur skaluje się z liczbą pikseli),
+    //    z powrotem skalowane w górę — dodatkowo zmiękcza, taniej ~9×.
+    if (this.canvasFilterOK === null) {
+      this.canvasFilterOK = typeof ctx.filter === "string";
+    }
+    if (this.canvasFilterOK && blurPx > 0.4 && cv.width > 1 && cv.height > 1) {
+      const dw = Math.max(1, Math.round(cv.width / 3));
+      const dh = Math.max(1, Math.round(cv.height / 3));
       let snap = this.iceSnap;
       if (!snap) snap = this.iceSnap = document.createElement("canvas");
-      if (snap.width !== cv.width || snap.height !== cv.height) {
-        snap.width = cv.width;
-        snap.height = cv.height;
+      if (snap.width !== dw || snap.height !== dh) {
+        snap.width = dw;
+        snap.height = dh;
       }
       const sx = snap.getContext("2d");
       if (sx) {
-        sx.clearRect(0, 0, snap.width, snap.height);
-        sx.drawImage(cv, 0, 0);
+        sx.clearRect(0, 0, dw, dh);
+        sx.drawImage(cv, 0, 0, dw, dh);
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = fade;
-        ctx.filter = `blur(${blurPx}px)`;
-        ctx.drawImage(snap, -24, -24, snap.width + 48, snap.height + 48);
+        ctx.filter = `blur(${(blurPx / 4).toFixed(2)}px)`; // /3 downscale + upscale i tak zmiękcza
+        ctx.drawImage(snap, -24, -24, cv.width + 48, cv.height + 48);
         ctx.filter = "none";
         ctx.restore();
       }
     }
 
-    // 2. tafla — zbuforowana grafika, składana jednym kryciem
-    const LW = VW;
-    const LH = Math.max(1, Math.ceil(H));
-    let layer = this.iceLayer;
-    if (!layer) layer = this.iceLayer = document.createElement("canvas");
-    const key = `${LW}x${LH}`;
-    if (layer.width !== LW || layer.height !== LH || this.iceLayerKey !== key) {
-      layer.width = LW;
-      layer.height = LH;
-      const lx = layer.getContext("2d");
-      if (lx) {
-        lx.clearRect(0, 0, LW, LH);
-        this.drawIceSheet(lx, LW, LH);
-      }
-      this.iceLayerKey = key;
+    // 2. tafla — zbuforowana grafika (budowana raz, najlepiej przy `beginSong`)
+    const layer = this.ensureIceLayer(Math.max(1, Math.ceil(H)));
+    if (layer) {
+      ctx.save();
+      ctx.globalAlpha = A;
+      ctx.drawImage(layer, 0, top);
+      ctx.restore();
     }
-    ctx.save();
-    ctx.globalAlpha = A;
-    ctx.drawImage(layer, 0, top);
-    ctx.restore();
 
     // 3. pęknięcia od każdego tapnięcia — na wierzchu, pełna moc
     ctx.save();
@@ -3390,102 +3390,153 @@ export class Game {
     }
   }
 
-  /** Grafika tafli „Gruby szron" — rysowana raz do bufora (`this.iceLayer`),
-   *  potem tylko składana z animowanym kryciem. Deterministyczna (stały seed). */
+  /** Buduje (raz) i zwraca bufor tafli lodu dla wysokości `LH`. Wołane z
+   *  `beginSong()` (rozgrzewka podczas ładowania) i z `drawIce()` (fallback). */
+  private ensureIceLayer(LH: number): HTMLCanvasElement | null {
+    const LW = VW;
+    let layer = this.iceLayer;
+    if (!layer) layer = this.iceLayer = document.createElement("canvas");
+    const key = `${LW}x${LH}`;
+    if (layer.width !== LW || layer.height !== LH || this.iceLayerKey !== key) {
+      layer.width = LW;
+      layer.height = LH;
+      const lx = layer.getContext("2d");
+      if (!lx) return null;
+      lx.clearRect(0, 0, LW, LH);
+      this.drawIceSheet(lx, LW, LH);
+      this.iceLayerKey = key;
+    }
+    return layer;
+  }
+
+  /** Grafika tafli „Gruby szron" — rysowana RAZ do bufora (`this.iceLayer`),
+   *  potem tylko składana z animowanym kryciem. Deterministyczna (stały seed),
+   *  bez rekurencji — koszt budowy ~kilka ms nawet na słabym telefonie. */
   private drawIceSheet(ctx: CanvasRenderingContext2D, W: number, H: number) {
-    const SEED = 20259;
-    const mkRng = (s0: number) => {
-      let s = s0 >>> 0;
-      return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+    let s = 20259;
+    const rng = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+    // mroźny korpus tafli
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "rgba(224,240,252,0.95)");
+    g.addColorStop(0.5, "rgba(202,228,247,0.9)");
+    g.addColorStop(1, "rgba(178,213,240,0.95)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    // matowy nalot szronu — gęsta ziarnistość krótkich kresek (tanie, bez rekurencji)
+    ctx.strokeStyle = "rgba(245,251,255,0.5)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 520; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
+      const a = rng() * Math.PI;
+      const l = 2 + rng() * 6;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    }
+    ctx.stroke();
+
+    // dendryt szronu — polilinia z gałązkami (2 poziomy, PĘTLE nie rekurencja)
+    const dendrite = (x0: number, y0: number, dx: number, dy: number, len: number, weight: number) => {
+      const px = -dy;
+      const py = dx;
+      ctx.lineWidth = weight;
+      ctx.beginPath();
+      const N = 5;
+      const nx: number[] = [x0];
+      const ny: number[] = [y0];
+      ctx.moveTo(x0, y0);
+      for (let i = 1; i <= N; i++) {
+        const t = i / N;
+        const j = (rng() - 0.5) * len * 0.16;
+        const x = x0 + dx * len * t + px * j;
+        const y = y0 + dy * len * t + py * j;
+        ctx.lineTo(x, y);
+        nx.push(x);
+        ny.push(y);
+      }
+      // gałązki z węzłów + krótkie „twigi" z gałązek
+      for (let i = 1; i < N; i++) {
+        const branches = 1 + ((rng() * 2) | 0);
+        for (let b = 0; b < branches; b++) {
+          const side = rng() < 0.5 ? 1 : -1;
+          const bl = len * (0.22 + rng() * 0.18) * (1 - i / N);
+          const bx = nx[i] + (dx * 0.4 + px * side) * bl;
+          const by = ny[i] + (dy * 0.4 + py * side) * bl;
+          ctx.moveTo(nx[i], ny[i]);
+          ctx.lineTo(bx, by);
+          const tw = 2 + ((rng() * 2) | 0);
+          for (let w = 0; w < tw; w++) {
+            const tl = bl * (0.35 + rng() * 0.25);
+            const ta = (rng() - 0.5) * 1.4;
+            ctx.moveTo(bx, by);
+            ctx.lineTo(
+              bx + (Math.cos(ta) * (dx * 0.3 + px * side) + Math.sin(ta) * dy) * tl,
+              by + (Math.cos(ta) * (dy * 0.3 + py * side) + Math.sin(ta) * dx) * tl,
+            );
+          }
+        }
+      }
+      ctx.stroke();
     };
-    const drawStar = (x: number, y: number, r: number) => {
+    const frostEdge = (col: string, weight: number, count: number, min: number, span: number) => {
+      ctx.strokeStyle = col;
+      for (let i = 0; i < count; i++) {
+        dendrite(0, ((i + rng()) / count) * H, 1, (rng() - 0.5) * 0.55, min + rng() * span, weight);
+        dendrite(W, ((i + rng()) / count) * H, -1, (rng() - 0.5) * 0.55, min + rng() * span, weight);
+      }
+      const cols = Math.max(3, Math.round(count / 2.6));
+      for (let i = 0; i < cols; i++) {
+        dendrite(((i + rng()) / cols) * W, 0, (rng() - 0.5) * 0.55, 1, min * 0.85 + rng() * span * 0.85, weight);
+        dendrite(((i + rng()) / cols) * W, H, (rng() - 0.5) * 0.55, -1, min * 0.85 + rng() * span * 0.85, weight);
+      }
+    };
+    ctx.shadowColor = "rgba(120,190,245,0.5)";
+    ctx.shadowBlur = 3;
+    frostEdge("rgba(118,164,208,0.42)", 2.2, 30, 90, 150);
+    frostEdge("rgba(250,253,255,0.9)", 1.7, 30, 70, 120);
+    ctx.shadowBlur = 0;
+
+    // kryształy 6-ramienne — rogi + trochę rozsianych
+    const starAt = (x: number, y: number, r: number) => {
       ctx.beginPath();
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2;
         const rr = k % 2 ? r * 0.4 : r;
-        const px = x + Math.cos(a) * rr;
-        const py = y + Math.sin(a) * rr;
-        if (k) ctx.lineTo(px, py);
-        else ctx.moveTo(px, py);
+        const sx2 = x + Math.cos(a) * rr;
+        const sy2 = y + Math.sin(a) * rr;
+        if (k) ctx.lineTo(sx2, sy2);
+        else ctx.moveTo(sx2, sy2);
       }
       ctx.closePath();
     };
-    const fern = (x: number, y: number, ang: number, len: number, w: number, rng: () => number, depth: number) => {
-      if (len < 7 || w < 0.3 || depth > 7) return;
-      const x2 = x + Math.cos(ang) * len;
-      const y2 = y + Math.sin(ang) * len;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x2, y2);
-      ctx.lineWidth = w;
-      ctx.stroke();
-      const n = 2 + ((rng() * 3) | 0);
-      for (let i = 1; i <= n; i++) {
-        const t = i / (n + 1);
-        const bx = x + Math.cos(ang) * len * t;
-        const by = y + Math.sin(ang) * len * t;
-        const sl = len * (0.34 + rng() * 0.12) * (1 - t * 0.35);
-        fern(bx, by, ang + 0.55 + rng() * 0.25, sl, w * 0.6, rng, depth + 1);
-        fern(bx, by, ang - 0.55 - rng() * 0.25, sl, w * 0.6, rng, depth + 1);
-      }
-      fern(x2, y2, ang + (rng() - 0.5) * 0.5, len * 0.72, w * 0.7, rng, depth + 1);
-    };
-    const fernField = (rng: () => number, density: number, len: number, col: string) => {
-      ctx.strokeStyle = col;
-      ctx.lineCap = "round";
-      ctx.shadowColor = "rgba(120,190,245,0.55)";
-      ctx.shadowBlur = 4;
-      const groups: (() => [number, number, number])[] = [
-        () => [rng() * W, -8, Math.PI / 2 + (rng() - 0.5) * 0.7],
-        () => [rng() * W, H + 8, -Math.PI / 2 + (rng() - 0.5) * 0.7],
-        () => [-8, rng() * H, (rng() - 0.5) * 0.7],
-        () => [W + 8, rng() * H, Math.PI + (rng() - 0.5) * 0.7],
-      ];
-      for (let gi = 0; gi < groups.length; gi++) {
-        const count = Math.round(density * (gi < 2 ? 1 : 0.7));
-        for (let i = 0; i < count; i++) {
-          const p = groups[gi]();
-          fern(p[0], p[1], p[2], len * (0.7 + rng() * 0.6), 2.0, rng, 0);
-        }
-      }
-      ctx.shadowBlur = 0;
-    };
-    const clumps = (rng: () => number, nn: number, spread: number, cx: number, cy: number, maxR: number) => {
-      for (let i = 0; i < nn; i++) {
-        const x = cx + (rng() - 0.5) * spread;
-        const y = cy + (rng() - 0.5) * spread;
-        drawStar(x, y, 2.5 + rng() * maxR);
-        ctx.fillStyle = `rgba(240,249,255,${0.16 + rng() * 0.26})`;
+    const crystals = (n: number, spread: number, cx: number, cy: number, maxR: number) => {
+      for (let i = 0; i < n; i++) {
+        starAt(cx + (rng() - 0.5) * spread, cy + (rng() - 0.5) * spread, 3 + rng() * maxR);
+        ctx.fillStyle = `rgba(240,249,255,${0.14 + rng() * 0.24})`;
         ctx.fill();
       }
     };
-
-    const rng = mkRng(SEED);
-    // mroźny korpus tafli
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "rgba(223,240,252,0.94)");
-    g.addColorStop(0.5, "rgba(203,229,248,0.84)");
-    g.addColorStop(1, "rgba(180,214,240,0.94)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    ctx.lineJoin = "round";
-
-    fernField(rng, 22, 220, "rgba(120,168,210,0.42)");
-    fernField(mkRng(SEED ^ 0x2545f491), 20, 195, "rgba(249,253,255,0.88)");
-    for (let i = 0; i < 18; i++) clumps(rng, 5, 140, rng() * W, rng() * H, 9);
-    ([[0, 0], [W, 0], [0, H], [W, H]] as [number, number][]).forEach((cn) =>
-      clumps(rng, 34, 380, cn[0], cn[1], 13),
+    ([[0, 0], [W, 0], [0, H], [W, H]] as [number, number][]).forEach((c) =>
+      crystals(30, 380, c[0], c[1], 12),
     );
-    for (let s = 0; s < 90; s++) {
-      ctx.fillStyle = `rgba(255,255,255,${0.4 + rng() * 0.55})`;
+    crystals(16, W, W / 2, H / 2, 7);
+
+    // iskrzenie
+    for (let i = 0; i < 80; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.4 + rng() * 0.5})`;
       ctx.beginPath();
-      ctx.arc(rng() * W, rng() * H, 0.6 + rng() * 2.2, 0, Math.PI * 2);
+      ctx.arc(rng() * W, rng() * H, 0.6 + rng() * 2, 0, 6.283);
       ctx.fill();
     }
 
-    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.72);
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.16, W / 2, H / 2, H * 0.7);
     vg.addColorStop(0, "rgba(236,247,255,0)");
-    vg.addColorStop(1, "rgba(226,243,255,0.62)");
+    vg.addColorStop(1, "rgba(224,242,255,0.72)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
   }
