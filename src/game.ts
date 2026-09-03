@@ -3233,37 +3233,109 @@ export class Game {
     if (!this.iceActive && !shattering) return;
 
     const formT = clamp((this.songTime - this.iceStartAt) / 0.32, 0, 1);
-    const baseA = this.iceActive ? 0.5 * formT : 0.5 * (1 - sinceShatter / 0.45);
-    const a = clamp(baseA, 0, 0.55);
+    const fade = this.iceActive ? formT : 1 - sinceShatter / 0.45;
+    const A = clamp(fade, 0, 1) * 0.92;
     const top = -this.vdy;
     const H = this.sh();
 
     ctx.save();
-    // tafla
-    this.fillViewport(ctx, `rgba(206,234,255,${a})`);
-    // mróz przy krawędziach — winieta + deterministyczne kryształy
-    const vg = ctx.createRadialGradient(VW / 2, top + H / 2, H * 0.28, VW / 2, top + H / 2, H * 0.62);
-    vg.addColorStop(0, "rgba(255,255,255,0)");
-    vg.addColorStop(1, `rgba(255,255,255,${a * 0.9})`);
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, top, VW, H);
-    ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`;
-    let seed = 1337;
+    let seed = 20259;
     const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-    for (let i = 0; i < 46; i++) {
-      const ex = rnd();
-      const x = ex < 0.5 ? rnd() * VW * 0.28 : VW - rnd() * VW * 0.28;
-      const y = top + rnd() * H;
-      const r = 3 + rnd() * 9;
-      ctx.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const ang = (k / 6) * Math.PI * 2;
-        const rr = k % 2 ? r * 0.4 : r;
-        ctx[k ? "lineTo" : "moveTo"](x + Math.cos(ang) * rr, y + Math.sin(ang) * rr);
+
+    // 1. bazowa tafla — głęboki, chłodny błękit (nie biały)
+    const g = ctx.createLinearGradient(0, top, 0, top + H);
+    g.addColorStop(0, `rgba(74,132,196,${0.5 * A})`);
+    g.addColorStop(0.55, `rgba(108,170,214,${0.32 * A})`);
+    g.addColorStop(1, `rgba(60,116,182,${0.46 * A})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, top, VW, H);
+
+    // 2. chropowate płyty lodu — nieregularna siatka wielokątów, każda w innym błękicie
+    const COLS = 3;
+    const ROWS = 6;
+    const cw = VW / COLS;
+    const ch = H / ROWS;
+    const jx = 0.46 * cw;
+    const jy = 0.46 * ch;
+    const vert: { x: number; y: number }[][] = [];
+    for (let r = 0; r <= ROWS; r++) {
+      vert[r] = [];
+      for (let c = 0; c <= COLS; c++) {
+        const edge = c === 0 || c === COLS || r === 0 || r === ROWS;
+        vert[r][c] = {
+          x: c * cw + (edge ? 0 : (rnd() * 2 - 1) * jx),
+          y: top + r * ch + (edge ? 0 : (rnd() * 2 - 1) * jy),
+        };
       }
-      ctx.closePath();
-      ctx.fill();
     }
+    ctx.lineJoin = "round";
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p0 = vert[r][c];
+        const p1 = vert[r][c + 1];
+        const p2 = vert[r + 1][c + 1];
+        const p3 = vert[r + 1][c];
+        const lum = rnd();
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.closePath();
+        const rr = 90 + Math.floor(lum * 70);
+        const gg = 150 + Math.floor(lum * 55);
+        const bb = 200 + Math.floor(lum * 45);
+        ctx.fillStyle = `rgba(${rr},${gg},${bb},${(0.1 + lum * 0.22) * A})`;
+        ctx.fill();
+        // krawędzie spękań między płytami — jasny, ostry kontur
+        ctx.strokeStyle = `rgba(233,248,255,${0.7 * A})`;
+        ctx.lineWidth = 1.4 + rnd() * 2.2;
+        ctx.stroke();
+        // wewnętrzny klin — ostra rysa przez płytę
+        if (rnd() < 0.55) {
+          const mx = (p0.x + p2.x) / 2 + (rnd() * 2 - 1) * 12;
+          const my = (p0.y + p2.y) / 2 + (rnd() * 2 - 1) * 12;
+          ctx.beginPath();
+          ctx.moveTo(p0.x + (p1.x - p0.x) * 0.3, p0.y + (p1.y - p0.y) * 0.3);
+          ctx.lineTo(mx, my);
+          ctx.lineTo(p2.x - (p2.x - p3.x) * 0.3, p2.y - (p2.y - p3.y) * 0.3);
+          ctx.strokeStyle = `rgba(206,236,255,${0.4 * A})`;
+          ctx.lineWidth = 1.3;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 3. szron wdzierający się od krawędzi — kolczaste, poszarpane fronty
+    const frostClaw = (bx: number, by: number, dx: number, dy: number, len: number, spread: number) => {
+      ctx.beginPath();
+      ctx.moveTo(bx - dy * spread, by + dx * spread);
+      for (let s = 1; s <= 5; s++) {
+        const t = s / 5;
+        const zig = (s % 2 ? 1 : -1) * spread * (1 - t) * 0.85;
+        ctx.lineTo(bx + dx * len * t - dy * zig, by + dy * len * t + dx * zig);
+      }
+      ctx.lineTo(bx + dy * spread, by - dx * spread);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(226,243,255,${0.62 * A})`;
+      ctx.fill();
+    };
+    for (let i = 0; i < 6; i++) {
+      const fy = top + ((i + 0.5) / 6) * H + (rnd() * 2 - 1) * 26;
+      frostClaw(0, fy, 1, 0, 80 + rnd() * 120, 20 + rnd() * 20);
+      frostClaw(VW, top + ((i + 0.5) / 6) * H + (rnd() * 2 - 1) * 26, -1, 0, 80 + rnd() * 120, 20 + rnd() * 20);
+    }
+    for (let i = 0; i < 3; i++) {
+      frostClaw(((i + 0.5) / 3) * VW, top, 0, 1, 65 + rnd() * 90, 18 + rnd() * 16);
+      frostClaw(((i + 0.5) / 3) * VW, top + H, 0, -1, 65 + rnd() * 90, 18 + rnd() * 16);
+    }
+
+    // 4. lekki mroźny nalot przy krawędziach
+    const cg = ctx.createRadialGradient(VW / 2, top + H / 2, H * 0.3, VW / 2, top + H / 2, H * 0.66);
+    cg.addColorStop(0, "rgba(210,235,255,0)");
+    cg.addColorStop(1, `rgba(222,242,255,${0.4 * A})`);
+    ctx.fillStyle = cg;
+    ctx.fillRect(0, top, VW, H);
     // pęknięcia od każdego tapnięcia
     ctx.strokeStyle = "rgba(255,255,255,0.95)";
     ctx.lineCap = "round";
