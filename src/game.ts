@@ -12,6 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
+import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, votedChoice } from "./poll.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
@@ -332,6 +333,9 @@ export class Game {
   private authErrorCloseRect: Rect | null = null;
   private authBusy = false;
   private modalOkRect: Rect | null = null;
+  /** głosowanie „jaki poziom 6?" — null | wybór opcji | podziękowanie */
+  private voteModal: null | "pick" | "thanks" = null;
+  private voteRects: { r: Rect; id: string }[] = [];
   /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
   private authLoginState = "";
   private authCheckSeq = 0;
@@ -906,6 +910,7 @@ export class Game {
     }
 
     if (this.soundModal) this.drawSoundModal(ctx);
+    if (this.voteModal) this.drawVoteModal(ctx);
     if (this.offlineNotice && this.scene === "results") {
       this.drawModal(
         ctx,
@@ -961,6 +966,19 @@ export class Game {
       void this.audio.unlock();
       this.soundModal = false;
       this.soundHintDone = true;
+      return;
+    }
+    if (this.voteModal === "thanks") {
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) this.voteModal = null;
+      return;
+    }
+    if (this.voteModal === "pick") {
+      const hit = this.voteRects.find((v) => inRect(v.r, x, y));
+      if (hit) {
+        submitVote(POLL_LEVEL6, hit.id);
+        void enablePush(); // głos = świadoma zgoda na powiadomienia o nowej zawartości
+        this.voteModal = "thanks";
+      }
       return;
     }
     if (this.scene === "auth") return this.handleAuthTap(x, y);
@@ -1424,7 +1442,9 @@ export class Game {
       const wide = { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
       const spotBelow = { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_REW.h };
       if (inRect(this.hb(wide), x, y)) {
-        if (!pushOptedInSync()) void enablePush();
+        // „Powiadom mnie" → najpierw głosowanie „jaki poziom 6?", potem zgoda
+        if (!votedChoice(POLL_LEVEL6)) this.voteModal = "pick";
+        else if (!pushOptedInSync()) void enablePush();
         return;
       }
       if (inRect(this.hb(spotBelow), x, y)) {
@@ -2366,7 +2386,14 @@ export class Game {
   // ---- modal „włącz dźwięk" ----------------------------------
 
   /** Uniwersalny modal (ikona + tytuł + treść + przycisk ROZUMIEM). */
-  private drawModal(ctx: CanvasRenderingContext2D, icon: string, title: string, body: string) {
+  private drawModal(
+    ctx: CanvasRenderingContext2D,
+    icon: string,
+    title: string,
+    body: string,
+    okKey = "rozumiem",
+    okFallback = "ROZUMIEM",
+  ) {
     this.fillViewport(ctx, "rgba(4,4,10,0.82)");
     const pw = VW - 120;
     const px = 60;
@@ -2404,7 +2431,59 @@ export class Game {
       w: MODAL_OK.w,
       h: btnH,
     };
-    this.uiButton(ctx, this.modalOkRect, "rozumiem", { fallback: "ROZUMIEM" });
+    this.uiButton(ctx, this.modalOkRect, okKey, { fallback: okFallback });
+  }
+
+  /** Modal głosowania „Do czego chcesz się pobawić na Poziomie 6?" —
+   *  pokazywany po kliknięciu „Powiadom mnie" na ekranie utworu „wkrótce". */
+  private drawVoteModal(ctx: CanvasRenderingContext2D) {
+    if (this.voteModal === "thanks") {
+      this.drawModal(
+        ctx,
+        "🎉",
+        "DZIĘKUJEMY!",
+        "Dziękuję za udział w głosowaniu! Nie usuwaj aplikacji, abyśmy mogli wysłać Ci powiadomienie o nowych poziomach.",
+        "ok",
+        "OK",
+      );
+      return;
+    }
+    this.fillViewport(ctx, "rgba(4,4,10,0.86)");
+    const pw = VW - 96;
+    const px = 48;
+    const titleLines = wrapText("Do czego chcesz się pobawić na Poziomie 6?", 22);
+    const btnH = 82;
+    const gap = 16;
+    const titleTop = 92;
+    const listTop = titleTop + titleLines.length * 42 + 26;
+    const ph = listTop + POLL_LEVEL6_OPTIONS.length * (btnH + gap) - gap + 40;
+    const py = Math.max(36, (VH - ph) / 2);
+
+    ctx.fillStyle = "#15121c";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,90,0.55)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+
+    titleLines.forEach((ln, i) =>
+      text(ctx, ln, VW / 2, py + titleTop + i * 42, {
+        size: 30,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff7ec",
+        shadows: HEAD_SHADOWS,
+      }),
+    );
+
+    this.voteRects = [];
+    const bw = pw - 88;
+    POLL_LEVEL6_OPTIONS.forEach((o, i) => {
+      const r: Rect = { x: VW / 2 - bw / 2, y: py + listTop + i * (btnH + gap), w: bw, h: btnH };
+      this.styledBtn(ctx, r, o.label, "gold");
+      this.voteRects.push({ r, id: o.id });
+    });
   }
 
   private drawSoundModal(ctx: CanvasRenderingContext2D) {

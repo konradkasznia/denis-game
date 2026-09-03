@@ -52,6 +52,14 @@ export const SCHEMA_SQL: string[] = [
     data TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  // Głosowania w apce (np. „jaki poziom 6?"). Jeden wiersz = jeden głos.
+  `CREATE TABLE IF NOT EXISTS poll_votes (
+    poll TEXT NOT NULL,
+    choice TEXT NOT NULL,
+    voter TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS poll_votes_idx ON poll_votes (poll, choice)`,
 ];
 
 /**

@@ -104,6 +104,18 @@ export function pushOptedInSync(): boolean {
   return readOptIn();
 }
 
+/** Dokleja tag do użytkownika OneSignal (segmentacja). Bezczynne na webie. */
+export function tagOneSignal(key: string, value: string): void {
+  void (async () => {
+    const o = await os();
+    try {
+      o?.User.addTag(key, value);
+    } catch {
+      /* ignore */
+    }
+  })();
+}
+
 /** Prosi o zgodę systemową (natywny modal) i włącza subskrypcję.
  *  Zwraca finalny stan (true = powiadomienia włączone). */
 export async function enablePush(): Promise<boolean> {
