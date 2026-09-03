@@ -20,6 +20,11 @@ interface RawChar {
   at: number;
   sprite: string;
 }
+interface RawEvent {
+  type: string;
+  at: number;
+  taps?: number;
+}
 interface RawChart {
   id?: string;
   title?: string;
@@ -32,11 +37,13 @@ interface RawChart {
   characterScale?: number;
   characterY?: number;
   characters?: RawChar[];
+  events?: RawEvent[];
   notes?: RawNote[];
 }
 
 const SONG_ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const UJ_RE = /^ujecie[1-9]\d?$/;
+const EVENT_TYPES = new Set(["ice"]); // rozszerzalne — przeszkody z edytora
 
 /** Wymusza bezpieczne, względne ścieżki w opublikowanej mapie (blokuje np.
  *  `audioUrl: "https://evil.com/x.mp3"` → apka pobierałaby treść z obcego serwera). */
@@ -57,6 +64,16 @@ function sanitizeChart(raw: RawChart, songId: string): RawChart {
       time: Math.max(0, +Number(n.time).toFixed(4)),
       dur: n.dur ? Math.max(0, +Number(n.dur).toFixed(4)) : 0,
     }));
+  const events = Array.isArray(raw.events)
+    ? raw.events
+        .filter((e) => e && EVENT_TYPES.has(String(e.type)) && typeof e.at === "number")
+        .map((e) => ({
+          type: String(e.type),
+          at: Math.max(0, +Number(e.at).toFixed(4)),
+          taps: Math.max(1, Math.min(99, Math.round(Number(e.taps) || 20))),
+        }))
+        .slice(0, 50)
+    : undefined;
   return {
     id: songId,
     title: String(raw.title || songId).slice(0, 80),
@@ -68,6 +85,7 @@ function sanitizeChart(raw: RawChart, songId: string): RawChart {
     characterScale: Math.max(0.2, Math.min(3, Number(raw.characterScale) || 0.95)),
     characterY: Math.max(0, Math.min(2000, Number(raw.characterY) || 704)),
     ...(chars ? { characters: chars } : {}),
+    ...(events && events.length ? { events } : {}),
     notes,
   };
 }

@@ -10,7 +10,14 @@ import { Character } from "./character.ts";
 const LANES = 4;
 const WAVE = 46; // 1. kolumna: fala dźwiękowa — klik = przewiń utwór do tego miejsca
 const SEGCOL = 46; // 2. kolumna: oś ujęć postaci — klik = wstaw / chwyć znacznik ujęcia
-const GUTTER = WAVE + SEGCOL; // cała lewa strefa przed torami nut
+const OBSTCOL = 46; // 3. kolumna: oś przeszkód (lód itd.) — wspólna dla wszystkich utworów
+const GUTTER = WAVE + SEGCOL + OBSTCOL; // cała lewa strefa przed torami nut
+
+// katalog przeszkód — rozszerzalny; `id` trafia do chartu jako `events[].type`
+const OBST_KINDS: { id: string; label: string; short: string; defTaps: number }[] = [
+  { id: "ice", label: "Lód", short: "LÓD", defTaps: 20 },
+];
+const obstKind = (id: string) => OBST_KINDS.find((k) => k.id === id) ?? OBST_KINDS[0];
 // klawisze nagrywania Live (C V B N) + alias na klawisze gry (D F J K)
 const LANE_KEYS: Record<string, number> = {
   KeyC: 0, KeyV: 1, KeyB: 2, KeyN: 3,
@@ -26,6 +33,11 @@ interface Seg {
   at: number;
   uj: number;
 }
+interface Obst {
+  at: number;
+  kind: string; // "ice" | ...
+  taps: number;
+}
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fileInput = $<HTMLInputElement>("file");
@@ -37,6 +49,7 @@ const offsetInput = $<HTMLInputElement>("offset");
 const snapSel = $<HTMLSelectElement>("snap");
 const speedSel = $<HTMLSelectElement>("speed");
 const ujSel = $<HTMLSelectElement>("ujsel");
+const obstSel = $<HTMLSelectElement>("obstsel");
 const metroChk = $<HTMLInputElement>("metro");
 const ntickChk = $<HTMLInputElement>("ntick");
 const playBtn = $<HTMLButtonElement>("play");
@@ -57,7 +70,8 @@ const peaksPerSec = 24;
 
 let notes: Note[] = [];
 let segments: Seg[] = [];
-const history: { notes: Note[]; segments: Seg[] }[] = [];
+let obstacles: Obst[] = [];
+const history: { notes: Note[]; segments: Seg[]; obstacles: Obst[] }[] = [];
 
 const view = { top: 0, pps: 220 };
 let audioTime = 0;
@@ -71,7 +85,8 @@ type Drag =
   | { mode: "create"; note: Note; startT: number }
   | { mode: "move"; note: Note; grabDT: number; moved: boolean }
   | { mode: "resize"; note: Note }
-  | { mode: "seg"; seg: Seg };
+  | { mode: "seg"; seg: Seg }
+  | { mode: "obst"; obst: Obst };
 let drag: Drag | null = null;
 
 // nuty aktualnie „trzymane" w nagrywaniu Live (klawisz wciśnięty)
@@ -100,7 +115,11 @@ function fmt(t: number): string {
   return `${m}:${(t - m * 60).toFixed(1).padStart(4, "0")}`;
 }
 function pushHistory() {
-  history.push({ notes: notes.map((n) => ({ ...n })), segments: segments.map((s) => ({ ...s })) });
+  history.push({
+    notes: notes.map((n) => ({ ...n })),
+    segments: segments.map((s) => ({ ...s })),
+    obstacles: obstacles.map((o) => ({ ...o })),
+  });
   if (history.length > 200) history.shift();
   markDirty();
 }
@@ -120,6 +139,7 @@ interface StoredProject {
   offsetMs: number;
   notes: Note[];
   segments: Seg[];
+  obstacles?: Obst[];
   savedAt: number;
 }
 
@@ -180,6 +200,7 @@ function saveNow() {
     offsetMs: Number(offsetInput.value) || 0,
     notes,
     segments,
+    obstacles,
     savedAt: Date.now(),
   };
   try {
@@ -228,6 +249,11 @@ async function openProject(id: string) {
   offsetInput.value = String(p.offsetMs);
   notes = (p.notes || []).map((n) => ({ ...n }));
   segments = (p.segments || []).map((s) => ({ ...s }));
+  obstacles = (p.obstacles || []).map((o) => ({
+    at: o.at,
+    kind: obstKind(o.kind).id,
+    taps: o.taps || obstKind(o.kind).defTaps,
+  }));
   history.length = 0;
   audioTime = 0;
   view.top = 0;
@@ -280,6 +306,7 @@ function undo() {
   if (prev) {
     notes = prev.notes;
     segments = prev.segments;
+    obstacles = prev.obstacles ?? [];
     syncCharacter();
     markDirty();
   }
@@ -445,13 +472,17 @@ function draw() {
       ctx2d.fillRect(cx - half, y, half * 2, 2);
     }
   }
-  // 2. kolumna: tło osi ujęć + pionowe linie działowe
+  // 2. kolumna: tło osi ujęć, 3. kolumna: tło osi przeszkód + linie działowe
   ctx2d.fillStyle = "rgba(255,120,200,0.05)";
   ctx2d.fillRect(WAVE, 0, SEGCOL, h);
+  ctx2d.fillStyle = "rgba(120,200,255,0.06)";
+  ctx2d.fillRect(WAVE + SEGCOL, 0, OBSTCOL, h);
   ctx2d.strokeStyle = "rgba(255,255,255,0.14)";
   ctx2d.beginPath();
   ctx2d.moveTo(WAVE, 0);
   ctx2d.lineTo(WAVE, h);
+  ctx2d.moveTo(WAVE + SEGCOL, 0);
+  ctx2d.lineTo(WAVE + SEGCOL, h);
   ctx2d.moveTo(GUTTER, 0);
   ctx2d.lineTo(GUTTER, h);
   ctx2d.stroke();
@@ -514,6 +545,29 @@ function draw() {
     ctx2d.fillText(`uj.${seg.uj}`, WAVE + 8, y + 4);
   }
 
+  // oś przeszkód (3. kolumna) — linia + etykieta typu przez całą szerokość
+  for (const ob of obstacles.slice().sort((a, b) => a.at - b.at)) {
+    const y = yOf(ob.at);
+    if (y < -20 || y > h + 20) continue;
+    const k = obstKind(ob.kind);
+    ctx2d.strokeStyle = "rgba(120,200,255,0.6)";
+    ctx2d.lineWidth = 1;
+    ctx2d.setLineDash([6, 4]);
+    ctx2d.beginPath();
+    ctx2d.moveTo(WAVE + SEGCOL, y);
+    ctx2d.lineTo(w, y);
+    ctx2d.stroke();
+    ctx2d.setLineDash([]);
+    ctx2d.fillStyle = "#7fc8ff";
+    ctx2d.fillRect(WAVE + SEGCOL + 3, y - 9, OBSTCOL - 6, 18);
+    ctx2d.fillStyle = "#0c1620";
+    ctx2d.font = "bold 10px system-ui";
+    ctx2d.fillText(k.short, WAVE + SEGCOL + 6, y + 4);
+    ctx2d.fillStyle = "rgba(127,200,255,0.85)";
+    ctx2d.font = "10px system-ui";
+    ctx2d.fillText(`${k.label} · ${ob.taps} tapnięć`, GUTTER + 6, y - 4);
+  }
+
   // nuty
   for (const n of notes) {
     if (n.time + n.dur < tTop || n.time > tBot) continue;
@@ -544,6 +598,8 @@ function draw() {
   ctx2d.fillText("fala", 6, 14);
   ctx2d.fillStyle = "rgba(255,120,200,0.6)";
   ctx2d.fillText("ujęcia", WAVE + 5, 14);
+  ctx2d.fillStyle = "rgba(120,200,255,0.7)";
+  ctx2d.fillText("przeszk.", WAVE + SEGCOL + 3, 14);
   ctx2d.fillStyle = "rgba(255,255,255,0.35)";
   ctx2d.font = "11px system-ui";
   ["D", "F", "J", "K"].forEach((c, i) => ctx2d.fillText(c, laneX(i) + laneW() / 2 - 3, 14));
@@ -598,7 +654,7 @@ function frame() {
     lastTick = now;
   }
   timeLbl.textContent = fmt(audioTime);
-  cntLbl.textContent = `${notes.length} nut · ${segments.length} ujęć`;
+  cntLbl.textContent = `${notes.length} nut · ${segments.length} ujęć · ${obstacles.length} przeszkód`;
   draw();
   requestAnimationFrame(frame);
 }
@@ -620,6 +676,11 @@ function segAt(y: number): Seg | null {
   for (const s of segments) if (Math.abs(yOf(s.at) - y) <= 10) return s;
   return null;
 }
+function obstAt(y: number): Obst | null {
+  for (const o of obstacles) if (Math.abs(yOf(o.at) - y) <= 10) return o;
+  return null;
+}
+const inObstCol = (x: number) => x >= WAVE + SEGCOL && x < GUTTER;
 
 cv.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || !audioBuffer) return;
@@ -635,6 +696,21 @@ cv.addEventListener("pointerdown", (e) => {
   if (x < WAVE) {
     // 1. kolumna (fala) → przewiń utwór do tego miejsca
     seekTo(tOf(y));
+    return;
+  }
+  if (inObstCol(x)) {
+    // 3. kolumna (oś przeszkód) → wstaw / złap znacznik przeszkody
+    const hit = obstAt(y);
+    if (hit) {
+      pushHistory();
+      drag = { mode: "obst", obst: hit };
+    } else {
+      pushHistory();
+      const k = obstKind(obstSel.value);
+      const ob: Obst = { at: Math.max(0, snapTime(tOf(y))), kind: k.id, taps: k.defTaps };
+      obstacles.push(ob);
+      drag = { mode: "obst", obst: ob };
+    }
     return;
   }
   if (x < GUTTER) {
@@ -684,6 +760,8 @@ cv.addEventListener("pointermove", (e) => {
     drag.moved = true;
   } else if (drag.mode === "resize") {
     drag.note.dur = Math.max(0, +(snapTime(tOf(y)) - drag.note.time).toFixed(4));
+  } else if (drag.mode === "obst") {
+    drag.obst.at = Math.max(0, snapTime(tOf(y)));
   } else {
     drag.seg.at = Math.max(0, snapTime(tOf(y)));
   }
@@ -693,6 +771,7 @@ cv.addEventListener("pointerup", () => {
   drag = null;
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
   segments.sort((a, b) => a.at - b.at);
+  obstacles.sort((a, b) => a.at - b.at);
 });
 
 cv.addEventListener("contextmenu", (e) => {
@@ -702,6 +781,14 @@ cv.addEventListener("contextmenu", (e) => {
   const y = e.clientY - r.top;
   if (x < WAVE) {
     seekTo(tOf(y));
+    return;
+  }
+  if (inObstCol(x)) {
+    const ho = obstAt(y);
+    if (ho) {
+      pushHistory();
+      obstacles = obstacles.filter((o) => o !== ho);
+    }
     return;
   }
   if (x < GUTTER) {
@@ -867,6 +954,7 @@ interface RawChart {
   gridOffset?: number;
   notes?: { lane: number; time: number; dur?: number }[];
   characters?: { at: number; sprite: string }[];
+  events?: { type: string; at: number; taps?: number }[];
 }
 function applyChart(raw: RawChart) {
   pushHistory();
@@ -882,6 +970,11 @@ function applyChart(raw: RawChart) {
   }));
   // usuń kolejne wpisy z tym samym ujęciem (auto-rotacja → punkty zmiany)
   segments = segments.filter((s, i) => i === 0 || s.uj !== segments[i - 1].uj);
+  obstacles = (raw.events || []).map((e) => ({
+    at: e.at,
+    kind: obstKind(e.type).id,
+    taps: e.taps || obstKind(e.type).defTaps,
+  }));
   syncCharacter();
   markDirty();
 }
@@ -902,6 +995,10 @@ function buildChart() {
       .slice()
       .sort((a, b) => a.at - b.at)
       .map((s) => ({ at: +s.at.toFixed(3), sprite: `assets/char/${id}/ujecie${s.uj}` })),
+    events: obstacles
+      .slice()
+      .sort((a, b) => a.at - b.at)
+      .map((o) => ({ type: obstKind(o.kind).id, at: +o.at.toFixed(3), taps: o.taps })),
     notes: notes
       .slice()
       .sort((a, b) => a.time - b.time || a.lane - b.lane)
@@ -955,7 +1052,9 @@ $<HTMLButtonElement>("publish").addEventListener("click", async () => {
       setPub(j.error || `błąd serwera (${r.status})`, true);
       return;
     }
-    setPub(`wysłano do gry ✓  ${chart.notes.length} nut · ${chart.characters.length} ujęć`);
+    setPub(
+      `wysłano do gry ✓  ${chart.notes.length} nut · ${chart.characters.length} ujęć · ${chart.events.length} przeszkód`,
+    );
   } catch {
     setPub("brak połączenia z serwerem (publikacja działa tylko z wersji online)", true);
   }
@@ -1063,6 +1162,12 @@ async function persistSeed(cfg: SeedCfg) {
       }));
       cs = cs.filter((s, i) => i === 0 || s.uj !== cs[i - 1].uj);
       if (cs.length) p.segments = cs;
+      const evs = (raw.events || []).map((e) => ({
+        at: e.at,
+        kind: obstKind(e.type).id,
+        taps: e.taps || obstKind(e.type).defTaps,
+      }));
+      if (evs.length) p.obstacles = evs;
     } catch {
       /* brak chartu — zostają segmenty podglądowe */
     }
@@ -1129,6 +1234,8 @@ if (import.meta.env.DEV) {
   (window as unknown as { __ed: unknown }).__ed = {
     notes: () => notes,
     segments: () => segments,
+    obstacles: () => obstacles,
+    buildChart: () => buildChart(),
     view,
     get audioTime() {
       return audioTime;
