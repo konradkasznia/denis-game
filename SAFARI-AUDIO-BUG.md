@@ -1,6 +1,48 @@
-# Otwarty problem: „Nie udało się uruchomić dźwięku" na iOS Safari
+# Problem audio na iOS Safari — DIAGNOZA + obejście
 
-**Status:** NIEROZWIĄZANY (2026-09-03). Konrad testuje web-build w Safari na iPhone.
+**Status (2026-09-03):** zdiagnozowany; obejście wdrożone (`coojlj63e`), czeka
+na potwierdzenie od Konrada.
+
+## DIAGNOZA (zrzut z iPhone'a)
+
+Komunikat błędu pokazał: `state=running  t=0.00  start=0.25  run=1  resume×2  rebuilt`.
+
+Czyli: `AudioContext.state === "running"`, ale **`AudioContext.currentTime` STOI
+na 0.00 i nie rusza**. To znany błąd WebKit — kontekst „działa", lecz wątek
+renderu audio nie wystartował, więc zegar jest martwy. Nasila się, gdy kontekst
+powstał (albo został odbudowany przez `ctx.close()` + `new AudioContext()`) POZA
+gestem użytkownika. Poprzednia „naprawa" z odbudową kontekstu **pogarszała
+sprawę** (tworzyła running-z-martwym-zegarem).
+
+`getSongTime() = currentTime - startTime = 0 - 0.25 = -0.25` → `< 0.1` przez 6 s
+→ watchdog → „Nie udało się uruchomić dźwięku". Dotyczy KAŻDEGO utworu (wspólny
+kontekst).
+
+## Obejście (`coojlj63e`)
+
+- Usunięto odbudowę kontekstu z `_unlock`.
+- `_unlock` odpala krótki oscylator na `gain=0` (budzi wątek renderu), potem
+  czeka do ~1.2 s aż `currentTime` faktycznie ruszy.
+- `getSongTime()` — gdy `currentTime` nie posunął się od startu (`clockAlive()
+  === false`) → liczy z `performance.now()`. Gra rusza nawet przy zablokowanym
+  audio (nuty lecą, choćby bez dźwięku).
+- `start()` dla mp3 — jeśli po 0.45 s zegar wciąż stoi, restartuje źródło przez
+  `src.start()` bez czasu docelowego.
+- Diagnostyka w błędzie: `clock=ok|MARTWY`.
+
+## Gdyby DALEJ nie działało
+
+Jeśli `clock=MARTWY` i mimo obejścia brak dźwięku:
+- Sprawdź, czy oscylator/`resume()` w ogóle budzi zegar na tym iOS (dodaj log
+  `currentTime` co 100 ms w `_unlock`).
+- Rozważ: trzymać jeden „keep-alive" oscylator gain=0 podłączony przez CAŁY
+  czas życia kontekstu (część projektów tak robi na iOS).
+- Sprawdź ustawienia: Safari → auto-play; iOS Low Power Mode; tryb prywatny;
+  wersja iOS.
+
+---
+
+## (historyczne) Objaw wyjściowy
 
 ## Objaw
 
