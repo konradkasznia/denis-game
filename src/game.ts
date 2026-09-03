@@ -235,6 +235,10 @@ const COMBO_FX: Record<string, FxKind> = {
   pogrzebowka: "smoke",
   "byleby-nie-byla-ciepla": "iceShard",
 };
+/** Wygląd „głów" nut dla danego utworu. Brak wpisu = zwykłe kółka. */
+const NOTE_SKIN: Record<string, "skull"> = {
+  pogrzebowka: "skull",
+};
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
 // jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
 const SMOKE_COLORS = ["222,224,232", "200,202,212", "180,182,196", "158,160,176"];
@@ -320,6 +324,7 @@ export class Game {
   private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
   private iceLayerKey = ""; // `${W}x${H}` — przerysuj warstwę przy zmianie rozmiaru
   private canvasFilterOK: boolean | null = null; // czy WebView wspiera ctx.filter
+  private skullCache = new Map<string, HTMLCanvasElement>(); // nuty-czaszki (Pogrzebówka)
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -3308,6 +3313,21 @@ export class Game {
       const r = RECEPTOR_R * this.sizeAtE(e);
       const col = LANE_COLORS[n.lane];
       const a = clamp(alpha, 0, 1);
+
+      if (NOTE_SKIN[this.trackId] === "skull") {
+        // czaszki „szczękają" w rytm — wszystkie zsynchronizowane po songTime
+        const jaw = Math.min(2, (((Math.sin(this.songTime * 8) + 1) / 2) * 3) | 0);
+        const bob = Math.sin(this.songTime * 6 + n.lane * 1.3) * r * 0.06;
+        const d = r * 2.5;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 12 + (n.dur > 0 ? 8 : 0);
+        ctx.drawImage(this.skullSprite(col, jaw), x - d / 2, y - d / 2 + bob, d, d);
+        ctx.restore();
+        continue;
+      }
+
       ctx.save();
       ctx.globalAlpha = a;
       ctx.shadowColor = col;
@@ -3343,6 +3363,77 @@ export class Game {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  /** Sprite czaszki (nuta w „Pogrzebówce") — rysowany raz na (kolor toru × pozycja
+   *  szczęki) i cache'owany. `jaw` 0..2 = szczęka zamknięta → otwarta. */
+  private skullSprite(col: string, jaw: number): HTMLCanvasElement {
+    const key = `${col}|${jaw}`;
+    const hit = this.skullCache.get(key);
+    if (hit) return hit;
+
+    const S = 96;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (!c) return cv;
+    c.translate(S / 2, S / 2 + 3);
+    const s = S * 0.4;
+    const jd = s * (0.05 + jaw * 0.12); // opadnięcie szczęki
+    const bone = "#f2ecdc";
+    const boneDk = "#d7cfba";
+
+    // szczęka (pod czaszką)
+    c.fillStyle = boneDk;
+    roundRect(c, -s * 0.4, s * 0.5 + jd, s * 0.8, s * 0.36, s * 0.16);
+    c.fill();
+    c.fillStyle = bone;
+    for (let i = -1; i <= 1; i++) c.fillRect(i * s * 0.22 - s * 0.055, s * 0.52 + jd, s * 0.11, s * 0.13);
+
+    // czaszka
+    c.fillStyle = bone;
+    c.beginPath();
+    c.moveTo(-s * 0.85, s * 0.12);
+    c.bezierCurveTo(-s * 1.02, -s * 0.98, s * 1.02, -s * 0.98, s * 0.85, s * 0.12);
+    c.bezierCurveTo(s * 0.82, s * 0.44, s * 0.52, s * 0.56, s * 0.4, s * 0.56);
+    c.lineTo(-s * 0.4, s * 0.56);
+    c.bezierCurveTo(-s * 0.52, s * 0.56, -s * 0.82, s * 0.44, -s * 0.85, s * 0.12);
+    c.closePath();
+    c.fill();
+
+    // zęby górne
+    c.fillStyle = boneDk;
+    for (let i = -2; i <= 2; i++) c.fillRect(i * s * 0.17 - s * 0.045, s * 0.4, s * 0.09, s * 0.14);
+
+    // oczodoły
+    c.fillStyle = "#191309";
+    c.beginPath();
+    c.ellipse(-s * 0.34, -s * 0.1, s * 0.27, s * 0.33, 0, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.ellipse(s * 0.34, -s * 0.1, s * 0.27, s * 0.33, 0, 0, Math.PI * 2);
+    c.fill();
+    // blask w oczach — kolor toru
+    c.fillStyle = col;
+    c.beginPath();
+    c.arc(-s * 0.25, -s * 0.02, s * 0.11, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.arc(s * 0.43, -s * 0.02, s * 0.11, 0, Math.PI * 2);
+    c.fill();
+
+    // nos
+    c.fillStyle = "#191309";
+    c.beginPath();
+    c.moveTo(0, s * 0.05);
+    c.lineTo(-s * 0.12, s * 0.32);
+    c.lineTo(s * 0.12, s * 0.32);
+    c.closePath();
+    c.fill();
+
+    this.skullCache.set(key, cv);
+    return cv;
   }
 
   private drawJudgePopups(ctx: CanvasRenderingContext2D) {
