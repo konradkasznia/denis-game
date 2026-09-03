@@ -353,7 +353,8 @@ export class Game {
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
-      "button-spotify.png", "button-od-nowa.png", "button-wyjdz.png", "button-tabela-wynikow.png", "button-kontynuuj.png",
+      "button-otworz-w-spotify.png", "button-od-nowa.png", "button-wyjdz.png",
+      "button-tabela-wynikow.png", "button-kontynuuj.png",
       "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png", "button-powiadom-mnie.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
     ]) {
@@ -2415,13 +2416,41 @@ export class Game {
       const wide = { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
       const spotBelow = { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_REW.h };
 
-      // „Powiadom mnie" — daj znać, gdy poziom będzie gotowy
-      const notified = pushOptedInSync();
-      this.uiButton(ctx, this.hb(wide), "powiadom-mnie", {
-        fallback: notified ? "POWIADOMIMY CIĘ ✓" : "POWIADOM MNIE",
-        style: "gold",
-        disabled: notified,
-      });
+      if (pushOptedInSync()) {
+        // po zapisaniu się — potwierdzenie zamiast przycisku
+        const rc = this.hb(wide);
+        ctx.save();
+        ctx.fillStyle = "rgba(93,242,160,0.12)";
+        roundRect(ctx, rc.x, rc.y, rc.w, rc.h, 16);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(93,242,160,0.5)";
+        ctx.lineWidth = 2;
+        roundRect(ctx, rc.x, rc.y, rc.w, rc.h, 16);
+        ctx.stroke();
+        ctx.restore();
+        text(ctx, "✓  Damy Ci znać!", rc.x + rc.w / 2, rc.y + 30, {
+          size: 22,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#8affc1",
+        });
+        text(ctx, "Wyślemy powiadomienie do aplikacji,", rc.x + rc.w / 2, rc.y + 60, {
+          size: 16,
+          weight: "700",
+          color: "#dff5e8",
+        });
+        text(ctx, "gdy poziom będzie gotowy.", rc.x + rc.w / 2, rc.y + 82, {
+          size: 16,
+          weight: "700",
+          color: "#dff5e8",
+        });
+      } else {
+        // „Powiadom mnie" — daj znać, gdy poziom będzie gotowy
+        this.uiButton(ctx, this.hb(wide), "powiadom-mnie", {
+          fallback: "POWIADOM MNIE",
+          style: "gold",
+        });
+      }
       // + odsłuch utworu na Spotify
       this.uiButton(ctx, this.hb(spotBelow), "otworz-w-spotify", {
         fallback: "OTWÓRZ W SPOTIFY",
@@ -3403,10 +3432,11 @@ export class Game {
 
     if (revealDone) {
       const vFade = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
+      const lockedNext = passed && hasNext && !nextUnlocked;
       ctx.save();
       ctx.globalAlpha = vFade;
-      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - 52, {
-        size: passed ? 42 : 36,
+      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
+        size: passed ? (lockedNext ? 34 : 42) : 36,
         weight: "900",
         font: HEAD_FONT,
         color: passed ? "#5ef2a0" : "#ff6b7d",
@@ -3414,14 +3444,32 @@ export class Game {
         glowBlur: 18,
         letterSpacing: "1px",
       });
-      // zaliczone, ale za mało gwiazdek na kolejny poziom
-      if (passed && hasNext && !nextUnlocked) {
+      if (lockedNext) {
+        // wyraźna informacja: rundę zaliczono, ale to za mało na kolejny poziom
+        const bw = VW - 96;
+        const bx = (VW - bw) / 2;
+        const by = gp.y + gp.h - 66;
+        const bh = 76;
+        ctx.fillStyle = "rgba(255,170,60,0.16)";
+        roundRect(ctx, bx, by, bw, bh, 14);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,190,90,0.55)";
+        ctx.lineWidth = 2;
+        roundRect(ctx, bx, by, bw, bh, 14);
+        ctx.stroke();
+        text(ctx, "TO ZA MAŁO NA KOLEJNY POZIOM", cx, by + 24, {
+          size: 20,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#ffce8a",
+          letterSpacing: "1px",
+        });
         text(
           ctx,
-          `Zdobądź ${UNLOCK_STARS} gwiazdki, aby odblokować następny poziom (masz ${starsNow})`,
+          `Potrzebujesz ${"★".repeat(UNLOCK_STARS)} (86%) — masz ${"★".repeat(Math.max(0, starsNow))}`,
           cx,
-          gp.y + gp.h - 14,
-          { size: 19, weight: "800", color: "#ffce8a" },
+          by + 52,
+          { size: 18, weight: "700", color: "#f0d9bd" },
         );
       } else if (passed && nextUnlocked) {
         text(ctx, "Następny poziom odblokowany!", cx, gp.y + gp.h - 14, {
@@ -3462,7 +3510,7 @@ export class Game {
     ctx.globalAlpha = fadeIn;
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
-    this.uiButton(ctx, RES_SPOTIFY, "spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
+    this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
     this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
 
     ctx.restore();
