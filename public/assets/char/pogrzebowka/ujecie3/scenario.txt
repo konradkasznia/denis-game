@@ -1,0 +1,13 @@
+# Pogrzebowka - ujecie 3 (Denis w trumnie, rece w gore - "hands up" do rytmu)
+# os czasu 30 fps. Petla pompki: opuszczone -> piesci -> PEAK -> mid -> naprzemiennie -> mid -> PEAK -> piesci
+#   klatki: 1=rece opuszczone (luz), 2=piesci pod barkami (zamach),
+#           3=obie rece wysoko nad glowa (peak), 4=lewa nisko / prawa w gorze (naprzemiennie),
+#           5=obie piesci przy barkach (prawa wyzej)
+1 - 6f
+2 - 3f
+3 - 6f
+5 - 3f
+4 - 5f
+5 - 3f
+3 - 5f
+2 - 3f
