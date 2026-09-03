@@ -946,6 +946,13 @@ export class Game {
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
   }
 
+  /** Wysokość natywnej klawiatury w px CSS (0 = schowana). Ekran logowania
+   *  podnosi wtedy cały blok, żeby pole z focusem było nad klawiaturą. */
+  private kbHeight = 0;
+  onKeyboard(heightPx: number) {
+    this.kbHeight = Math.max(0, heightPx || 0);
+  }
+
   /** Szerokość głowy Denisa na ekranie auth — rośnie z zapasem wysokości. */
   private authHeadW(): number {
     return Math.round(clamp(AUTH_HEAD_W_MIN + this.extraH() * 0.55, AUTH_HEAD_W_MIN, AUTH_HEAD_W_MAX));
@@ -964,6 +971,20 @@ export class Game {
    *  wyszło > 0 (na iOS Safari `innerHeight` bywa zaniżone). Liczone BEZ
    *  `authRects()`, żeby nie było rekurencji. */
   private authShift(): number {
+    // klawiatura otwarta → podnieś blok tak, by pole HASŁA (f2) było tuż nad nią.
+    // Głowa/przyciski mogą wtedy wyjechać poza kadr — to OK podczas pisania.
+    if (this.kbHeight > 0) {
+      const kbG = this.kbHeight / (viewport.scale || 1); // px klawiatury w jednostkach gry
+      const f2Bottom = 368 + 86; // dolna krawędź pola hasła bez przesunięcia
+      const want = this.sh() - kbG - 24 - f2Bottom; // 24 px zapasu nad klawiaturą
+      const floor = 24 - 368; // nie wypychaj pola nicku wyżej niż 24 px od góry
+      return Math.round(clamp(want, floor, this.authShiftResting()));
+    }
+    return this.authShiftResting();
+  }
+
+  /** Przesunięcie bloku auth przy schowanej klawiaturze (wyśrodkowanie). */
+  private authShiftResting(): number {
     const bot = this.authMode === "register" ? AUTH_BOT_REG : AUTH_BOT_LOGIN;
     const top = this.authTop();
     const free = this.sh() - (bot - top); // wolne miejsce w pionie
@@ -1344,13 +1365,16 @@ export class Game {
     const passed = this.rating() >= PASS_RATING;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
 
-    // KONTYNUUJ → ekran wyboru: następny poziom TYLKO gdy zaliczony ten TERAZ
-    // i następny jest odblokowany (≥4★). Inaczej zostajemy na tym samym
-    // (do poprawy wyniku na 4 gwiazdki albo ponownej próby).
+    // przycisk główny: KONTYNUUJ (zaliczone + następny odblokowany) → karuzela
+    // na następnym poziomie; SPRÓBUJ PONOWNIE (za mało / niezaliczone) → od nowa
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
-      const target = passed && idx >= 0 && levelUnlocked(idx + 1) ? idx + 1 : Math.max(0, idx);
-      this.hitIndex = clamp(target, 0, this.maxHitIndex());
-      this.enterHits();
+      const canAdvance = passed && idx >= 0 && levelUnlocked(idx + 1);
+      if (canAdvance) {
+        this.hitIndex = clamp(idx + 1, 0, this.maxHitIndex());
+        this.enterHits();
+      } else {
+        void this.startPlay(); // restart tego samego utworu
+      }
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
@@ -3435,12 +3459,16 @@ export class Game {
       const lockedNext = passed && hasNext && !nextUnlocked;
       ctx.save();
       ctx.globalAlpha = vFade;
-      text(ctx, passed ? "ZALICZONE!" : "NIE ZALICZONE", cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
-        size: passed ? (lockedNext ? 34 : 42) : 36,
+      // nagłówek: zaliczone (zielony) / za mało na kolejny poziom (bursztyn) /
+      // niezaliczone (czerwony)
+      const headline = lockedNext ? "NIEWIELE ZABRAKŁO" : passed ? "ZALICZONE!" : "NIE ZALICZONE";
+      const headColor = lockedNext ? "#ffb44a" : passed ? "#5ef2a0" : "#ff6b7d";
+      text(ctx, headline, cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
+        size: lockedNext ? 34 : passed ? 42 : 36,
         weight: "900",
         font: HEAD_FONT,
-        color: passed ? "#5ef2a0" : "#ff6b7d",
-        glow: passed ? "#5ef2a0" : "#ff5e7e",
+        color: headColor,
+        glow: lockedNext ? "#ff9f43" : passed ? "#5ef2a0" : "#ff5e7e",
         glowBlur: 18,
         letterSpacing: "1px",
       });
@@ -3511,7 +3539,14 @@ export class Game {
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
-    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
+    // idziesz dalej tylko gdy zaliczone TERAZ i następny odblokowany — inaczej
+    // przycisk = ponowna próba (za mało gwiazdek / niezaliczone)
+    const canAdvance = passed && lvlIdx >= 0 && levelUnlocked(lvlIdx + 1);
+    if (canAdvance) {
+      this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
+    } else {
+      this.uiButton(ctx, RES_PRIMARY, "od-nowa", { fallback: "SPRÓBUJ PONOWNIE", style: "gold" });
+    }
 
     ctx.restore();
   }

@@ -259,7 +259,7 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   ok(gp.scene === "hits" && gp.hitIndex === 1, "KONTYNUUJ po zaliczeniu -> wybór, następny poziom");
 }
 {
-  // KONTYNUUJ po porażce -> ekran wyboru, ten sam poziom
+  // SPRÓBUJ PONOWNIE po porażce -> restart tego samego utworu (NIE następny poziom)
   const gf = new Game();
   gf.trackId = "ksiaze-z-bajki";
   await new Promise((r) => setTimeout(r, 5));
@@ -269,8 +269,29 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   gf.finish();
   gf.resultsAt = performance.now() - 5000;
   gf.onPress(-1, 360, 1200);
+  await new Promise((r) => setTimeout(r, 20));
+  ok(
+    gf.trackId === "ksiaze-z-bajki" && (gf.scene === "play" || gf.preparing),
+    "SPRÓBUJ PONOWNIE po porażce -> restart tego samego utworu",
+  );
+}
+{
+  // zaliczone ale <4 gwiazdek -> przycisk = SPRÓBUJ PONOWNIE (nie idzie dalej)
+  localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5 }));
+  const gl = new Game();
+  gl.trackId = "ksiaze-z-bajki"; // poziom 2; następny (pogrzebówka) wymaga 4★ na ksiaze
   await new Promise((r) => setTimeout(r, 5));
-  ok(gf.scene === "hits" && gf.hitIndex === 1, "KONTYNUUJ po porażce -> wybór, ten sam poziom");
+  await gl.startPlay();
+  gl.score = 800; // rating 0.8 -> zaliczone, 3 gwiazdki
+  gl.parScore = 1000;
+  gl.finish();
+  gl.resultsAt = performance.now() - 5000;
+  gl.onPress(-1, 360, 1200);
+  await new Promise((r) => setTimeout(r, 20));
+  ok(
+    gl.trackId === "ksiaze-z-bajki" && gl.scene !== "hits",
+    "zaliczone <4★ -> nie przechodzi na następny poziom",
+  );
 }
 
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
