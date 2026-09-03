@@ -13,6 +13,7 @@ import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, votedChoice } from "./poll.ts";
+import { uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
@@ -968,18 +969,23 @@ export class Game {
       // to tylko potwierdzenie — dowolne stuknięcie zamyka.
       // Przy okazji odblokuj audio JUŻ TERAZ (czysty gest) — na iOS Safari
       // AudioContext trzeba stworzyć i wznowić w reakcji na dotknięcie.
+      uiSound("buttons");
       void this.audio.unlock();
       this.soundModal = false;
       this.soundHintDone = true;
       return;
     }
     if (this.voteModal === "thanks") {
-      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) this.voteModal = null;
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
+        uiSound("buttons");
+        this.voteModal = null;
+      }
       return;
     }
     if (this.voteModal === "pick") {
       const hit = this.voteRects.find((v) => inRect(v.r, x, y));
       if (hit) {
+        uiSound("buttons");
         submitVote(POLL_LEVEL6, hit.id);
         void enablePush(); // głos = świadoma zgoda na powiadomienia o nowej zawartości
         this.voteModal = "thanks";
@@ -1081,37 +1087,50 @@ export class Game {
 
   /** Sprzętowy „wstecz" (Android). true = obsłużone; false = można wyjść z apki. */
   handleBack(): boolean {
+    if (this.voteModal) {
+      uiSound("back");
+      this.voteModal = null;
+      return true;
+    }
     if (this.soundModal) {
+      uiSound("back");
       this.soundModal = false;
       this.soundHintDone = true;
       return true;
     }
     if (this.offlineNotice) {
+      uiSound("back");
       this.offlineNotice = false;
       return true;
     }
     if (this.preparing) {
+      uiSound("back");
       this.cancelPrepare();
       return true;
     }
     switch (this.scene) {
       case "board":
+        uiSound("back");
         this.scene = this.boardFrom;
         return true;
       case "rewards":
       case "profile":
+        uiSound("back");
         this.scene = "hits";
         return true;
       case "results":
+        uiSound("back");
         this.enterHits();
         return true;
       case "play":
         if (this.paused) {
           if (this.resumeAt) return true; // trwa odliczanie — zignoruj
+          uiSound("back");
           this.audio.stop();
           this.paused = false;
           this.scene = "hits";
         } else {
+          uiSound("back");
           this.pauseGame();
         }
         return true;
@@ -1367,22 +1386,34 @@ export class Game {
 
     // ✕ na banerze błędu (u góry ekranu)
     if (this.authError && this.authErrorCloseRect && inRect(this.authErrorCloseRect, x, y)) {
+      uiSound("back");
       this.clearAuthError();
       return;
     }
     const R = this.authRects() as Record<string, Rect | undefined>;
 
-    if (R.docT && inRect(R.docT, x, y)) return void openDoc(DOC_TERMS_URL);
-    if (R.docP && inRect(R.docP, x, y)) return void openDoc(DOC_PRIVACY_URL);
+    if (R.docT && inRect(R.docT, x, y)) {
+      uiSound("buttons");
+      return void openDoc(DOC_TERMS_URL);
+    }
+    if (R.docP && inRect(R.docP, x, y)) {
+      uiSound("buttons");
+      return void openDoc(DOC_PRIVACY_URL);
+    }
     if (R.terms && inRect(R.terms, x, y)) {
+      uiSound("buttons");
       this.authTerms = !this.authTerms;
       if (this.authTerms) this.clearAuthError();
       return;
     }
     if (R.alt1 && inRect(R.alt1, x, y)) {
+      uiSound("buttons");
       return this.setAuthMode(this.authMode === "login" ? "register" : "login");
     }
-    if (R.primary && inRect(R.primary, x, y)) this.submitAuth();
+    if (R.primary && inRect(R.primary, x, y)) {
+      uiSound("buttons");
+      this.submitAuth();
+    }
   }
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
@@ -1421,12 +1452,14 @@ export class Game {
   private handleHitsTap(x: number, y: number) {
     if (x < 0) return;
     if (inRect(HIT_GEAR, x, y)) {
+      uiSound("buttons");
       this.scene = "profile";
       void syncPushState(); // przełącznik ma odbić stan zgód systemowych
       return;
     }
     if (inRect(HIT_ARROW_L, x, y)) {
       if (this.hitIndex > 0) {
+        uiSound("buttons");
         this.hitIndex--;
         this.preloadHitAudio();
       }
@@ -1434,6 +1467,7 @@ export class Game {
     }
     if (inRect(HIT_ARROW_R, x, y)) {
       if (this.hitIndex < this.maxHitIndex()) {
+        uiSound("buttons");
         this.hitIndex++;
         this.preloadHitAudio();
       }
@@ -1447,12 +1481,14 @@ export class Game {
       const wide = { x: MARGIN, y: HIT_GRAJ.y, w: VW - MARGIN * 2, h: HIT_GRAJ.h };
       const spotBelow = { x: MARGIN, y: HIT_RES.y, w: VW - MARGIN * 2, h: HIT_REW.h };
       if (inRect(this.hb(wide), x, y)) {
+        uiSound("buttons");
         // „Powiadom mnie" → najpierw głosowanie „jaki poziom 6?", potem zgoda
         if (!votedChoice(POLL_LEVEL6)) this.voteModal = "pick";
         else if (!pushOptedInSync()) void enablePush();
         return;
       }
       if (inRect(this.hb(spotBelow), x, y)) {
+        uiSound("buttons");
         const url = spotifyUrl(meta.id);
         if (url) openExternal(url);
       }
@@ -1460,11 +1496,13 @@ export class Game {
     }
 
     if (inRect(this.hb(HIT_REW), x, y)) {
+      uiSound("buttons");
       this.scene = "rewards";
       return;
     }
 
     if (meta.playable && inRect(this.hb(HIT_RES), x, y)) {
+      uiSound("buttons");
       this.boardSongId = meta.id;
       this.boardFrom = "hits";
       this.scene = "board";
@@ -1472,6 +1510,7 @@ export class Game {
       return;
     }
     if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
+      uiSound("play");
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
       this.trackId = meta.id;
@@ -1496,38 +1535,56 @@ export class Game {
 
   private handleBoardTap(x: number, y: number) {
     if (x < 0 || inRect(BOARD_BACK, x, y)) {
+      uiSound("back");
       this.scene = this.boardFrom;
       return;
     }
     if (inRect(BOARD_TAB_M, x, y) && this.boardPeriod !== "month") {
+      uiSound("buttons");
       this.boardPeriod = "month";
       void refreshBoard(this.boardSongId, "month");
       return;
     }
     if (inRect(BOARD_TAB_A, x, y) && this.boardPeriod !== "all") {
+      uiSound("buttons");
       this.boardPeriod = "all";
       void refreshBoard(this.boardSongId, "all");
     }
   }
 
   private handleRewardsTap(x: number, y: number) {
-    if (x < 0 || inRect(BACK, x, y) || inRect(REW_HOME, x, y)) this.scene = "hits";
+    if (x < 0 || inRect(BACK, x, y) || inRect(REW_HOME, x, y)) {
+      uiSound("back");
+      this.scene = "hits";
+    }
   }
 
   private handleProfileTap(x: number, y: number) {
     if (x < 0 || inRect(BACK, x, y)) {
+      uiSound("back");
       this.scene = "hits";
       return;
     }
-    if (inRect(SET_TERMS, x, y)) return void openDoc(DOC_TERMS_URL);
-    if (inRect(SET_PRIV, x, y)) return void openDoc(DOC_PRIVACY_URL);
-    if (inRect(SET_MAIL, x, y)) return void openDoc(`mailto:${SUPPORT_EMAIL}`);
+    if (inRect(SET_TERMS, x, y)) {
+      uiSound("buttons");
+      return void openDoc(DOC_TERMS_URL);
+    }
+    if (inRect(SET_PRIV, x, y)) {
+      uiSound("buttons");
+      return void openDoc(DOC_PRIVACY_URL);
+    }
+    if (inRect(SET_MAIL, x, y)) {
+      uiSound("buttons");
+      return void openDoc(`mailto:${SUPPORT_EMAIL}`);
+    }
     if (inRect(SET_PUSH, x, y)) {
+      uiSound("buttons");
       if (pushOptedInSync()) void disablePush();
       else void enablePush();
       return;
     }
     if (inRect(SET_LOGOUT, x, y)) {
+      uiSound("back");
       // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze i wrócą
       // po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię na tym urządzeniu.
       clearSession();
@@ -1564,17 +1621,20 @@ export class Game {
     // KONTYNUUJ → karuzela: następny poziom gdy zaliczony TERAZ i odblokowany,
     // inaczej ten sam (do poprawy wyniku / ponownej próby)
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
+      uiSound("buttons");
       const canAdvance = passed && idx >= 0 && levelUnlocked(idx + 1);
       this.hitIndex = clamp(canAdvance ? idx + 1 : Math.max(0, idx), 0, this.maxHitIndex());
       this.enterHits();
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
+      uiSound("buttons");
       const url = spotifyUrl(this.trackId);
       if (url) openExternal(url);
       return;
     }
     if (inRect(RES_BOARD, x, y)) {
+      uiSound("buttons");
       this.boardSongId = this.trackId;
       this.boardFrom = "results";
       this.scene = "board";
@@ -1694,15 +1754,18 @@ export class Game {
   private handlePauseTap(x: number, y: number) {
     y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
+      uiSound("play");
       this.resumeAt = performance.now() + 3050; // pełne odliczanie 3-2-1
       return;
     }
     if (inRect(PZ_RESTART, x, y)) {
+      uiSound("buttons");
       this.paused = false;
       void this.startPlay();
       return;
     }
     if (inRect(PZ_MENU, x, y)) {
+      uiSound("back");
       this.audio.stop();
       this.paused = false;
       this.scene = "hits";
