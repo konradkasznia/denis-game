@@ -1582,6 +1582,14 @@ export class Game {
       }
       if (!guard()) return;
       this.song = song;
+      // rozgrzej bufor tafli lodu w tle ekranu ładowania (nigdy nie blokuj gry)
+      if (song.events?.some((e) => e.type === "ice")) {
+        try {
+          this.ensureIceLayer(Math.max(1, Math.ceil(this.sh())));
+        } catch {
+          /* brak lodu w buforze → drawIce zbuduje w locie */
+        }
+      }
     } catch (e) {
       if (guard()) {
         this.loadError = `Nie udało się wczytać utworu (${(e as Error).message || e}). Sprawdź połączenie i spróbuj ponownie.`;
@@ -1698,10 +1706,6 @@ export class Game {
     }
     this.audio.start(this.song);
     this.songStartedAt = performance.now();
-    // rozgrzej bufor tafli lodu, żeby wejście lodu nie szarpnęło klatką
-    if (this.song.events?.some((e) => e.type === "ice")) {
-      this.ensureIceLayer(Math.max(1, Math.ceil(this.sh())));
-    }
   }
 
   /** Przerywa trwające wczytywanie i wraca do karuzeli. */
@@ -3327,14 +3331,23 @@ export class Game {
       }
     }
 
-    // 2. tafla — zbuforowana grafika (budowana raz, najlepiej przy `beginSong`)
-    const layer = this.ensureIceLayer(Math.max(1, Math.ceil(H)));
-    if (layer) {
-      ctx.save();
-      ctx.globalAlpha = A;
-      ctx.drawImage(layer, 0, top);
-      ctx.restore();
+    // 2. tafla — zbuforowana grafika (budowana raz, zwykle już w `startPlay`)
+    let layer: HTMLCanvasElement | null = null;
+    try {
+      layer = this.ensureIceLayer(Math.max(1, Math.ceil(H)));
+    } catch {
+      layer = null; // awaria budowy → sam korpus poniżej
     }
+    ctx.save();
+    ctx.globalAlpha = A;
+    if (layer) {
+      ctx.drawImage(layer, 0, top);
+    } else {
+      // fallback bez tafli — samo chłodne przyciemnienie, żeby lód był czytelny
+      ctx.fillStyle = "rgba(200,226,245,0.9)";
+      ctx.fillRect(0, top, VW, H);
+    }
+    ctx.restore();
 
     // 3. pęknięcia od każdego tapnięcia — na wierzchu, pełna moc
     ctx.save();
@@ -3426,11 +3439,11 @@ export class Game {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // matowy nalot szronu — gęsta ziarnistość krótkich kresek (tanie, bez rekurencji)
+    // matowy nalot szronu — ziarnistość krótkich kresek (jeden path, jeden stroke)
     ctx.strokeStyle = "rgba(245,251,255,0.5)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let i = 0; i < 520; i++) {
+    for (let i = 0; i < 320; i++) {
       const x = rng() * W;
       const y = rng() * H;
       const a = rng() * Math.PI;
@@ -3440,66 +3453,61 @@ export class Game {
     }
     ctx.stroke();
 
-    // dendryt szronu — polilinia z gałązkami (2 poziomy, PĘTLE nie rekurencja)
-    const dendrite = (x0: number, y0: number, dx: number, dy: number, len: number, weight: number) => {
+    // dendryt szronu — polilinia z krótkimi gałązkami. BEZ ctx.shadow (dławi
+    // na mobile). Segmenty liczymy RAZ, rysujemy dwoma przelotami: szeroka
+    // blada poświata + cienki jasny rdzeń.
+    const buildDendrite = (x0: number, y0: number, dx: number, dy: number, len: number): number[][] => {
       const px = -dy;
       const py = dx;
-      ctx.lineWidth = weight;
-      ctx.beginPath();
       const N = 5;
-      const nx: number[] = [x0];
-      const ny: number[] = [y0];
-      ctx.moveTo(x0, y0);
+      const segs: number[][] = [];
+      let cx = x0;
+      let cy = y0;
       for (let i = 1; i <= N; i++) {
         const t = i / N;
         const j = (rng() - 0.5) * len * 0.16;
         const x = x0 + dx * len * t + px * j;
         const y = y0 + dy * len * t + py * j;
-        ctx.lineTo(x, y);
-        nx.push(x);
-        ny.push(y);
-      }
-      // gałązki z węzłów + krótkie „twigi" z gałązek
-      for (let i = 1; i < N; i++) {
-        const branches = 1 + ((rng() * 2) | 0);
-        for (let b = 0; b < branches; b++) {
+        segs.push([cx, cy, x, y]);
+        if (i < N) {
           const side = rng() < 0.5 ? 1 : -1;
-          const bl = len * (0.22 + rng() * 0.18) * (1 - i / N);
-          const bx = nx[i] + (dx * 0.4 + px * side) * bl;
-          const by = ny[i] + (dy * 0.4 + py * side) * bl;
-          ctx.moveTo(nx[i], ny[i]);
-          ctx.lineTo(bx, by);
-          const tw = 2 + ((rng() * 2) | 0);
-          for (let w = 0; w < tw; w++) {
-            const tl = bl * (0.35 + rng() * 0.25);
-            const ta = (rng() - 0.5) * 1.4;
-            ctx.moveTo(bx, by);
-            ctx.lineTo(
-              bx + (Math.cos(ta) * (dx * 0.3 + px * side) + Math.sin(ta) * dy) * tl,
-              by + (Math.cos(ta) * (dy * 0.3 + py * side) + Math.sin(ta) * dx) * tl,
-            );
-          }
+          const bl = len * (0.2 + rng() * 0.16) * (1 - t);
+          segs.push([x, y, x + (dx * 0.35 + px * side) * bl, y + (dy * 0.35 + py * side) * bl]);
         }
+        cx = x;
+        cy = y;
       }
-      ctx.stroke();
+      return segs;
     };
-    const frostEdge = (col: string, weight: number, count: number, min: number, span: number) => {
-      ctx.strokeStyle = col;
+    const frostEdge = (glow: string, core: string, count: number, min: number, span: number) => {
+      const segs: number[][] = [];
+      const add = (a: number[][]) => {
+        for (const s2 of a) segs.push(s2);
+      };
       for (let i = 0; i < count; i++) {
-        dendrite(0, ((i + rng()) / count) * H, 1, (rng() - 0.5) * 0.55, min + rng() * span, weight);
-        dendrite(W, ((i + rng()) / count) * H, -1, (rng() - 0.5) * 0.55, min + rng() * span, weight);
+        add(buildDendrite(0, ((i + rng()) / count) * H, 1, (rng() - 0.5) * 0.55, min + rng() * span));
+        add(buildDendrite(W, ((i + rng()) / count) * H, -1, (rng() - 0.5) * 0.55, min + rng() * span));
       }
       const cols = Math.max(3, Math.round(count / 2.6));
       for (let i = 0; i < cols; i++) {
-        dendrite(((i + rng()) / cols) * W, 0, (rng() - 0.5) * 0.55, 1, min * 0.85 + rng() * span * 0.85, weight);
-        dendrite(((i + rng()) / cols) * W, H, (rng() - 0.5) * 0.55, -1, min * 0.85 + rng() * span * 0.85, weight);
+        add(buildDendrite(((i + rng()) / cols) * W, 0, (rng() - 0.5) * 0.55, 1, min * 0.85 + rng() * span * 0.85));
+        add(buildDendrite(((i + rng()) / cols) * W, H, (rng() - 0.5) * 0.55, -1, min * 0.85 + rng() * span * 0.85));
       }
+      const paint = (col: string, wgt: number) => {
+        ctx.strokeStyle = col;
+        ctx.lineWidth = wgt;
+        ctx.beginPath();
+        for (const p of segs) {
+          ctx.moveTo(p[0], p[1]);
+          ctx.lineTo(p[2], p[3]);
+        }
+        ctx.stroke();
+      };
+      paint(glow, 4);
+      paint(core, 1.5);
     };
-    ctx.shadowColor = "rgba(120,190,245,0.5)";
-    ctx.shadowBlur = 3;
-    frostEdge("rgba(118,164,208,0.42)", 2.2, 30, 90, 150);
-    frostEdge("rgba(250,253,255,0.9)", 1.7, 30, 70, 120);
-    ctx.shadowBlur = 0;
+    frostEdge("rgba(150,200,244,0.26)", "rgba(120,166,210,0.5)", 22, 90, 150);
+    frostEdge("rgba(210,236,255,0.34)", "rgba(250,253,255,0.9)", 22, 70, 120);
 
     // kryształy 6-ramienne — rogi + trochę rozsianych
     const starAt = (x: number, y: number, r: number) => {
