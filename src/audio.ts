@@ -98,8 +98,14 @@ export class AudioEngine {
     tap();
     // resume() na iOS potrafi wisieć — próbujemy, ale nie blokujemy w nieskończoność
     if (this.ctx!.state === "suspended") {
+      this.resumeTries++;
       await Promise.race([
-        this.ctx!.resume().catch(() => {}),
+        this.ctx!.resume().then(
+          () => {},
+          (e) => {
+            this.lastAudioErr = String((e as Error)?.message || e).slice(0, 60);
+          },
+        ),
         new Promise((r) => setTimeout(r, 2000)),
       ]);
     }
@@ -112,9 +118,16 @@ export class AudioEngine {
         /* ignore */
       }
       this.buildCtx();
+      this.ctxRebuilt = true;
       tap();
+      this.resumeTries++;
       await Promise.race([
-        this.ctx!.resume().catch(() => {}),
+        this.ctx!.resume().then(
+          () => {},
+          (e) => {
+            this.lastAudioErr = String((e as Error)?.message || e).slice(0, 60);
+          },
+        ),
         new Promise((r) => setTimeout(r, 2000)),
       ]);
     }
@@ -152,6 +165,25 @@ export class AudioEngine {
   getSongTime(): number {
     if (!this.ctx || !this._running) return 0;
     return this.ctx.currentTime - this.startTime;
+  }
+
+  // --- diagnostyka (do ekranu błędu na telefonie) ---
+  resumeTries = 0;
+  ctxRebuilt = false;
+  lastAudioErr = "";
+  diag(): string {
+    const c = this.ctx;
+    return [
+      `state=${c ? c.state : "brak"}`,
+      `t=${c ? c.currentTime.toFixed(2) : "-"}`,
+      `start=${this.startTime.toFixed(2)}`,
+      `run=${this._running ? 1 : 0}`,
+      `resume×${this.resumeTries}`,
+      this.ctxRebuilt ? "rebuilt" : "",
+      this.lastAudioErr ? `err:${this.lastAudioErr}` : "",
+    ]
+      .filter(Boolean)
+      .join("  ");
   }
 
   isTrackLoaded(url: string) {

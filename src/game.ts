@@ -457,7 +457,8 @@ export class Game {
         const wall = performance.now() - this.songStartedAt;
         if (wall > 1200) void this.audio.resumePlayback();
         if (wall > 6000) {
-          this.loadError = "Nie udało się uruchomić dźwięku. Spróbuj jeszcze raz.";
+          this.loadError =
+            "Nie udało się uruchomić dźwięku. Spróbuj jeszcze raz.\n[" + this.audio.diag() + "]";
           this.audio.stop();
           this.songStartedAt = 0;
           this.scene = "hits";
@@ -928,9 +929,9 @@ export class Game {
         text(ctx, "stuknij, aby przerwać", VW / 2, cy + 58, { size: 21, color: "#8a7c6c" });
       }
     } else if (this.loadError && this.scene === "hits") {
-      const lines = wrapText(this.loadError, 46);
+      const lines = this.loadError.split("\n").flatMap((seg) => wrapText(seg, 46));
       lines.forEach((ln, i) =>
-        text(ctx, ln, VW / 2, this.sh() - this.vdy - 150 + i * 26, { size: 18, color: "#ff8a97" }),
+        text(ctx, ln, VW / 2, this.sh() - this.vdy - 150 + i * 24, { size: 16, color: "#ff8a97" }),
       );
     }
 
