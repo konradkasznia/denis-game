@@ -1,0 +1,112 @@
+name: Android APK (dev-shell)
+
+# Cienka powłoka: APK ładuje ŻYWĄ stronę z https://denis-game.vercel.app
+# (server.url w capacitor.config.ts przez CAP_SERVER_URL). Dzięki temu zmiany
+# w JS/CSS widać po samym `vercel deploy` — bez przebudowy APK.
+#
+# Buduje się RZADKO: ręcznie (workflow_dispatch) albo gdy zmieni się coś
+# natywnego (config Capacitora, android/, wtyczki). Zmiany w src/ i public/
+# NIE wymagają nowego APK dev-shell.
+#
+# Efekt: prerelease „android-dev" z plikiem .apk (osobny od „android-latest").
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - "capacitor.config.ts"
+      - "android/**"
+      - "package.json"
+      - "package-lock.json"
+      - "src/nativeShell.ts"
+      - "src/native.ts"
+      - ".github/workflows/android-dev.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-dev
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      # webDir (dist/) musi istnieć dla `cap sync`; w dev-shell assety i tak
+      # nie są używane w runtime (WebView ładuje server.url)
+      - name: Build web (stub dla cap sync)
+        run: npm run build
+        env:
+          VITE_API_BASE: https://denis-game.vercel.app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+
+      - name: Pakiety Android SDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" || \
+            sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" || true
+
+      - name: Capacitor sync (server.url = żywa strona)
+        run: npx cap sync android
+        env:
+          CAP_SERVER_URL: https://denis-game.vercel.app
+
+      # osobny applicationId + nazwa, żeby dev-shell instalował się OBOK
+      # zwykłego APK (nie nadpisywał go)
+      - name: Wariant dev
+        run: |
+          sed -i 's/applicationId "pl\.impulsywni\.denis"/applicationId "pl.impulsywni.denis.dev"/' android/app/build.gradle
+          sed -i 's#>DENIS Impulsywni Live<#>DENIS (dev)<#g' android/app/src/main/res/values/strings.xml
+          grep -n applicationId android/app/build.gradle
+          cat android/app/src/main/res/values/strings.xml
+
+      - name: Build APK (debug)
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Nazwa pliku
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk denis-impulsywni-live-DEV.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: denis-android-dev-apk
+          path: denis-impulsywni-live-DEV.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publikacja do prerelease „android-dev"
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: android-dev
+          name: Android (dev-shell) — ładuje żywą stronę
+          prerelease: true
+          files: denis-impulsywni-live-DEV.apk
+          body: |
+            APK-powłoka do DEVELOPMENTU. Ładuje żywą wersję z
+            https://denis-game.vercel.app — zmiany w kodzie widać po samym
+            deployu web (bez przebudowy APK). Potrzebny internet.
+
+            Instalacja spoza sklepu: włącz „Instaluj nieznane aplikacje".
+            Instaluje się OBOK zwykłego APK (osobny appId
+            `pl.impulsywni.denis.dev`, nazwa „DENIS (dev)").
+            Commit: ${{ github.sha }}

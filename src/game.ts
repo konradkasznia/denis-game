@@ -11,6 +11,7 @@ import {
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
+import { isNative } from "./native.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
@@ -144,12 +145,21 @@ function openDoc(url: string) {
   const title = url.includes("regulamin") ? "Regulamin" : "Polityka prywatności";
   showDoc(url, title);
 }
-/** Otwiera link poza grą (Spotify itp.). Nowa karta; gdy zablokowana — nawigacja. */
+/** Otwiera link poza grą (Spotify itp.).
+ *  Natywnie (Capacitor): target `_system` → Capacitor woła systemowy Intent
+ *  (Android przekaże deep-link do aplikacji Spotify albo przeglądarki) —
+ *  NIE nawigujemy WebView, bo z apki nie byłoby jak wrócić.
+ *  Web: nowa karta, a gdy zablokowana — nawigacja. */
 function openExternal(url: string) {
   try {
+    if (isNative) {
+      window.open(url, "_system");
+      return;
+    }
     const w = window.open(url, "_blank", "noopener");
     if (!w) window.location.href = url;
   } catch {
+    if (isNative) return;
     try {
       window.location.href = url;
     } catch {
