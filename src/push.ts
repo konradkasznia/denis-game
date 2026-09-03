@@ -12,6 +12,10 @@ import { isNative } from "./native.ts";
 
 const OPT_KEY = "denis.push.optin"; // nasza flaga: user CHCE powiadomienia
 const CONTENT_TAG = "nowa_zawartosc"; // tag w OneSignal do segmentacji wysyłek
+// OneSignal App ID NIE jest sekretem (i tak trafia do klienta) — trzymamy jako
+// domyślny, żeby push działał od razu po zbudowaniu APK. Można nadpisać przez
+// VITE_ONESIGNAL_APP_ID (np. osobna apka OneSignal na testy).
+const DEFAULT_APP_ID = "45d6db77-411c-4ab6-a9ce-918a7325795d";
 
 // OneSignal to wtyczka Cordova — typów nie ciągniemy, trzymamy `any` + guardy.
 type AnyOS = {
@@ -33,10 +37,12 @@ let initTried = false;
 
 function appId(): string {
   try {
-    return (import.meta as { env?: Record<string, string> }).env?.VITE_ONESIGNAL_APP_ID || "";
+    const env = (import.meta as { env?: Record<string, string> }).env?.VITE_ONESIGNAL_APP_ID;
+    if (env && env.trim()) return env.trim();
   } catch {
-    return "";
+    /* ignore */
   }
+  return DEFAULT_APP_ID;
 }
 
 /** Czy push jest w ogóle możliwy: natywna apka + skonfigurowany OneSignal. */
