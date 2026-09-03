@@ -1365,16 +1365,12 @@ export class Game {
     const passed = this.rating() >= PASS_RATING;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
 
-    // przycisk główny: KONTYNUUJ (zaliczone + następny odblokowany) → karuzela
-    // na następnym poziomie; SPRÓBUJ PONOWNIE (za mało / niezaliczone) → od nowa
+    // KONTYNUUJ → karuzela: następny poziom gdy zaliczony TERAZ i odblokowany,
+    // inaczej ten sam (do poprawy wyniku / ponownej próby)
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
       const canAdvance = passed && idx >= 0 && levelUnlocked(idx + 1);
-      if (canAdvance) {
-        this.hitIndex = clamp(idx + 1, 0, this.maxHitIndex());
-        this.enterHits();
-      } else {
-        void this.startPlay(); // restart tego samego utworu
-      }
+      this.hitIndex = clamp(canAdvance ? idx + 1 : Math.max(0, idx), 0, this.maxHitIndex());
+      this.enterHits();
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
@@ -3539,14 +3535,7 @@ export class Game {
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
-    // idziesz dalej tylko gdy zaliczone TERAZ i następny odblokowany — inaczej
-    // przycisk = ponowna próba (za mało gwiazdek / niezaliczone)
-    const canAdvance = passed && lvlIdx >= 0 && levelUnlocked(lvlIdx + 1);
-    if (canAdvance) {
-      this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
-    } else {
-      this.uiButton(ctx, RES_PRIMARY, "od-nowa", { fallback: "SPRÓBUJ PONOWNIE", style: "gold" });
-    }
+    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
 
     ctx.restore();
   }
