@@ -9,8 +9,6 @@
 // układ (sygnatura) albo przyjdzie zdarzenie resize. Ciągłe zapisy stylów do
 // pola z focusem powodują „mruganie" klawiatury.
 
-import { Keyboard } from "@capacitor/keyboard";
-import { isNative } from "./native.ts";
 import { viewport } from "./viewport.ts";
 
 export interface FieldSpec {
@@ -73,36 +71,9 @@ export class FieldOverlay {
   private specs = new Map<string, FieldSpec>();
   private styleInjected = false;
   private sig = "";
-  private kbShift = 0; // px o ile podniesiony overlay, gdy klawiatura zasłania pole
 
   constructor(canvas?: HTMLCanvasElement | null) {
     this.canvas = canvas ?? null;
-    if (isNative) {
-      // klawiatura natywna (Capacitor, resize:"none") — sama nie przesuwa
-      // WebView, więc gdy zasłania pole z focusem, podnosimy nakładkę z polami
-      void Keyboard.addListener("keyboardWillShow", (info) =>
-        this.onKeyboard(info?.keyboardHeight || 0),
-      ).catch(() => {});
-      void Keyboard.addListener("keyboardWillHide", () => this.onKeyboard(0)).catch(() => {});
-    }
-  }
-
-  /** Podnosi nakładkę z polami tak, by pole z focusem było nad klawiaturą. */
-  private onKeyboard(kbHeight: number) {
-    let shift = 0;
-    if (kbHeight > 0) {
-      const focused = [...this.inputs.values()].find((el) => document.activeElement === el);
-      if (focused) {
-        const r = focused.getBoundingClientRect();
-        const visibleBottom = window.innerHeight - kbHeight;
-        const overlap = r.bottom - visibleBottom + 16; // 16 px zapasu
-        if (overlap > 0) shift = overlap;
-      }
-    }
-    if (shift === this.kbShift) return;
-    this.kbShift = shift;
-    // transform na kontenerze fixed przesuwa też fixed dzieci (input/oczko/ikona)
-    if (this.root) this.root.style.transform = shift ? `translateY(${-shift}px)` : "";
   }
 
   private available(): boolean {
@@ -323,10 +294,6 @@ export class FieldOverlay {
   /** Usuwa wszystkie pola (wyjście z ekranu logowania). */
   clear() {
     this.sig = "";
-    if (this.kbShift) {
-      this.kbShift = 0;
-      if (this.root) this.root.style.transform = "";
-    }
     if (this.inputs.size === 0 && this.eyes.size === 0 && this.statusIcons.size === 0) return;
     for (const el of this.inputs.values()) el.remove();
     for (const btn of this.eyes.values()) btn.remove();

@@ -6,6 +6,7 @@
 // - schowanie apki w tło: pauza rozgrywki
 
 import { App } from "@capacitor/app";
+import { Keyboard } from "@capacitor/keyboard";
 import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import type { Game } from "./game.ts";
@@ -45,6 +46,13 @@ export function initNativeShell(game: Game) {
       setLoopActive(false); // w tle pętla renderu całkiem stoi (bateria / temperatura)
     }
   });
+
+  // klawiatura (resize:"none" w config) — gra sama podnosi układ logowania,
+  // żeby pole z focusem nie chowało się za klawiaturą
+  void Keyboard.addListener("keyboardWillShow", (info) => {
+    game.onKeyboard(info?.keyboardHeight || 0);
+  }).catch(() => {});
+  void Keyboard.addListener("keyboardWillHide", () => game.onKeyboard(0)).catch(() => {});
 
   // bezpiecznik: gdyby gra nie zdążyła zawołać hideSplash()
   setTimeout(hideSplash, 4000);
