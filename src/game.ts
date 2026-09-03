@@ -314,6 +314,9 @@ export class Game {
   private iceShatterAt = -10; // songTime rozbicia (animacja znikania)
   private iceFired = new Set<number>(); // indeksy zdarzeń już uruchomionych
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
+  private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
+  private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
+  private iceLayerKey = ""; // `${W}x${H}` — przerysuj warstwę przy zmianie rozmiaru
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -3233,110 +3236,58 @@ export class Game {
     if (!this.iceActive && !shattering) return;
 
     const formT = clamp((this.songTime - this.iceStartAt) / 0.32, 0, 1);
-    const fade = this.iceActive ? formT : 1 - sinceShatter / 0.45;
-    const A = clamp(fade, 0, 1) * 0.92;
+    const fade = clamp(this.iceActive ? formT : 1 - sinceShatter / 0.45, 0, 1);
+    const A = fade * 0.8; // krycie tafli (wariant „Gruby szron")
+    const blurPx = 7 * fade; // rozmycie tła narasta przy zamarzaniu, schodzi przy rozbiciu
     const top = -this.vdy;
     const H = this.sh();
+    const cv = ctx.canvas;
 
+    // 1. rozmycie tła — postać + nuty za taflą
+    if (blurPx > 0.4 && cv.width > 0 && cv.height > 0) {
+      let snap = this.iceSnap;
+      if (!snap) snap = this.iceSnap = document.createElement("canvas");
+      if (snap.width !== cv.width || snap.height !== cv.height) {
+        snap.width = cv.width;
+        snap.height = cv.height;
+      }
+      const sx = snap.getContext("2d");
+      if (sx) {
+        sx.clearRect(0, 0, snap.width, snap.height);
+        sx.drawImage(cv, 0, 0);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = fade;
+        ctx.filter = `blur(${blurPx}px)`;
+        ctx.drawImage(snap, -24, -24, snap.width + 48, snap.height + 48);
+        ctx.filter = "none";
+        ctx.restore();
+      }
+    }
+
+    // 2. tafla — zbuforowana grafika, składana jednym kryciem
+    const LW = VW;
+    const LH = Math.max(1, Math.ceil(H));
+    let layer = this.iceLayer;
+    if (!layer) layer = this.iceLayer = document.createElement("canvas");
+    const key = `${LW}x${LH}`;
+    if (layer.width !== LW || layer.height !== LH || this.iceLayerKey !== key) {
+      layer.width = LW;
+      layer.height = LH;
+      const lx = layer.getContext("2d");
+      if (lx) {
+        lx.clearRect(0, 0, LW, LH);
+        this.drawIceSheet(lx, LW, LH);
+      }
+      this.iceLayerKey = key;
+    }
     ctx.save();
-    let seed = 20259;
-    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    ctx.globalAlpha = A;
+    ctx.drawImage(layer, 0, top);
+    ctx.restore();
 
-    // 1. bazowa tafla — głęboki, chłodny błękit (nie biały)
-    const g = ctx.createLinearGradient(0, top, 0, top + H);
-    g.addColorStop(0, `rgba(74,132,196,${0.5 * A})`);
-    g.addColorStop(0.55, `rgba(108,170,214,${0.32 * A})`);
-    g.addColorStop(1, `rgba(60,116,182,${0.46 * A})`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, top, VW, H);
-
-    // 2. chropowate płyty lodu — nieregularna siatka wielokątów, każda w innym błękicie
-    const COLS = 3;
-    const ROWS = 6;
-    const cw = VW / COLS;
-    const ch = H / ROWS;
-    const jx = 0.46 * cw;
-    const jy = 0.46 * ch;
-    const vert: { x: number; y: number }[][] = [];
-    for (let r = 0; r <= ROWS; r++) {
-      vert[r] = [];
-      for (let c = 0; c <= COLS; c++) {
-        const edge = c === 0 || c === COLS || r === 0 || r === ROWS;
-        vert[r][c] = {
-          x: c * cw + (edge ? 0 : (rnd() * 2 - 1) * jx),
-          y: top + r * ch + (edge ? 0 : (rnd() * 2 - 1) * jy),
-        };
-      }
-    }
-    ctx.lineJoin = "round";
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const p0 = vert[r][c];
-        const p1 = vert[r][c + 1];
-        const p2 = vert[r + 1][c + 1];
-        const p3 = vert[r + 1][c];
-        const lum = rnd();
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y);
-        ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.closePath();
-        const rr = 90 + Math.floor(lum * 70);
-        const gg = 150 + Math.floor(lum * 55);
-        const bb = 200 + Math.floor(lum * 45);
-        ctx.fillStyle = `rgba(${rr},${gg},${bb},${(0.1 + lum * 0.22) * A})`;
-        ctx.fill();
-        // krawędzie spękań między płytami — jasny, ostry kontur
-        ctx.strokeStyle = `rgba(233,248,255,${0.7 * A})`;
-        ctx.lineWidth = 1.4 + rnd() * 2.2;
-        ctx.stroke();
-        // wewnętrzny klin — ostra rysa przez płytę
-        if (rnd() < 0.55) {
-          const mx = (p0.x + p2.x) / 2 + (rnd() * 2 - 1) * 12;
-          const my = (p0.y + p2.y) / 2 + (rnd() * 2 - 1) * 12;
-          ctx.beginPath();
-          ctx.moveTo(p0.x + (p1.x - p0.x) * 0.3, p0.y + (p1.y - p0.y) * 0.3);
-          ctx.lineTo(mx, my);
-          ctx.lineTo(p2.x - (p2.x - p3.x) * 0.3, p2.y - (p2.y - p3.y) * 0.3);
-          ctx.strokeStyle = `rgba(206,236,255,${0.4 * A})`;
-          ctx.lineWidth = 1.3;
-          ctx.stroke();
-        }
-      }
-    }
-
-    // 3. szron wdzierający się od krawędzi — kolczaste, poszarpane fronty
-    const frostClaw = (bx: number, by: number, dx: number, dy: number, len: number, spread: number) => {
-      ctx.beginPath();
-      ctx.moveTo(bx - dy * spread, by + dx * spread);
-      for (let s = 1; s <= 5; s++) {
-        const t = s / 5;
-        const zig = (s % 2 ? 1 : -1) * spread * (1 - t) * 0.85;
-        ctx.lineTo(bx + dx * len * t - dy * zig, by + dy * len * t + dx * zig);
-      }
-      ctx.lineTo(bx + dy * spread, by - dx * spread);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(226,243,255,${0.62 * A})`;
-      ctx.fill();
-    };
-    for (let i = 0; i < 6; i++) {
-      const fy = top + ((i + 0.5) / 6) * H + (rnd() * 2 - 1) * 26;
-      frostClaw(0, fy, 1, 0, 80 + rnd() * 120, 20 + rnd() * 20);
-      frostClaw(VW, top + ((i + 0.5) / 6) * H + (rnd() * 2 - 1) * 26, -1, 0, 80 + rnd() * 120, 20 + rnd() * 20);
-    }
-    for (let i = 0; i < 3; i++) {
-      frostClaw(((i + 0.5) / 3) * VW, top, 0, 1, 65 + rnd() * 90, 18 + rnd() * 16);
-      frostClaw(((i + 0.5) / 3) * VW, top + H, 0, -1, 65 + rnd() * 90, 18 + rnd() * 16);
-    }
-
-    // 4. lekki mroźny nalot przy krawędziach
-    const cg = ctx.createRadialGradient(VW / 2, top + H / 2, H * 0.3, VW / 2, top + H / 2, H * 0.66);
-    cg.addColorStop(0, "rgba(210,235,255,0)");
-    cg.addColorStop(1, `rgba(222,242,255,${0.4 * A})`);
-    ctx.fillStyle = cg;
-    ctx.fillRect(0, top, VW, H);
-    // pęknięcia od każdego tapnięcia
+    // 3. pęknięcia od każdego tapnięcia — na wierzchu, pełna moc
+    ctx.save();
     ctx.strokeStyle = "rgba(255,255,255,0.95)";
     ctx.lineCap = "round";
     for (const c of this.iceCracks) {
@@ -3347,15 +3298,13 @@ export class Game {
       ctx.shadowBlur = 6;
       for (let b = 0; b < branches; b++) {
         const ang = c.a + (b / branches) * Math.PI * 2 + (b % 2 ? 0.3 : -0.2);
-        let px = c.x;
-        let py = c.y;
         ctx.beginPath();
-        ctx.moveTo(px, py);
+        ctx.moveTo(c.x, c.y);
         const segs = 3;
         for (let s = 1; s <= segs; s++) {
           const t = (s / segs) * c.len * grow;
-          px = c.x + Math.cos(ang) * t + (((c.born * 97 + b * 13 + s) % 7) - 3) * 3;
-          py = c.y + Math.sin(ang) * t + (((c.born * 53 + b * 7 + s) % 7) - 3) * 3;
+          const px = c.x + Math.cos(ang) * t + (((c.born * 97 + b * 13 + s) % 7) - 3) * 3;
+          const py = c.y + Math.sin(ang) * t + (((c.born * 53 + b * 7 + s) % 7) - 3) * 3;
           ctx.lineTo(px, py);
         }
         ctx.stroke();
@@ -3389,6 +3338,106 @@ export class Game {
       });
       ctx.restore();
     }
+  }
+
+  /** Grafika tafli „Gruby szron" — rysowana raz do bufora (`this.iceLayer`),
+   *  potem tylko składana z animowanym kryciem. Deterministyczna (stały seed). */
+  private drawIceSheet(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const SEED = 20259;
+    const mkRng = (s0: number) => {
+      let s = s0 >>> 0;
+      return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+    };
+    const drawStar = (x: number, y: number, r: number) => {
+      ctx.beginPath();
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const rr = k % 2 ? r * 0.4 : r;
+        const px = x + Math.cos(a) * rr;
+        const py = y + Math.sin(a) * rr;
+        if (k) ctx.lineTo(px, py);
+        else ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+    };
+    const fern = (x: number, y: number, ang: number, len: number, w: number, rng: () => number, depth: number) => {
+      if (len < 7 || w < 0.3 || depth > 7) return;
+      const x2 = x + Math.cos(ang) * len;
+      const y2 = y + Math.sin(ang) * len;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x2, y2);
+      ctx.lineWidth = w;
+      ctx.stroke();
+      const n = 2 + ((rng() * 3) | 0);
+      for (let i = 1; i <= n; i++) {
+        const t = i / (n + 1);
+        const bx = x + Math.cos(ang) * len * t;
+        const by = y + Math.sin(ang) * len * t;
+        const sl = len * (0.34 + rng() * 0.12) * (1 - t * 0.35);
+        fern(bx, by, ang + 0.55 + rng() * 0.25, sl, w * 0.6, rng, depth + 1);
+        fern(bx, by, ang - 0.55 - rng() * 0.25, sl, w * 0.6, rng, depth + 1);
+      }
+      fern(x2, y2, ang + (rng() - 0.5) * 0.5, len * 0.72, w * 0.7, rng, depth + 1);
+    };
+    const fernField = (rng: () => number, density: number, len: number, col: string) => {
+      ctx.strokeStyle = col;
+      ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(120,190,245,0.55)";
+      ctx.shadowBlur = 4;
+      const groups: (() => [number, number, number])[] = [
+        () => [rng() * W, -8, Math.PI / 2 + (rng() - 0.5) * 0.7],
+        () => [rng() * W, H + 8, -Math.PI / 2 + (rng() - 0.5) * 0.7],
+        () => [-8, rng() * H, (rng() - 0.5) * 0.7],
+        () => [W + 8, rng() * H, Math.PI + (rng() - 0.5) * 0.7],
+      ];
+      for (let gi = 0; gi < groups.length; gi++) {
+        const count = Math.round(density * (gi < 2 ? 1 : 0.7));
+        for (let i = 0; i < count; i++) {
+          const p = groups[gi]();
+          fern(p[0], p[1], p[2], len * (0.7 + rng() * 0.6), 2.0, rng, 0);
+        }
+      }
+      ctx.shadowBlur = 0;
+    };
+    const clumps = (rng: () => number, nn: number, spread: number, cx: number, cy: number, maxR: number) => {
+      for (let i = 0; i < nn; i++) {
+        const x = cx + (rng() - 0.5) * spread;
+        const y = cy + (rng() - 0.5) * spread;
+        drawStar(x, y, 2.5 + rng() * maxR);
+        ctx.fillStyle = `rgba(240,249,255,${0.16 + rng() * 0.26})`;
+        ctx.fill();
+      }
+    };
+
+    const rng = mkRng(SEED);
+    // mroźny korpus tafli
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "rgba(223,240,252,0.94)");
+    g.addColorStop(0.5, "rgba(203,229,248,0.84)");
+    g.addColorStop(1, "rgba(180,214,240,0.94)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.lineJoin = "round";
+
+    fernField(rng, 22, 220, "rgba(120,168,210,0.42)");
+    fernField(mkRng(SEED ^ 0x2545f491), 20, 195, "rgba(249,253,255,0.88)");
+    for (let i = 0; i < 18; i++) clumps(rng, 5, 140, rng() * W, rng() * H, 9);
+    ([[0, 0], [W, 0], [0, H], [W, H]] as [number, number][]).forEach((cn) =>
+      clumps(rng, 34, 380, cn[0], cn[1], 13),
+    );
+    for (let s = 0; s < 90; s++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.4 + rng() * 0.55})`;
+      ctx.beginPath();
+      ctx.arc(rng() * W, rng() * H, 0.6 + rng() * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.72);
+    vg.addColorStop(0, "rgba(236,247,255,0)");
+    vg.addColorStop(1, "rgba(226,243,255,0.62)");
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
