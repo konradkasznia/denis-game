@@ -531,23 +531,48 @@ export class Game {
     }
   }
 
-  /** Spadające płatki róż (Książę z bajki). */
-  private spawnRoses(_x: number, _y: number) {
-    for (let i = 0; i < 24; i++) {
+  /** Wystrzał płatków róż z punktu (x, y) — lecą w górę i na boki, potem
+   *  opadają trzepocząc (Książę z bajki). Plus kilka dosypanych z góry, żeby
+   *  efekt się utrzymał. */
+  private spawnRoses(x: number, y: number) {
+    for (let i = 0; i < 30; i++) {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.4; // stożek w górę
+      const spd = 260 + Math.random() * 340;
       this.fx.push({
         kind: "roses",
-        x: Math.random() * VW,
-        y: -30 - Math.random() * 160, // startują nad ekranem, rozłożone w czasie
-        vx: (Math.random() - 0.5) * 40,
-        vy: 70 + Math.random() * 90, // opadają powoli
+        x: x + (Math.random() - 0.5) * 60,
+        y: y + (Math.random() - 0.5) * 40,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
         rot: Math.random() * Math.PI * 2,
-        vr: (Math.random() - 0.5) * 5,
+        vr: (Math.random() - 0.5) * 6,
         w: 15 + Math.random() * 12, // długość płatka
         h: 9 + Math.random() * 7, // szerokość
         color: ROSE_COLORS[(Math.random() * ROSE_COLORS.length) | 0],
         life: 0,
-        ttl: 4.5 + Math.random() * 2,
+        ttl: 3.6 + Math.random() * 2,
         swayA: 46 + Math.random() * 60, // mocne trzepotanie
+        swayF: 1.8 + Math.random() * 2.2,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 0,
+      });
+    }
+    // dosypka opadająca z góry — delikatny deszcz płatków po wybuchu
+    for (let i = 0; i < 14; i++) {
+      this.fx.push({
+        kind: "roses",
+        x: Math.random() * VW,
+        y: -30 - Math.random() * 200,
+        vx: (Math.random() - 0.5) * 50,
+        vy: 80 + Math.random() * 90,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 5,
+        w: 15 + Math.random() * 12,
+        h: 9 + Math.random() * 7,
+        color: ROSE_COLORS[(Math.random() * ROSE_COLORS.length) | 0],
+        life: -(i / 14) * 0.5,
+        ttl: 4.5 + Math.random() * 2,
+        swayA: 46 + Math.random() * 60,
         swayF: 1.8 + Math.random() * 2.2,
         swayP: Math.random() * Math.PI * 2,
         grow: 0,
@@ -558,7 +583,8 @@ export class Game {
   private updateFx(dt: number) {
     if (!this.fx.length) return;
     const confDrag = Math.pow(0.55, dt);
-    const roseDrag = Math.pow(0.85, dt);
+    const roseDrag = Math.pow(0.85, dt); // opór poziomy
+    const roseVDrag = Math.pow(0.4, dt); // opór pionowy — hamuje wystrzał, potem łagodny spadek
     const smokeXDrag = Math.pow(0.55, dt);
     const smokeYDrag = Math.pow(0.8, dt);
     for (const p of this.fx) {
@@ -570,8 +596,9 @@ export class Game {
         p.vy += 780 * dt;
         p.vx *= confDrag;
       } else if (p.kind === "roses") {
-        p.vy += 60 * dt; // lekkie przyspieszenie
+        // po wystrzale opór hamuje pęd, potem łagodne opadanie z trzepotaniem
         p.vx *= roseDrag;
+        p.vy = p.vy * roseVDrag + 130 * dt;
       } else {
         // dym: wznosi się, S-owy skręt (2 częstotliwości), rośnie umiarkowanie
         p.vx *= smokeXDrag;
@@ -723,6 +750,32 @@ export class Game {
     ctx.fillRect(0, -this.vdy, VW, this.sh());
   }
 
+  /** Kręcący się złoty loader (kolor jak przyciski primary). */
+  private drawSpinner(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineCap = "round";
+    // ślad
+    ctx.lineWidth = r * 0.22;
+    ctx.strokeStyle = "rgba(255,206,138,0.16)";
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // łuk — złoty gradient, obraca się
+    ctx.rotate((t * 3.4) % (Math.PI * 2));
+    const g = ctx.createLinearGradient(-r, -r, r, r);
+    g.addColorStop(0, "#ffe27a");
+    g.addColorStop(1, "#e8971c");
+    ctx.strokeStyle = g;
+    ctx.shadowColor = "rgba(255,180,60,0.55)";
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, -Math.PI * 0.15, Math.PI * 1.15);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   render(ctx: CanvasRenderingContext2D) {
     ctx.clearRect(0, 0, VW, this.sh());
     this.vdy = this.frameDY();
@@ -773,18 +826,10 @@ export class Game {
         this.preparing = false;
         this.prepId++;
       } else {
-        this.fillViewport(ctx, "rgba(4,4,10,0.78)");
+        this.fillViewport(ctx, "rgba(4,4,10,0.8)");
         const cy = this.sh() / 2 - this.vdy;
-        const d = Math.floor((performance.now() / 300) % 4);
-        text(ctx, `Wczytywanie${".".repeat(d)}`, VW / 2, cy - 40, {
-          size: 36,
-          color: "#ffce8a",
-        });
-        text(ctx, `${this.prepStep} · ${secs.toFixed(0)} s`, VW / 2, cy + 18, {
-          size: 20,
-          color: "#9a8c7e",
-        });
-        text(ctx, "stuknij, aby przerwać", VW / 2, cy + 90, { size: 18, color: "#6b6055" });
+        this.drawSpinner(ctx, VW / 2, cy - 34, 40);
+        text(ctx, "stuknij, aby przerwać", VW / 2, cy + 58, { size: 21, color: "#8a7c6c" });
       }
     } else if (this.loadError && this.scene === "hits") {
       const lines = wrapText(this.loadError, 46);
@@ -1794,7 +1839,7 @@ export class Game {
 
   private drawLoading(ctx: CanvasRenderingContext2D) {
     this.fillViewport(ctx, "#07070d");
-    text(ctx, "wczytywanie…", VW / 2, this.sh() / 2 - this.vdy, { size: 34, color: "#ffce8a" });
+    this.drawSpinner(ctx, VW / 2, this.sh() / 2 - this.vdy, 34);
   }
 
   // ---- ekran: rejestracja / logowanie --------------------------
@@ -2669,10 +2714,11 @@ export class Game {
 
   private drawPause(ctx: CanvasRenderingContext2D) {
     ctx.save();
-    this.drawUiBg(ctx);
-    this.fillViewport(ctx, "rgba(4,4,10,0.6)");
 
     if (this.resumeAt) {
+      // odliczanie 3-2-1 po wznowieniu: NIE zasłaniamy pola gry — gracz musi
+      // widzieć zamrożone nuty i przygotować się. Tylko lekki scrim + liczba.
+      this.fillViewport(ctx, "rgba(4,4,10,0.30)");
       const left = Math.ceil((this.resumeAt - performance.now()) / 1000);
       if (left >= 1) {
         const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
@@ -2689,6 +2735,8 @@ export class Game {
       return;
     }
 
+    this.drawUiBg(ctx);
+    this.fillViewport(ctx, "rgba(4,4,10,0.6)");
     ctx.translate(0, this.pauseShift()); // wyśrodkuj menu na wyższych ekranach
     text(ctx, "PAUZA", VW / 2, 420, {
       size: 72,
