@@ -1,0 +1,9 @@
+# Byleby nie była ciepła — ujęcie 1 (Denis z boomboxem na ramieniu, bujanie)
+# oś czasu 30 fps. Klatki: 1=wyprost, 2=drop w lewo (kolana ugięte),
+#   3=wyprost, 4=drop w prawo, 5=wyprost z przechyłem głowy.
+# Groove: pozy „w dół" (2,4) trzymane dłużej = akcent na bit.
+1 - 4f
+2 - 7f
+3 - 4f
+4 - 7f
+5 - 4f

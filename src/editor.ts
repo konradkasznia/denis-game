@@ -1190,6 +1190,7 @@ async function startup() {
   await persistSeed({ id: "panna-mloda", title: "Panna Młoda", bpm: 155, ujecia: [1, 2, 3, 4], realAudio: true });
   await persistSeed({ id: "ksiaze-z-bajki", title: "Książę z bajki", bpm: 112, ujecia: [1, 2, 3] });
   await persistSeed({ id: "pogrzebowka", title: "Pogrzebówka", bpm: 150, ujecia: [1, 2, 3, 4] });
+  await persistSeed({ id: "byleby-nie-byla-ciepla", title: "Byleby nie była ciepła", bpm: 140, ujecia: [1, 2, 3, 4] });
 
   refreshProjectList();
   const last = localStorage.getItem(LAST_KEY);

@@ -1,0 +1,9 @@
+# Byleby nie była ciepła — ujęcie 2 (tancerka w cekinowej sukience, klubowy taniec)
+# oś czasu 30 fps. Klatki: 1=ręka za głową / biodro, 2=obie ręce w górę,
+#   3=kolano w górę (zalotnie), 4=ręce skrzyżowane nogi / wychył, 5=obie ręce w górę palce.
+# Kołysanie L↔P z rękami idącymi w górę.
+1 - 6f
+3 - 5f
+2 - 7f
+5 - 6f
+4 - 5f

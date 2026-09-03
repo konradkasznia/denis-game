@@ -71,9 +71,11 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     artist: "Denis",
     bpm: 140, // tymczasowe, do mp3
     bars: 30,
+    // ujęcia: 1 boombox-bujanie, 2 tancerka, 3 break dance, 4 „wódka"-swagger
+    characters: rotateShots("assets/char/byleby-nie-byla-ciepla", [1, 2, 3, 4], 52),
     characterScale: 0.95,
     characterY: 704,
-    // poziom 5 — mechanika lodu: ekran zamarza, trzeba rozbić 10 tapnięć
+    // poziom 5 — mechanika lodu: ekran zamarza, trzeba rozbić 20 tapnięć
     events: [
       { type: "ice", at: 20, taps: 20 },
       { type: "ice", at: 46, taps: 24 },

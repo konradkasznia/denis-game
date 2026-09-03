@@ -1,0 +1,10 @@
+# Byleby nie była ciepła — ujęcie 3 (BREAK DANCE, dark blue dres + okulary)
+# oś czasu 30 fps. Klatki: 1=stójka / pointing, 2=zejście w dół (poprawia okulary),
+#   3=w powietrzu (flare, nogi rozrzucone), 4=stanie na jednej ręce (freeze),
+#   5=lądowanie / kucnięcie.
+# Dominuje stójka (1) — szybki błysk break-move i powrót.
+1 - 8f
+2 - 4f
+3 - 3f
+4 - 5f
+5 - 5f
