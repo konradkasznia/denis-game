@@ -1,95 +1,66 @@
-# Problem audio na iOS Safari — DIAGNOZA + obejście
+# Problem audio na iOS Safari — DIAGNOZA + naprawa
 
-**Status (2026-09-03):** zdiagnozowany; obejście wdrożone (`coojlj63e`), czeka
-na potwierdzenie od Konrada.
+**Status (2026-09-03):** naprawione (`81vwxvgr4` + hartowanie `qo94jwlak`).
+Konrad potwierdził: gra działa, muzyka gra. Zostawiam notatkę na wypadek regresji.
 
 ## DIAGNOZA (zrzut z iPhone'a)
 
-Komunikat błędu pokazał: `state=running  t=0.00  start=0.25  run=1  resume×2  rebuilt`.
+Komunikat błędu pokazał: `state=running  t=0.00  start=0.25  run=1  resume×2`.
 
-Czyli: `AudioContext.state === "running"`, ale **`AudioContext.currentTime` STOI
-na 0.00 i nie rusza**. To znany błąd WebKit — kontekst „działa", lecz wątek
-renderu audio nie wystartował, więc zegar jest martwy. Nasila się, gdy kontekst
-powstał (albo został odbudowany przez `ctx.close()` + `new AudioContext()`) POZA
-gestem użytkownika. Poprzednia „naprawa" z odbudową kontekstu **pogarszała
-sprawę** (tworzyła running-z-martwym-zegarem).
+`AudioContext.state === "running"`, ale **`AudioContext.currentTime` STOI na 0.00
+i nie rusza** — znany błąd WebKit: kontekst „działa", lecz wątek renderu audio
+nie wystartował, więc zegar jest martwy. Nasila się, gdy kontekst powstał lub
+został odbudowany (`ctx.close()` + `new AudioContext()`) POZA gestem. Wcześniejsza
+„naprawa" z odbudową kontekstu **pogarszała sprawę**.
 
-`getSongTime() = currentTime - startTime = 0 - 0.25 = -0.25` → `< 0.1` przez 6 s
-→ watchdog → „Nie udało się uruchomić dźwięku". Dotyczy KAŻDEGO utworu (wspólny
-kontekst).
+`getSongTime() = currentTime - startTime = -0.25` → `< 0.1` przez 6 s → watchdog
+(`src/game.ts` w `update()`) → „Nie udało się uruchomić dźwięku". Wspólny kontekst
+→ padał KAŻDY utwór (potwierdzone: `panna-mloda` mp3 + `byleby` synth).
 
-## Obejście (`coojlj63e`)
+## Naprawa (kolejno)
 
-- Usunięto odbudowę kontekstu z `_unlock`.
-- `_unlock` odpala krótki oscylator na `gain=0` (budzi wątek renderu), potem
-  czeka do ~1.2 s aż `currentTime` faktycznie ruszy.
-- `getSongTime()` — gdy `currentTime` nie posunął się od startu (`clockAlive()
-  === false`) → liczy z `performance.now()`. Gra rusza nawet przy zablokowanym
-  audio (nuty lecą, choćby bez dźwięku).
-- `start()` dla mp3 — jeśli po 0.45 s zegar wciąż stoi, restartuje źródło przez
-  `src.start()` bez czasu docelowego.
-- Diagnostyka w błędzie: `clock=ok|MARTWY`.
+| commit | zmiana | efekt |
+|---|---|---|
+| `easn7fx23` | `audio.prefetch(url)` — pobiera bajty mp3 BEZ tworzenia AudioContextu; modal „WŁĄCZ DŹWIĘK" woła `unlock()` | kontekst powstaje tylko w geście |
+| `coojlj63e` | usunięto odbudowę ctx; `getSongTime()` fallback na `performance.now()` gdy zegar martwy | gra rusza, ale wciąż bez dźwięku |
+| **`81vwxvgr4`** | **stały cichy zapętlony bufor `keepAlive` (gain=0) podłączony do destination przez całe życie kontekstu** (`startKeepAlive()` w `buildCtx()`) — trik iOS z Tone.js / Howler | **zegar chodzi, mp3 gra** |
+| `qo94jwlak` | hartowanie po analizie Opus 5 (niżej) | odporność |
 
-## Gdyby DALEJ nie działało
+### Hartowanie (`qo94jwlak`)
 
-Jeśli `clock=MARTWY` i mimo obejścia brak dźwięku:
-- Sprawdź, czy oscylator/`resume()` w ogóle budzi zegar na tym iOS (dodaj log
-  `currentTime` co 100 ms w `_unlock`).
-- Rozważ: trzymać jeden „keep-alive" oscylator gain=0 podłączony przez CAŁY
-  czas życia kontekstu (część projektów tak robi na iOS).
-- Sprawdź ustawienia: Safari → auto-play; iOS Low Power Mode; tryb prywatny;
-  wersja iOS.
+1. **`clockAlive()` był zatrzaskiem jednorazowym** (`currentTime - ctxAtStart > 0.05`).
+   Gdy zegar ruszył o 60 ms i zamarł → na zawsze `true` → fallback się nie
+   włączał. Teraz: **ciągły** dryf względem zegara ściennego (0.5 s karencji),
+   z akumulacją czasu pauz (`pausedTotalMs` / `pauseStartMs` w `pause()` /
+   `resumePlayback()`), żeby `ctx.suspend()` przy pauzie nie fałszował predykatu.
+2. **Stan WebKit `"interrupted"`** (Siri / telefon / przełącznik ciszy) — kod
+   porównywał `=== "suspended"` w `resumePlayback()` / `paused` / `start()`.
+   Teraz `!== "running"` (z pominięciem `"closed"`, bo `resume()` by rzucił).
+3. **`decodeAudioData` odłącza (detach) ArrayBuffer** — `this.decode(arr.slice(0))`,
+   żeby po nieudanym dekodowaniu oryginał w `trackRaw` nadał się do retry.
 
----
+## Jeśli regresja
 
-## (historyczne) Objaw wyjściowy
+- Diagnostyka w błędzie: `[state=... t=... clock=ok|MARTWY  run=... resume×N ...]`.
+- `clock=MARTWY` mimo keep-alive → sprawdź czy `keepAlive` w ogóle wystartował
+  (log w `startKeepAlive`); rozważ oscylator zamiast buffer-source.
+- Sprawdź: przełącznik ciszy na obudowie iPhone'a (WebAudio idzie kategorią
+  ambient — cisza go wycina!), Low Power Mode, tryb prywatny, wersja iOS.
+- WebKit ma twardy limit ~4 żywych `AudioContext` na kartę — jeśli działa w
+  świeżej karcie a nie po kilku próbach, to jest to (stąd: nigdy `close()+new`).
 
-## Objaw
+## Opcja docelowa (odłożona)
 
-- GRAJ! na dowolnym utworze (potwierdzone: `panna-mloda` — prawdziwy mp3, oraz
-  `byleby-nie-byla-ciepla` — podkład syntezowany).
-- Utwór „wchodzi" (scena `play`), ale **odliczanie stoi na „3"**, nuty nie lecą.
-- Po ~6 s watchdog (`src/game.ts`, w `update()`, `wall > 6000`) wraca do karuzeli
-  z komunikatem „Nie udało się uruchomić dźwięku".
-- Na Androidzie (APK / Chrome) działa normalnie. Problem tylko na Safari.
-
-## Mechanika watchdoga
-
-`audio.getSongTime()` = `ctx.currentTime - startTime`. Jeśli zwraca `< 0.1` przez
-6 s → błąd. Czyli: **`AudioContext.currentTime` nie rusza** = kontekst utknął w
-`suspended` i `resume()` go nie odblokowuje.
-
-## Co już próbowano (bez skutku)
-
-1. `audio.prefetch(url)` — pobiera bajty mp3 BEZ tworzenia AudioContextu; preload
-   w karuzeli nie woła już `unlock()` poza gestem. (`easn7fx23`)
-2. Modal „WŁĄCZ DŹWIĘK / ROZUMIEM" woła `audio.unlock()` (wczesny, czysty gest).
-3. `_unlock()`: po nieudanym `resume()` zamyka kontekst i buduje świeży w tym
-   samym geście (`ctx.close()` + `new AudioContext()` + `resume()`).
-4. Wcześniej: mechanika lodu (poziom 5) dławiła wątek (rekurencja / `ctx.shadow` /
-   alokacja dużego canvasu przy starcie) — to naprawiono, ale NIE to było
-   źródłem błędu audio (pada też `panna-mloda`, która nie ma lodu).
-
-## Diagnostyka w buildzie (`m3z279f4c`)
-
-Komunikat błędu pokazuje teraz realny stan:
-`[state=... t=... start=... run=... resume×N  rebuilt  err:...]`
-→ **zrzut ekranu z tą linijką to klucz do dalszej diagnozy.**
-
-`state` = `AudioContext.state`. Jeśli po `resume×2` i `rebuilt` dalej jest
-`suspended` → Safari odmawia odblokowania na poziomie systemu/ustawień, nie kodu.
-
-## Hipotezy do sprawdzenia
-
-- **Ustawienia Safari na iPhone:** Ustawienia → Safari → (lub ikona „aA" w pasku
-  adresu na stronie) → „Ustawienia witryny" → Auto-Play / dźwięk.
-- **Tryb niskiego zużycia energii** (Low Power Mode) — bywa, że wstrzymuje audio.
-- **Prywatna karta** — ograniczenia.
-- Wersja iOS (16 vs 17 vs 18) — polityki `AudioContext` się zmieniały.
-- Czy `ctx.resume()` promise się w ogóle rozwiązuje (patrz `err:` w diagnostyce).
+Rada Opus 5: muzykę utworu (mp3) przenieść na `HTMLAudioElement` (`playsinline`,
+`.play()` w geście), zegar = `audioEl.currentTime` interpolowany `performance.now()`.
+`<audio>` na iOS/WKWebView jest dużo przewidywalniejsze niż WebAudio. `AudioContext`
+zostałby tylko do SFX. Duża zmiana — synth-tracki (`byleby`/`ksiaze`/`pogrzebowka`)
+i tak wymagają WebAudio, więc `<audio>` pomaga tylko przy jednym utworze mp3.
+Robić dopiero jeśli keep-alive okaże się niestabilny między wersjami iOS.
 
 ## Pliki
 
-- `src/audio.ts` — `_unlock()`, `unlock()`, `start()`, `getSongTime()`, `diag()`.
-- `src/game.ts` — watchdog w `update()` (~L456), `handleHitsTap` / GRAJ (~L1443),
-  `preloadHitAudio` (~L1378), modal (~L956).
+- `src/audio.ts` — `_unlock()`, `startKeepAlive()`, `buildCtx()`, `getSongTime()`,
+  `clockAlive()`, `wallElapsed()`, `pause()`/`resumePlayback()`, `start()`, `diag()`.
+- `src/game.ts` — watchdog w `update()` (~L456), GRAJ w `handleHitsTap` (~L1443),
+  `preloadHitAudio` (~L1378, woła `prefetch`), modal (~L956, woła `unlock`).
