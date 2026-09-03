@@ -15,6 +15,7 @@ export class AudioEngine {
   private startTime = 0;
   private _running = false;
   private trackBuffers = new Map<string, AudioBuffer>();
+  private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
   private sfxGain: GainNode | null = null;
   private _sfxOn = true;
@@ -65,36 +66,56 @@ export class AudioEngine {
     return this._unlocking;
   }
 
+  private buildCtx() {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    this.ctx = new Ctx();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.9;
+    const comp = this.ctx.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.ratio.value = 4;
+    this.master.connect(comp).connect(this.ctx.destination);
+    this.noiseBuffer = this.makeNoise(this.ctx);
+    this.sfxGain = this.ctx.createGain();
+    this.sfxGain.gain.value = 0.22;
+    this.sfxGain.connect(this.master);
+    this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
+  }
+
   private async _unlock() {
-    if (!this.ctx) {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      this.ctx = new Ctx();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = 0.9;
-      const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = -14;
-      comp.ratio.value = 4;
-      this.master.connect(comp).connect(this.ctx.destination);
-      this.noiseBuffer = this.makeNoise(this.ctx);
-      this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = 0.22;
-      this.sfxGain.connect(this.master);
-    }
-    // klasyczny trik odblokowania audio na iOS: krótki cichy bufor w geście
-    try {
-      const b = this.ctx.createBuffer(1, 1, 22050);
-      const s = this.ctx.createBufferSource();
-      s.buffer = b;
-      s.connect(this.ctx.destination);
-      s.start(0);
-    } catch {
-      /* ignore */
-    }
+    if (!this.ctx) this.buildCtx();
+    const tap = () => {
+      // klasyczny trik odblokowania audio na iOS: krótki cichy bufor w geście
+      try {
+        const s = this.ctx!.createBufferSource();
+        s.buffer = this.ctx!.createBuffer(1, 1, 22050);
+        s.connect(this.ctx!.destination);
+        s.start(0);
+      } catch {
+        /* ignore */
+      }
+    };
+    tap();
     // resume() na iOS potrafi wisieć — próbujemy, ale nie blokujemy w nieskończoność
-    if (this.ctx.state === "suspended") {
+    if (this.ctx!.state === "suspended") {
       await Promise.race([
-        this.ctx.resume().catch(() => {}),
-        new Promise((r) => setTimeout(r, 2500)),
+        this.ctx!.resume().catch(() => {}),
+        new Promise((r) => setTimeout(r, 2000)),
+      ]);
+    }
+    // wciąż zablokowany kontekst (typowe na iOS po nieudanej próbie) — zbuduj
+    // świeży i odblokuj go w TYM SAMYM geście
+    if (this.ctx!.state !== "running") {
+      try {
+        await this.ctx!.close();
+      } catch {
+        /* ignore */
+      }
+      this.buildCtx();
+      tap();
+      await Promise.race([
+        this.ctx!.resume().catch(() => {}),
+        new Promise((r) => setTimeout(r, 2000)),
       ]);
     }
   }
@@ -255,24 +276,44 @@ export class AudioEngine {
     o.stop(t + dur + 0.03);
   }
 
+  /** Pobiera SAME BAJTY pliku audio — BEZ tworzenia AudioContext.
+   *  Kluczowe dla iOS Safari: kontekst musi powstać dopiero w geście GRAJ!,
+   *  a nie w tle przy wchodzeniu do karuzeli (inaczej zostaje „suspended"
+   *  i `resume()` z gestu już go nie odblokowuje). */
+  async prefetch(url: string): Promise<void> {
+    if (this.trackBuffers.has(url) || this.trackRaw.has(url)) return;
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 30000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
+      this.trackRaw.set(url, await res.arrayBuffer());
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
   /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap. */
   async loadTrack(url: string, onStep?: (s: string) => void): Promise<void> {
     await this.unlock();
     if (this.trackBuffers.has(url)) return;
-    onStep?.("pobieranie pliku");
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 30000);
-    let arr: ArrayBuffer;
-    try {
-      const res = await fetch(url, { signal: ctrl.signal });
-      if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
-      arr = await res.arrayBuffer();
-    } finally {
-      clearTimeout(to);
+    let arr = this.trackRaw.get(url);
+    if (!arr) {
+      onStep?.("pobieranie pliku");
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 30000);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
+        arr = await res.arrayBuffer();
+      } finally {
+        clearTimeout(to);
+      }
     }
     onStep?.("dekodowanie dźwięku");
     const buf = await this.decode(arr);
     this.trackBuffers.set(url, buf);
+    this.trackRaw.delete(url);
   }
 
   /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime). */

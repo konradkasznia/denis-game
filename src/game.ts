@@ -954,7 +954,10 @@ export class Game {
       return;
     }
     if (this.soundModal) {
-      // to tylko potwierdzenie — dowolne stuknięcie zamyka
+      // to tylko potwierdzenie — dowolne stuknięcie zamyka.
+      // Przy okazji odblokuj audio JUŻ TERAZ (czysty gest) — na iOS Safari
+      // AudioContext trzeba stworzyć i wznowić w reakcji na dotknięcie.
+      void this.audio.unlock();
       this.soundModal = false;
       this.soundHintDone = true;
       return;
@@ -1382,7 +1385,9 @@ export class Game {
     void (async () => {
       try {
         const song = await loadTrack(meta.id);
-        if (song.audioUrl) await this.audio.loadTrack(song.audioUrl);
+        // tylko pobierz bajty — NIE twórz AudioContextu w tle (iOS Safari:
+        // kontekst musi powstać w geście GRAJ!, inaczej zostaje „suspended")
+        if (song.audioUrl) await this.audio.prefetch(song.audioUrl);
       } catch {
         /* brak sieci / nie ma pliku — trudno, poleci przy GRAJ! */
       }
