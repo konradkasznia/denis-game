@@ -22,6 +22,8 @@ export class AudioEngine {
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
   private sfxGain: GainNode | null = null;
+  private keepAlive: AudioBufferSourceNode | null = null; // cichy loop — trzyma
+  // wątek renderu audio żywy na iOS (inaczej `currentTime` zamiera na 0)
   private _sfxOn = true;
   // wszystkie zaplanowane głosy syntezy (całe bary są kolejkowane z góry) —
   // trzymamy referencje, żeby `stop()` NAPRAWDĘ je uciszył (inaczej po pauzie +
@@ -84,6 +86,26 @@ export class AudioEngine {
     this.sfxGain.gain.value = 0.22;
     this.sfxGain.connect(this.master);
     this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
+    this.startKeepAlive();
+  }
+
+  /** Cichy, zapętlony bufor grający bez końca — trzyma wątek renderu audio
+   *  żywy na iOS Safari (bez tego `AudioContext.currentTime` zamiera na 0). */
+  private startKeepAlive() {
+    if (!this.ctx || this.keepAlive) return;
+    try {
+      const buf = this.ctx.createBuffer(1, 2205, 22050); // 0.1 s ciszy
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g).connect(this.ctx.destination);
+      src.start(0);
+      this.keepAlive = src;
+    } catch {
+      /* ignore */
+    }
   }
 
   private async _unlock() {
@@ -94,7 +116,7 @@ export class AudioEngine {
     if (!this.ctx) this.buildCtx();
     const ctx = this.ctx!;
 
-    // (1) cichy bufor — klasyczny odblokowywacz
+    // cichy bufor — klasyczny odblokowywacz iOS
     try {
       const s = ctx.createBufferSource();
       s.buffer = ctx.createBuffer(1, 1, 22050);
@@ -103,19 +125,7 @@ export class AudioEngine {
     } catch {
       /* ignore */
     }
-    // (2) krótki oscylator na zerowym wzmocnieniu — WYMUSZA uruchomienie
-    //     wątku renderu audio, przez co `currentTime` faktycznie rusza
-    //     (samo `resume()` na iOS bywa niewystarczające).
-    try {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      g.gain.value = 0;
-      o.connect(g).connect(ctx.destination);
-      o.start();
-      o.stop(ctx.currentTime + 0.05);
-    } catch {
-      /* ignore */
-    }
+    this.startKeepAlive(); // zapętlona cisza — trzyma zegar żywy
 
     if (ctx.state !== "running") {
       this.resumeTries++;
