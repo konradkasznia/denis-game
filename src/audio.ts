@@ -18,6 +18,8 @@ export class AudioEngine {
   // nie rusza (błąd iOS Safari: state="running", a zegar stoi na 0)
   private wallStartMs = 0;
   private ctxAtStart = 0;
+  private pausedTotalMs = 0; // suma czasu spędzonego w pauzie (zegar ścienny)
+  private pauseStartMs = 0; // != 0 => właśnie trwa pauza
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
@@ -174,22 +176,31 @@ export class AudioEngine {
     });
   }
 
-  /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem).
-   *  Preferuje zegar AudioContextu; gdy ten stoi (błąd iOS), przechodzi na
-   *  performance.now(), żeby gra w ogóle ruszyła. */
-  getSongTime(): number {
-    if (!this.ctx || !this._running) return 0;
-    const ctxT = this.ctx.currentTime - this.startTime;
-    if (!this.wallStartMs) return ctxT;
-    const wallT = (performance.now() - this.wallStartMs) / 1000 - 0.25;
-    // zegar ctx uznajemy za „żywy", jeśli posunął się choć trochę od startu
-    const ctxAdvanced = this.ctx.currentTime - this.ctxAtStart > 0.05;
-    return ctxAdvanced ? ctxT : wallT;
+  /** Ile sekund minęło od startu utworu wg zegara ściennego (z odjęciem pauz).
+   *  Lead-in 0.25 s NIE jest tu odejmowany. */
+  private wallElapsed(): number {
+    const pausedMs = this.pausedTotalMs + (this.pauseStartMs ? performance.now() - this.pauseStartMs : 0);
+    return (performance.now() - this.wallStartMs - pausedMs) / 1000;
   }
 
-  /** Czy zegar AudioContextu faktycznie chodzi (do diagnostyki / watchdoga). */
+  /** Czy zegar AudioContextu faktycznie chodzi. Sprawdzane CIĄGLE (nie raz):
+   *  „żywy" = nadąża za zegarem ściennym (0.5 s karencji na rozruch). */
   clockAlive(): boolean {
-    return !!this.ctx && this.ctx.currentTime - this.ctxAtStart > 0.05;
+    if (!this.ctx || !this.wallStartMs) return true;
+    const w = this.wallElapsed();
+    const ctxElapsed = this.ctx.currentTime - this.ctxAtStart;
+    return w < 0.5 || ctxElapsed > w - 0.3;
+  }
+
+  /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem).
+   *  Preferuje zegar AudioContextu; gdy ten NIE nadąża (błąd iOS —
+   *  `currentTime` zamiera), przechodzi na performance.now(). */
+  getSongTime(): number {
+    if (!this.ctx || !this._running) return 0;
+    if (!this.wallStartMs) return this.ctx.currentTime - this.startTime;
+    return this.clockAlive()
+      ? this.ctx.currentTime - this.startTime
+      : this.wallElapsed() - 0.25;
   }
 
   // --- diagnostyka (do ekranu błędu na telefonie) ---
@@ -366,19 +377,30 @@ export class AudioEngine {
       }
     }
     onStep?.("dekodowanie dźwięku");
-    const buf = await this.decode(arr);
+    // decodeAudioData „odłącza" (detach) przekazany ArrayBuffer — dajemy kopię,
+    // żeby przy błędzie/timeout dekodowania oryginał w trackRaw nadał się do retry
+    const buf = await this.decode(arr.slice(0));
     this.trackBuffers.set(url, buf);
     this.trackRaw.delete(url);
   }
 
-  /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime). */
+  /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime).
+   *  Zapisujemy moment pauzy, żeby awaryjny zegar ścienny odjął ten czas. */
   pause() {
     if (this.ctx && this.ctx.state === "running") void this.ctx.suspend();
+    if (this._running && !this.pauseStartMs) this.pauseStartMs = performance.now();
   }
 
   /** Wznawia po pauzie (wołać z gestu użytkownika). */
   async resumePlayback() {
-    if (this.ctx && this.ctx.state === "suspended") {
+    if (this.pauseStartMs) {
+      this.pausedTotalMs += performance.now() - this.pauseStartMs;
+      this.pauseStartMs = 0;
+    }
+    // WebKit ma dodatkowy stan "interrupted" (Siri / telefon / cisza) — też
+    // wymaga resume(); "closed" pomijamy, bo resume rzuci.
+    const s = this.ctx?.state as string | undefined;
+    if (this.ctx && s && s !== "running" && s !== "closed") {
       try {
         await this.ctx.resume();
       } catch {
@@ -388,7 +410,8 @@ export class AudioEngine {
   }
 
   get paused() {
-    return this._running && this.ctx?.state === "suspended";
+    const s = this.ctx?.state as string | undefined;
+    return this._running && (s === "suspended" || s === "interrupted");
   }
 
   stop() {
@@ -422,11 +445,13 @@ export class AudioEngine {
       /* ignore */
     }
     this.srcNode = null;
-    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    if ((ctx.state as string) !== "running") void ctx.resume().catch(() => {});
     this.master.gain.cancelScheduledValues(ctx.currentTime);
     this.master.gain.setValueAtTime(0.9, ctx.currentTime);
     this.wallStartMs = performance.now();
     this.ctxAtStart = ctx.currentTime;
+    this.pausedTotalMs = 0;
+    this.pauseStartMs = 0;
 
     // --- prawdziwy plik audio ---
     if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
