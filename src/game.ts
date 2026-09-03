@@ -232,6 +232,7 @@ interface FxParticle {
 const COMBO_FX: Record<string, FxKind> = {
   "ksiaze-z-bajki": "roses",
   pogrzebowka: "smoke",
+  "byleby-nie-byla-ciepla": "iceShard",
 };
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
 // jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
@@ -501,6 +502,7 @@ export class Game {
   private burstFx(kind: FxKind, x: number, y: number) {
     if (kind === "smoke") this.spawnSmoke(x, y);
     else if (kind === "roses") this.spawnRoses(x, y);
+    else if (kind === "iceShard") this.spawnFrost(x, y);
     else this.spawnConfetti(x, y);
     if (this.fx.length > 360) this.fx.splice(0, this.fx.length - 360);
   }
@@ -600,6 +602,54 @@ export class Game {
         ttl: 4.5 + Math.random() * 2,
         swayA: 46 + Math.random() * 60,
         swayF: 1.8 + Math.random() * 2.2,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 0,
+      });
+    }
+  }
+
+  /** Wystrzał odłamków lodu — combo co 10 przy „Byleby nie była ciepła".
+   *  Lecą w górę i na boki, potem opadają; kilka „dosypanych" z góry, żeby
+   *  efekt utrzymał się przez chwilę w tle. */
+  private spawnFrost(x: number, y: number) {
+    for (let i = 0; i < 46; i++) {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.2; // stożek w górę
+      const spd = 300 + Math.random() * 420;
+      this.fx.push({
+        kind: "iceShard",
+        x: x + (Math.random() - 0.5) * 90,
+        y: y + (Math.random() - 0.5) * 50,
+        vx: Math.cos(ang) * spd + (Math.random() - 0.5) * 120,
+        vy: Math.sin(ang) * spd,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 12,
+        w: 5 + Math.random() * 10,
+        h: 0,
+        color: "#cfeeff",
+        life: 0,
+        ttl: 1.1 + Math.random() * 0.9,
+        swayA: 10 + Math.random() * 22,
+        swayF: 1.4 + Math.random() * 1.6,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 0,
+      });
+    }
+    for (let i = 0; i < 12; i++) {
+      this.fx.push({
+        kind: "iceShard",
+        x: Math.random() * VW,
+        y: -30 - Math.random() * 120,
+        vx: (Math.random() - 0.5) * 60,
+        vy: 40 + Math.random() * 80,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 8,
+        w: 4 + Math.random() * 9,
+        h: 0,
+        color: "#cfeeff",
+        life: -(i / 12) * 0.4,
+        ttl: 2.2 + Math.random() * 1.2,
+        swayA: 20 + Math.random() * 34,
+        swayF: 0.8 + Math.random() * 1.0,
         swayP: Math.random() * Math.PI * 2,
         grow: 0,
       });
