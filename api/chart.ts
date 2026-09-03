@@ -24,6 +24,7 @@ interface RawEvent {
   type: string;
   at: number;
   taps?: number;
+  dur?: number;
 }
 interface RawChart {
   id?: string;
@@ -43,7 +44,7 @@ interface RawChart {
 
 const SONG_ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const UJ_RE = /^ujecie[1-9]\d?$/;
-const EVENT_TYPES = new Set(["ice"]); // rozszerzalne — przeszkody z edytora
+const EVENT_TYPES = new Set(["ice", "spotlight", "bomb"]); // przeszkody z edytora
 
 /** Wymusza bezpieczne, względne ścieżki w opublikowanej mapie (blokuje np.
  *  `audioUrl: "https://evil.com/x.mp3"` → apka pobierałaby treść z obcego serwera). */
@@ -67,12 +68,18 @@ function sanitizeChart(raw: RawChart, songId: string): RawChart {
   const events = Array.isArray(raw.events)
     ? raw.events
         .filter((e) => e && EVENT_TYPES.has(String(e.type)) && typeof e.at === "number")
-        .map((e) => ({
-          type: String(e.type),
-          at: Math.max(0, +Number(e.at).toFixed(4)),
-          taps: Math.max(1, Math.min(99, Math.round(Number(e.taps) || 20))),
-        }))
-        .slice(0, 50)
+        .map((e) => {
+          const type = String(e.type);
+          const base = { type, at: Math.max(0, +Number(e.at).toFixed(4)) };
+          if (type === "spotlight") {
+            return { ...base, dur: Math.max(1, Math.min(30, +Number(e.dur || 6).toFixed(2))) };
+          }
+          if (type === "ice") {
+            return { ...base, taps: Math.max(1, Math.min(99, Math.round(Number(e.taps) || 20))) };
+          }
+          return base; // bomb — pole nut, nie oś czasu; tu tylko przepuszczamy
+        })
+        .slice(0, 200)
     : undefined;
   return {
     id: songId,

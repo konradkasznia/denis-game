@@ -25,13 +25,15 @@ export interface Note {
   judgedAt: number;
 }
 
-/** Zdarzenie na osi czasu utworu (poza nutami) — np. „zamrożenie ekranu". */
+/** Zdarzenie na osi czasu utworu (poza nutami) — „przeszkoda" z edytora. */
 export interface SongEvent {
-  type: "ice";
+  type: "ice" | "spotlight";
   /** sekunda utworu, w której się uruchamia */
   at: number;
-  /** ile tapnięć trzeba, by rozbić lód */
+  /** LÓD: ile tapnięć trzeba, by rozbić lód */
   taps?: number;
+  /** REFLEKTOR: ile sekund trwa ciemność ze snopem światła */
+  dur?: number;
 }
 
 export interface SongDef {

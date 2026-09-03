@@ -13,9 +13,12 @@ const SEGCOL = 46; // 2. kolumna: oś ujęć postaci — klik = wstaw / chwyć z
 const OBSTCOL = 46; // 3. kolumna: oś przeszkód (lód itd.) — wspólna dla wszystkich utworów
 const GUTTER = WAVE + SEGCOL + OBSTCOL; // cała lewa strefa przed torami nut
 
-// katalog przeszkód — rozszerzalny; `id` trafia do chartu jako `events[].type`
-const OBST_KINDS: { id: string; label: string; short: string; defTaps: number }[] = [
-  { id: "ice", label: "Lód", short: "LÓD", defTaps: 20 },
+// katalog przeszkód — rozszerzalny; `id` trafia do chartu jako `events[].type`.
+// `def` = domyślna wartość parametru, `unit` = jego jednostka (LÓD: tapnięcia,
+// REFLEKTOR: sekundy trwania).
+const OBST_KINDS: { id: string; label: string; short: string; def: number; unit: string }[] = [
+  { id: "ice", label: "Lód", short: "LÓD", def: 20, unit: "tap." },
+  { id: "spotlight", label: "Reflektor", short: "RFLKT", def: 6, unit: "s" },
 ];
 const obstKind = (id: string) => OBST_KINDS.find((k) => k.id === id) ?? OBST_KINDS[0];
 // klawisze nagrywania Live (C V B N) + alias na klawisze gry (D F J K)
@@ -35,8 +38,8 @@ interface Seg {
 }
 interface Obst {
   at: number;
-  kind: string; // "ice" | ...
-  taps: number;
+  kind: string; // "ice" | "spotlight" | ...
+  param: number; // LÓD: tapnięcia; REFLEKTOR: sekundy
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -249,11 +252,10 @@ async function openProject(id: string) {
   offsetInput.value = String(p.offsetMs);
   notes = (p.notes || []).map((n) => ({ ...n }));
   segments = (p.segments || []).map((s) => ({ ...s }));
-  obstacles = (p.obstacles || []).map((o) => ({
-    at: o.at,
-    kind: obstKind(o.kind).id,
-    taps: o.taps || obstKind(o.kind).defTaps,
-  }));
+  obstacles = (p.obstacles || []).map((o) => {
+    const oo = o as { at: number; kind: string; param?: number; taps?: number };
+    return { at: oo.at, kind: obstKind(oo.kind).id, param: oo.param ?? oo.taps ?? obstKind(oo.kind).def };
+  });
   history.length = 0;
   audioTime = 0;
   view.top = 0;
@@ -565,7 +567,7 @@ function draw() {
     ctx2d.fillText(k.short, WAVE + SEGCOL + 6, y + 4);
     ctx2d.fillStyle = "rgba(127,200,255,0.85)";
     ctx2d.font = "10px system-ui";
-    ctx2d.fillText(`${k.label} · ${ob.taps} tapnięć`, GUTTER + 6, y - 4);
+    ctx2d.fillText(`${k.label} · ${ob.param} ${k.unit}`, GUTTER + 6, y - 4);
   }
 
   // nuty
@@ -707,7 +709,7 @@ cv.addEventListener("pointerdown", (e) => {
     } else {
       pushHistory();
       const k = obstKind(obstSel.value);
-      const ob: Obst = { at: Math.max(0, snapTime(tOf(y))), kind: k.id, taps: k.defTaps };
+      const ob: Obst = { at: Math.max(0, snapTime(tOf(y))), kind: k.id, param: k.def };
       obstacles.push(ob);
       drag = { mode: "obst", obst: ob };
     }
@@ -954,7 +956,7 @@ interface RawChart {
   gridOffset?: number;
   notes?: { lane: number; time: number; dur?: number }[];
   characters?: { at: number; sprite: string }[];
-  events?: { type: string; at: number; taps?: number }[];
+  events?: { type: string; at: number; taps?: number; dur?: number }[];
 }
 function applyChart(raw: RawChart) {
   pushHistory();
@@ -973,7 +975,7 @@ function applyChart(raw: RawChart) {
   obstacles = (raw.events || []).map((e) => ({
     at: e.at,
     kind: obstKind(e.type).id,
-    taps: e.taps || obstKind(e.type).defTaps,
+    param: e.taps ?? e.dur ?? obstKind(e.type).def,
   }));
   syncCharacter();
   markDirty();
@@ -998,7 +1000,11 @@ function buildChart() {
     events: obstacles
       .slice()
       .sort((a, b) => a.at - b.at)
-      .map((o) => ({ type: obstKind(o.kind).id, at: +o.at.toFixed(3), taps: o.taps })),
+      .map((o) => {
+        const type = obstKind(o.kind).id;
+        const base = { type, at: +o.at.toFixed(3) };
+        return type === "spotlight" ? { ...base, dur: o.param } : { ...base, taps: o.param };
+      }),
     notes: notes
       .slice()
       .sort((a, b) => a.time - b.time || a.lane - b.lane)
@@ -1165,7 +1171,7 @@ async function persistSeed(cfg: SeedCfg) {
       const evs = (raw.events || []).map((e) => ({
         at: e.at,
         kind: obstKind(e.type).id,
-        taps: e.taps || obstKind(e.type).defTaps,
+        param: e.taps ?? e.dur ?? obstKind(e.type).def,
       }));
       if (evs.length) p.obstacles = evs;
     } catch {

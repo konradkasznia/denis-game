@@ -319,7 +319,9 @@ export class Game {
   private iceTapsLeft = 0;
   private iceStartAt = -10; // songTime pojawienia się tafli (animacja zamarzania)
   private iceShatterAt = -10; // songTime rozbicia (animacja znikania)
-  private iceFired = new Set<number>(); // indeksy zdarzeń już uruchomionych
+  private evFired = new Set<number>(); // indeksy zdarzeń (przeszkód) już uruchomionych
+  private spotlightStart = -10; // songTime początku reflektora
+  private spotlightUntil = -10; // songTime końca reflektora
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
   private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
   private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
@@ -476,14 +478,19 @@ export class Game {
       } else if (this.songTime >= 0.1) {
         this.songStartedAt = 0; // wystartowało OK — watchdog wyłączony
       }
-      // zdarzenia na osi czasu (lód) — nuty i tak lecą dalej (kara za zwłokę)
+      // zdarzenia na osi czasu (przeszkody z edytora) — nuty lecą dalej (kara)
       const evs = this.song.events;
       if (evs) {
         for (let i = 0; i < evs.length; i++) {
           const e = evs[i];
-          if (e.type === "ice" && !this.iceFired.has(i) && this.songTime >= e.at) {
-            this.iceFired.add(i);
-            this.triggerIce(e.taps ?? 20);
+          if (this.evFired.has(i) || this.songTime < e.at) continue;
+          this.evFired.add(i);
+          if (e.type === "ice") this.triggerIce(e.taps ?? 20);
+          else if (e.type === "spotlight") {
+            this.spotlightStart = this.songTime;
+            this.spotlightUntil = this.songTime + (e.dur ?? 6);
+            this.shake = Math.max(this.shake, 6);
+            haptic("flowUp");
           }
         }
       }
@@ -1781,9 +1788,11 @@ export class Game {
     this.iceActive = false;
     this.iceTapsLeft = 0;
     this.iceCracks = [];
-    this.iceFired.clear();
+    this.evFired.clear();
     this.iceStartAt = -10;
     this.iceShatterAt = -10;
+    this.spotlightStart = -10;
+    this.spotlightUntil = -10;
     this.audio.stop(); // ucisz poprzedni przebieg (pauza → „OD NOWA" nie nakłada dźwięku)
     try {
       void this.audio.ctx?.resume?.();
@@ -3072,6 +3081,8 @@ export class Game {
     this.drawCharacter(ctx); // pierwszy plan — przed nutami
     this.drawJudgePopups(ctx);
     this.drawIce(ctx); // tafla lodu — pod HUD (gracz widzi spadające życie)
+    this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
+    this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawHud(ctx);
     this.drawCountdown(ctx);
     if (this.paused) this.drawPause(ctx);
@@ -3777,6 +3788,71 @@ export class Game {
     vg.addColorStop(1, "rgba(224,242,255,0.72)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  /** REFLEKTOR (przeszkoda z edytora): ekran ciemnieje, zostaje snop światła
+   *  nad linią trafienia. Intensywność stała 57%. HUD rysuje się później = ostry. */
+  private drawSpotlight(ctx: CanvasRenderingContext2D) {
+    const left = this.spotlightUntil - this.songTime;
+    if (left <= 0) return;
+    // płynne wejście (0.4 s) i wyjście (0.5 s)
+    const fadeIn = clamp((this.songTime - this.spotlightStart) / 0.4, 0, 1);
+    const fadeOut = clamp(left / 0.5, 0, 1);
+    const m = Math.min(fadeIn, fadeOut); // 0..1
+    if (m <= 0.001) return;
+
+    const top = -this.vdy;
+    const H = this.sh();
+    const cx = VW / 2;
+    const cy = this.hitY() - 40;
+    const rad = 300 + Math.sin(this.songTime * 3) * 12; // 380 - 0.57*150 ≈ 295
+
+    const g = ctx.createRadialGradient(cx, cy, 10, cx, cy, rad);
+    g.addColorStop(0, "rgba(2,2,6,0)");
+    g.addColorStop(0.5, `rgba(2,2,6,${0.12 * m})`);
+    g.addColorStop(1, `rgba(2,2,6,${0.96 * m})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, top, VW, H);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const gl = ctx.createRadialGradient(cx, cy, 10, cx, cy, rad * 0.8);
+    gl.addColorStop(0, `rgba(255,235,190,${0.28 * m})`);
+    gl.addColorStop(1, "rgba(255,220,160,0)");
+    ctx.fillStyle = gl;
+    ctx.fillRect(0, top, VW, H);
+    ctx.restore();
+  }
+
+  /** Flesze paparazzi z krawędzi — obligatoryjnie w KAŻDYM utworze, gdy combo
+   *  >= 30, aż do zbicia combo. Pulsują na bit. Intensywność stała 57%. */
+  private drawComboFlash(ctx: CanvasRenderingContext2D) {
+    if (this.combo < 30) return;
+    const beat = 60 / Math.max(60, this.song.bpm);
+    const phase = (this.songTime % beat) / beat;
+    const a = Math.max(0, 1 - phase * 5) * 0.57 + 0.05 * 0.57;
+    if (a <= 0.01) return;
+    const top = -this.vdy;
+    const H = this.sh();
+    const bw = 230;
+
+    const bar = (grad: CanvasGradient, x: number, w: number) => {
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, top, w, H);
+    };
+    const gL = ctx.createLinearGradient(0, 0, bw, 0);
+    gL.addColorStop(0, `rgba(255,255,255,${a})`);
+    gL.addColorStop(1, "rgba(255,255,255,0)");
+    bar(gL, 0, bw);
+    const gR = ctx.createLinearGradient(VW, 0, VW - bw, 0);
+    gR.addColorStop(0, `rgba(255,255,255,${a})`);
+    gR.addColorStop(1, "rgba(255,255,255,0)");
+    bar(gR, VW - bw, bw);
+    const gT = ctx.createLinearGradient(0, top, 0, top + 200);
+    gT.addColorStop(0, `rgba(255,255,255,${a * 0.9})`);
+    gT.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gT;
+    ctx.fillRect(0, top, VW, 200);
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
