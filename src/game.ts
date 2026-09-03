@@ -13,7 +13,7 @@ import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, votedChoice } from "./poll.ts";
-import { uiSound } from "./uisfx.ts";
+import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
@@ -267,6 +267,8 @@ export class Game {
   private charRect: Rect = { x: 60, y: 392, w: VW - 120, h: 576 };
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
   private soundModal = false;
+  private healthHintDone = false; // ostrzeżenie o światłoczułości pokazane w tej sesji
+  private healthModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
   /** pionowe przesunięcie układu UI w bieżącej klatce (ekran wyższy niż VH) */
   private vdy = 0;
@@ -371,6 +373,7 @@ export class Game {
     this.bg.src = "assets/denis/denis-stage.png";
     setHapticsEnabled(true); // wibracje zawsze włączone
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
+    registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
     void this.syncSession(); // sprawdź sesję na serwerze
     void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
@@ -416,7 +419,8 @@ export class Game {
   /** Wejście do karuzeli od zera — z modalem „włącz dźwięk" (raz na sesję). */
   private enterHitsFresh() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
-    if (!this.soundHintDone) this.soundModal = true;
+    if (!this.healthHintDone) this.healthModal = true;
+    else if (!this.soundHintDone) this.soundModal = true;
     this.scene = "hits";
     this.preloadHitAudio();
   }
@@ -925,7 +929,8 @@ export class Game {
         break;
     }
 
-    if (this.soundModal) this.drawSoundModal(ctx);
+    if (this.healthModal) this.drawHealthModal(ctx);
+    else if (this.soundModal) this.drawSoundModal(ctx);
     if (this.voteModal) this.drawVoteModal(ctx);
     if (this.offlineNotice && this.scene === "results") {
       this.drawModal(
@@ -973,6 +978,16 @@ export class Game {
     if (this.preparing) return this.cancelPrepare();
     if (this.offlineNotice && this.scene === "results") {
       this.offlineNotice = false;
+      return;
+    }
+    if (this.healthModal) {
+      // ostrzeżenie o światłoczułości — dowolne stuknięcie potwierdza.
+      // Odblokuj audio JUŻ TERAZ (czysty gest) — iOS Safari wymaga stworzenia
+      // AudioContextu w reakcji na dotknięcie; przy okazji wczytują się klipy UI.
+      void this.audio.unlock();
+      this.healthModal = false;
+      this.healthHintDone = true;
+      if (!this.soundHintDone) this.soundModal = true;
       return;
     }
     if (this.soundModal) {
@@ -1100,6 +1115,13 @@ export class Game {
     if (this.voteModal) {
       uiSound("back");
       this.voteModal = null;
+      return true;
+    }
+    if (this.healthModal) {
+      void this.audio.unlock();
+      this.healthModal = false;
+      this.healthHintDone = true;
+      if (!this.soundHintDone) this.soundModal = true;
       return true;
     }
     if (this.soundModal) {
@@ -1284,7 +1306,7 @@ export class Game {
 
   /** Nakładka z prawdziwymi <input> — tylko na ekranie logowania. */
   private syncFields() {
-    if (this.soundModal || this.scene !== "auth") {
+    if (this.healthModal || this.soundModal || this.scene !== "auth") {
       this.fields.clear();
       return;
     }
@@ -1532,7 +1554,7 @@ export class Game {
 
   /** Przesunięcie palcem w bok na karuzeli „WYBIERZ HIT". */
   onSwipe(dir: 1 | -1) {
-    if (this.scene !== "hits" || this.preparing || this.soundModal) return;
+    if (this.scene !== "hits" || this.preparing || this.soundModal || this.healthModal) return;
     const next = this.hitIndex + dir;
     if (dir < 0 && next >= 0) {
       this.hitIndex = next;
@@ -1657,6 +1679,7 @@ export class Game {
   private async startPlay() {
     if (this.preparing) return;
     this.soundModal = false;
+    this.healthModal = false;
     this.audio.stop(); // ucisz ewentualny poprzedni przebieg zanim ruszymy nowy
     const myId = ++this.prepId;
     this.preparing = true;
@@ -2609,6 +2632,15 @@ export class Game {
       "🔊",
       "WŁĄCZ DŹWIĘK",
       "Ustaw telefon na dźwięk i wyłącz tryb cichy, gra działa w rytm muzyki.",
+    );
+  }
+
+  private drawHealthModal(ctx: CanvasRenderingContext2D) {
+    this.drawModal(
+      ctx,
+      "⚠️",
+      "UWAGA NA ZDROWIE",
+      "Gra zawiera pulsujące światła i błyski. U osób ze światłoczułą padaczką mogą wywołać napad. Graj w oświetlonym pomieszczeniu, rób przerwy i przerwij grę, jeśli poczujesz zawroty głowy lub mdłości.",
     );
   }
 
@@ -3967,32 +3999,68 @@ export class Game {
     const cx = this.hitX(this.bombLane);
     const cy = this.hitY();
 
-    // 1. rozbłysk + fala uderzeniowa (0..0.7 s)
+    // 1. „Odłamki" — błysk, mały rozbłysk, drzazgi na boki i pęknięcia ekranu (0..0.7 s)
     const blast = clamp(since / 0.7, 0, 1);
     if (blast < 1) {
       const k = 1 - blast;
+      let s = 0x9e37 ^ ((this.bombLane + 1) * 2654435761);
+      const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+
       // biały flash całego ekranu
       ctx.save();
-      ctx.fillStyle = `rgba(255,240,220,${0.6 * k * k})`;
+      ctx.fillStyle = `rgba(255,240,220,${0.55 * k * k})`;
       ctx.fillRect(0, top, VW, H);
       ctx.restore();
-      // kula ognia
-      const fr = 40 + blast * 360;
+
+      // środkowy rozbłysk (mniejszy niż kula ognia)
+      const fr = 24 + blast * 150;
       const fg = ctx.createRadialGradient(cx, cy, 0, cx, cy, fr);
-      fg.addColorStop(0, `rgba(255,245,200,${0.9 * k})`);
-      fg.addColorStop(0.35, `rgba(255,150,40,${0.8 * k})`);
-      fg.addColorStop(0.7, `rgba(200,40,20,${0.5 * k})`);
-      fg.addColorStop(1, "rgba(80,10,10,0)");
+      fg.addColorStop(0, `rgba(255,244,200,${0.95 * k})`);
+      fg.addColorStop(0.5, `rgba(255,140,45,${0.6 * k})`);
+      fg.addColorStop(1, "rgba(255,120,40,0)");
       ctx.fillStyle = fg;
       ctx.beginPath();
       ctx.arc(cx, cy, fr, 0, Math.PI * 2);
       ctx.fill();
-      // pierścień fali
-      ctx.strokeStyle = `rgba(255,220,180,${0.7 * k})`;
+
+      // fala uderzeniowa
+      ctx.strokeStyle = `rgba(255,225,190,${0.7 * k})`;
       ctx.lineWidth = 6 * k + 1;
       ctx.beginPath();
-      ctx.arc(cx, cy, blast * 460, 0, Math.PI * 2);
+      ctx.arc(cx, cy, blast * 420, 0, Math.PI * 2);
       ctx.stroke();
+
+      // drzazgi lecące na boki
+      ctx.strokeStyle = `rgba(255,214,168,${k})`;
+      for (let i = 0; i < 18; i++) {
+        const ang = rnd() * Math.PI * 2;
+        const dist = blast * (160 + rnd() * 320);
+        const len = 16 + rnd() * 46;
+        const sx = cx + Math.cos(ang) * dist;
+        const sy = cy + Math.sin(ang) * dist;
+        ctx.lineWidth = 4 * k + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len);
+        ctx.stroke();
+      }
+
+      // pęknięcia ekranu — łamane linie z epicentrum
+      ctx.strokeStyle = `rgba(255,255,255,${0.3 * k})`;
+      ctx.lineWidth = 1.6;
+      for (let c = 0; c < 6; c++) {
+        const ang = rnd() * Math.PI * 2;
+        let x = cx;
+        let y = cy;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        for (let seg = 0; seg < 5; seg++) {
+          x += Math.cos(ang + (rnd() - 0.5)) * 70;
+          y += Math.sin(ang + (rnd() - 0.5)) * 70;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
     }
 
     // 2. ogłuszenie — czerwona winieta + „NIE KLIKAJ" + odliczanie

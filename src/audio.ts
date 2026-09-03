@@ -8,6 +8,10 @@
 
 import type { SongDef } from "./chart.ts";
 
+/** Dźwięki interfejsu — grane przez TEN SAM AudioContext co muzyka (jedna
+ *  sesja audio). HTMLAudioElement na iOS potrafił przerwać WebAudio → cisza. */
+export type UiKind = "play" | "back" | "buttons";
+
 export class AudioEngine {
   ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -24,9 +28,13 @@ export class AudioEngine {
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
   private sfxGain: GainNode | null = null;
+  private uiGain: GainNode | null = null; // dźwięki interfejsu (menu / przyciski)
+  private uiBuffers = new Map<UiKind, AudioBuffer>();
+  private uiLoading = false;
   private keepAlive: AudioBufferSourceNode | null = null; // cichy loop — trzyma
   // wątek renderu audio żywy na iOS (inaczej `currentTime` zamiera na 0)
   private _sfxOn = true;
+  private _uiOn = true;
   // wszystkie zaplanowane głosy syntezy (całe bary są kolejkowane z góry) —
   // trzymamy referencje, żeby `stop()` NAPRAWDĘ je uciszył (inaczej po pauzie +
   // „OD NOWA" stary podkład wznawia się razem z nowym → podwójny dźwięk).
@@ -87,8 +95,58 @@ export class AudioEngine {
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.value = 0.22;
     this.sfxGain.connect(this.master);
+    this.uiGain = this.ctx.createGain();
+    this.uiGain.gain.value = 0.5;
+    this.uiGain.connect(this.master);
     this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
+    this.uiBuffers.clear();
+    void this.loadUiClips();
     this.startKeepAlive();
+  }
+
+  /** Wczytuje 3 klipy UI do buforów tego kontekstu (raz). */
+  private async loadUiClips() {
+    if (this.uiLoading || !this.ctx) return;
+    this.uiLoading = true;
+    const kinds: UiKind[] = ["play", "back", "buttons"];
+    await Promise.all(
+      kinds.map(async (k) => {
+        if (this.uiBuffers.has(k)) return;
+        try {
+          const res = await fetch(`assets/ui/Sounds/${k}.mp3`);
+          if (!res.ok) return;
+          const buf = await this.decode((await res.arrayBuffer()).slice(0));
+          this.uiBuffers.set(k, buf);
+        } catch {
+          /* dźwięk UI jest opcjonalny */
+        }
+      }),
+    );
+    this.uiLoading = false;
+  }
+
+  setUiEnabled(on: boolean) {
+    this._uiOn = on;
+  }
+
+  /** Krótki dźwięk interfejsu (GRAJ / cofnij / przycisk). No-op, gdy kontekst
+   *  jeszcze nie istnieje (pierwsze stuknięcia przed modalem „włącz dźwięk"). */
+  uiSfx(kind: UiKind) {
+    if (!this._uiOn || !this.ctx || !this.uiGain) return;
+    const buf = this.uiBuffers.get(kind);
+    if (!buf) {
+      void this.loadUiClips();
+      return;
+    }
+    if ((this.ctx.state as string) !== "running") void this.ctx.resume().catch(() => {});
+    try {
+      const s = this.ctx.createBufferSource();
+      s.buffer = buf;
+      s.connect(this.uiGain);
+      s.start();
+    } catch {
+      /* ignore */
+    }
   }
 
   /** Cichy, zapętlony bufor grający bez końca — trzyma wątek renderu audio
@@ -476,7 +534,10 @@ export class AudioEngine {
             const s2 = ctx.createBufferSource();
             s2.buffer = src.buffer;
             s2.connect(this.master!);
-            s2.start();
+            // wznów od WŁAŚCIWEJ pozycji utworu (zegar ścienny), nie od zera —
+            // inaczej po „martwym" zegarze muzyka leciała od początku
+            const pos = Math.max(0, this.wallElapsed() - 0.25);
+            s2.start(0, Math.min(pos, (s2.buffer?.duration ?? pos) - 0.05));
             this.srcNode = s2;
           } catch {
             /* ignore */
