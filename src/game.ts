@@ -3995,7 +3995,7 @@ export class Game {
         const bob = Math.sin(this.songTime * 6 + n.lane * 1.3) * r * 0.05;
         const S = 96;
         const full = S + Game.LOOT_PAD * 2;
-        const d = ((r * 2.3) / S) * full;
+        const d = ((r * 3.5) / S) * full; // wyraźnie większe niż zwykła główka — trzeba rozpoznać przedmiot
         ctx.save();
         ctx.globalAlpha = a;
         ctx.drawImage(this.lootSprite(col, this.lootIconFor(n)), x - d / 2, y - d / 2 + bob, d, d);
@@ -4151,7 +4151,7 @@ export class Game {
     cv.height = S + PAD * 2;
     if (!c) return cv;
     c.translate(S / 2, S / 2);
-    drawLootIcon(c, kind, S * 0.4);
+    drawLootIcon(c, kind, S * 0.48);
 
     const fc = cv.getContext("2d");
     if (fc) {
