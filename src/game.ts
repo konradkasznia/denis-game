@@ -105,6 +105,7 @@ const MODAL_OK: Rect = { x: VW / 2 - 170, y: 792, w: 340, h: 92 };
 // --- karuzela WYBIERZ HIT (makieta 1080×1920 -> 720×1280) ---
 const HIT_GEAR: Rect = { x: VW - 82, y: 26, w: 62, h: 68 };
 const HIT_LOGO: Rect = { x: 6, y: 40, w: VW - 12, h: 150 };
+const HITS_CURTAIN_MS = 320; // cała animacja zmiany poziomu (zasuw + rozsuw) — lekka, szybka
 const HIT_LEVEL_Y = 250; // środek napisu „POZIOM N"
 const HIT_TITLE_Y = 306; // środek tytułu utworu
 const HIT_STARS_Y = 362;
@@ -512,6 +513,11 @@ export class Game {
 
   private trackId = DEFAULT_TRACK;
   private hitIndex = 0; // strona karuzeli WYBIERZ HIT
+  // kurtyna przy zmianie poziomu: zasuwa się (0→0.5), w połowie (ekran zasłonięty)
+  // podstawiamy nowy hitIndex, potem się rozsuwa (0.5→1). Zegar ścienny — karuzela
+  // nie ma własnego songTime jak scena "play".
+  private hitsCurtainAt = -1e9; // performance.now() startu animacji
+  private hitsCurtainNext = -1; // docelowy hitIndex (podstawiany w połowie)
   /** obszar postaci na ekranie WYBIERZ HIT (do umieszczania pieczątek) */
   private charRect: Rect = { x: 60, y: 392, w: VW - 120, h: 576 };
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
@@ -1223,6 +1229,7 @@ export class Game {
         break;
       case "hits":
         this.drawHits(ctx);
+        this.drawHitsCurtain(ctx);
         break;
       case "board":
         this.drawBoard(ctx);
@@ -1781,11 +1788,13 @@ export class Game {
     void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
   }
 
-  /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
+  /** W tle dekoduje audio poziomu (domyślnie bieżącego), żeby GRAJ! startował bez
+   *  czekania. Przyjmuje indeks jawnie, żeby dało się doładować NASTĘPNY poziom
+   *  już w trakcie animacji kurtyny, zanim `hitIndex` się na niego przestawi. */
   private preloadedAudioFor = "";
-  private preloadHitAudio() {
-    const meta = SONGS[this.hitIndex];
-    if (!meta || !meta.playable || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
+  private preloadHitAudio(idx = this.hitIndex) {
+    const meta = SONGS[idx];
+    if (!meta || !meta.playable || !levelUnlocked(idx) || this.preloadedAudioFor === meta.id) return;
     this.preloadedAudioFor = meta.id;
     void (async () => {
       try {
@@ -1804,6 +1813,7 @@ export class Game {
 
   private handleHitsTap(x: number, y: number) {
     if (x < 0) return;
+    if (this.hitsCurtainBusy()) return; // kurtyna w trakcie animacji — ignoruj tapy
     if (inRect(HIT_GEAR, x, y)) {
       uiSound("buttons");
       this.scene = "profile";
@@ -1813,16 +1823,14 @@ export class Game {
     if (inRect(HIT_ARROW_L, x, y)) {
       if (this.hitIndex > 0) {
         uiSound("buttons");
-        this.hitIndex--;
-        this.preloadHitAudio();
+        this.startHitsCurtain(this.hitIndex - 1);
       }
       return;
     }
     if (inRect(HIT_ARROW_R, x, y)) {
       if (this.hitIndex < this.maxHitIndex()) {
         uiSound("buttons");
-        this.hitIndex++;
-        this.preloadHitAudio();
+        this.startHitsCurtain(this.hitIndex + 1);
       }
       return;
     }
@@ -1876,14 +1884,24 @@ export class Game {
   /** Przesunięcie palcem w bok na karuzeli „WYBIERZ HIT". */
   onSwipe(dir: 1 | -1) {
     if (this.scene !== "hits" || this.preparing || this.soundModal || this.healthModal) return;
+    if (this.hitsCurtainBusy()) return;
     const next = this.hitIndex + dir;
-    if (dir < 0 && next >= 0) {
-      this.hitIndex = next;
-      this.preloadHitAudio();
-    } else if (dir > 0 && next <= this.maxHitIndex()) {
-      this.hitIndex = next;
-      this.preloadHitAudio();
-    }
+    if (dir < 0 && next >= 0) this.startHitsCurtain(next);
+    else if (dir > 0 && next <= this.maxHitIndex()) this.startHitsCurtain(next);
+  }
+
+  /** true, gdy kurtyna zmiany poziomu jest w trakcie animacji (zasuw albo rozsuw). */
+  private hitsCurtainBusy(): boolean {
+    return performance.now() - this.hitsCurtainAt < HITS_CURTAIN_MS;
+  }
+
+  /** Uruchamia animację kurtyny i celuje w nowy poziom — `hitIndex` przestawia
+   *  się dopiero w połowie animacji (drawHits), gdy kurtyna w pełni zasłania ekran,
+   *  więc gracz nigdy nie widzi „skoku" treści. */
+  private startHitsCurtain(newIndex: number) {
+    this.hitsCurtainAt = performance.now();
+    this.hitsCurtainNext = newIndex;
+    this.preloadHitAudio(newIndex); // dociągnij audio NASTĘPNEGO poziomu już teraz
   }
 
   private handleBoardTap(x: number, y: number) {
@@ -3177,6 +3195,15 @@ export class Game {
   // ---- ekran: WYBIERZ HIT (karuzela poziomów) ----------------
 
   private drawHits(ctx: CanvasRenderingContext2D) {
+    // w połowie animacji kurtyny (ekran w pełni zasłonięty) podstaw docelowy
+    // poziom — treść pod spodem zmienia się niewidocznie dla gracza
+    if (
+      this.hitsCurtainNext >= 0 &&
+      this.hitIndex !== this.hitsCurtainNext &&
+      performance.now() - this.hitsCurtainAt >= HITS_CURTAIN_MS / 2
+    ) {
+      this.hitIndex = this.hitsCurtainNext;
+    }
     const idx = this.hitIndex;
     const meta = SONGS[idx]; // undefined dla „już wkrótce"
     // „wkrótce" (niedostępny utwór) pokazujemy w kolorze; zablokowany progresją — b&w
@@ -3320,6 +3347,55 @@ export class Game {
     // WYNIKI | NAGRODY
     this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI" });
     this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY" });
+  }
+
+  /** Kurtyna przy zmianie poziomu — dwie połówki zasuwają się z boków do środka,
+   *  a w połowie animacji (ekran w pełni zasłonięty) `drawHits` podstawia nowy
+   *  poziom pod spodem, po czym kurtyna się rozsuwa z powrotem. Czysto
+   *  proceduralne (płaskie wypełnienia, żadnych obrazków) — lekka, nic się nie
+   *  wczytuje, więc nie ma szans na zacięcie w trakcie animacji. */
+  private drawHitsCurtain(ctx: CanvasRenderingContext2D) {
+    const t = clamp((performance.now() - this.hitsCurtainAt) / HITS_CURTAIN_MS, 0, 1);
+    if (t >= 1) return;
+    const p = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
+    const ease = 1 - Math.pow(1 - p, 3); // easeOutCubic — żwawy start, miękkie dojście
+    const half = VW / 2;
+    const w = t < 0.5 ? ease * half : (1 - ease) * half;
+    if (w <= 0.5) return;
+
+    const top = -this.vdy;
+    const H = this.sh();
+    const drawPanel = (x0: number, x1: number) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, top, x1 - x0, H);
+      ctx.clip();
+      const g = ctx.createLinearGradient(x0, 0, x1, 0);
+      g.addColorStop(0, "#1a0a10");
+      g.addColorStop(1, "#3a1420");
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, top, x1 - x0, H);
+      // fałdy — pionowe, ciemniejsze pasy (tania „tekstura" kurtyny, bez obrazków)
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      const foldW = 22;
+      for (let fx = 0; fx < VW; fx += foldW * 2) ctx.fillRect(fx, top, foldW, H);
+      ctx.restore();
+    };
+    drawPanel(0, w);
+    drawPanel(VW - w, VW);
+
+    // złota krawędź na styku obu połówek
+    ctx.save();
+    ctx.strokeStyle = "#ffd24c";
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(w, top);
+    ctx.lineTo(w, top + H);
+    ctx.moveTo(VW - w, top);
+    ctx.lineTo(VW - w, top + H);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
