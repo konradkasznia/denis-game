@@ -1091,8 +1091,38 @@ $<HTMLButtonElement>("publish").addEventListener("click", async () => {
       return;
     }
     setPub(
-      `wysłano do gry ✓  ${chart.notes.length} nut · ${chart.characters.length} ujęć · ${chart.events.length} przeszkód`,
+      `mapa wysłana ✓  ${chart.notes.length} nut · ${chart.characters.length} ujęć · ${chart.events.length} przeszkód — wysyłam audio…`,
     );
+
+    // 2. plik audio — tylko jeśli to prawdziwe mp3 (nie cichy klik-podkład)
+    try {
+      const blob = await audioGet(chart.id);
+      const isMp3 = !!blob && /mp(eg|3)/i.test(blob.type || "") && blob.size > 2000;
+      if (!isMp3) {
+        setPub(`mapa wysłana ✓ (${chart.notes.length} nut) — bez pliku mp3 gra zagra podkład syntezowany`);
+      } else if (blob!.size > 4 * 1024 * 1024) {
+        setPub(
+          `mapa wysłana ✓, ale plik audio ma ${(blob!.size / 1048576).toFixed(1)} MB (limit 4 MB) — wgraj wersję z niższym bitrate`,
+          true,
+        );
+      } else {
+        const ar = await fetch(`/api/song-audio?id=${encodeURIComponent(chart.id)}`, {
+          method: "POST",
+          headers: { "content-type": "audio/mpeg", "x-editor-key": key },
+          body: blob!,
+        });
+        const aj = (await ar.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (ar.ok && aj.ok) {
+          setPub(
+            `wysłano do gry ✓  ${chart.notes.length} nut + audio ${(blob!.size / 1048576).toFixed(1)} MB`,
+          );
+        } else {
+          setPub(`mapa wysłana ✓, ale audio się nie wgrało: ${aj.error || ar.status}`, true);
+        }
+      }
+    } catch {
+      setPub(`mapa wysłana ✓ (${chart.notes.length} nut) — audio nie wgrane (błąd)`, true);
+    }
   } catch {
     setPub("brak połączenia z serwerem (publikacja działa tylko z wersji online)", true);
   }

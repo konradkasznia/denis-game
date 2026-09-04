@@ -63,6 +63,13 @@ export const SCHEMA_SQL: string[] = [
   // jeden głos na (głosowanie, głosujący) — „voter" = "u:<id>" dla zalogowanych,
   // "ip:<addr>" w ostateczności; wymusza jednorazowość ankiety
   `CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_voter_uidx ON poll_votes (poll, voter)`,
+  // plik audio utworu wysłany z edytora (dla utworów bez pliku w repo/APK).
+  // Limit ~4 MB (limit body funkcji Vercela). Serwowany przez /api/song-audio.
+  `CREATE TABLE IF NOT EXISTS song_audio (
+    song_id TEXT PRIMARY KEY,
+    bytes BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
 ];
 
 /**

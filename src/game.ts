@@ -12,6 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
+import { apiBase } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
@@ -1762,10 +1763,17 @@ export class Game {
             if (guard()) this.prepStep = s;
           });
         } catch (e) {
-          // brak pliku mp3 (np. beatmapa opublikowana z edytora dla utworu bez
-          // audio) — NIE przerywamy: audio.start() zagra podkład syntezowany,
-          // a nuty z beatmapy i tak są
-          console.warn("audio.loadTrack — brak pliku, gram podkład syntezowany:", e);
+          // brak pliku mp3 w repo/APK — spróbuj audio wysłanego z edytora,
+          // a jak i tego nie ma → podkład syntezowany (nuty z beatmapy i tak są)
+          console.warn("audio.loadTrack — brak pliku w repo:", e);
+          const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
+          try {
+            this.prepStep = "wczytywanie dźwięku";
+            await this.audio.loadTrack(pub);
+            song.audioUrl = pub; // audio.start() użyje tego bufora
+          } catch (e2) {
+            console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
+          }
         }
       }
       if (!guard()) return;
