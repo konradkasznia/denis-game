@@ -238,9 +238,232 @@ const COMBO_FX: Record<string, FxKind> = {
   "byleby-nie-byla-ciepla": "iceShard",
 };
 /** Wygląd „głów" nut dla danego utworu. Brak wpisu = zwykłe kółka. */
-const NOTE_SKIN: Record<string, "skull"> = {
+const NOTE_SKIN: Record<string, "skull" | "loot"> = {
   pogrzebowka: "skull",
+  "ksiaze-z-bajki": "loot",
 };
+// „Książę z bajki" — zamiast kółek lecą losowe łupy (jedna z 8 ikon na nutę,
+// wybór stabilny po torze+czasie, więc się nie zmienia klatka po klatce)
+const LOOT_ICONS = ["bouquet", "rose", "wallet", "gold", "coins", "cash", "diamond", "keys"] as const;
+type LootIcon = (typeof LOOT_ICONS)[number];
+
+/** Rysuje jeden łup wyśrodkowany na (0,0), skala `s` = „połowa" ikony (jak w
+ *  czaszce). Kolory własne przedmiotu — poświatę toru dokłada wywołujący
+ *  (patrz `lootSprite`), żeby gracz dalej rozróżniał tor po kolorze. */
+function drawLootIcon(c: CanvasRenderingContext2D, kind: LootIcon, s: number) {
+  switch (kind) {
+    case "bouquet": {
+      c.strokeStyle = "#3c7a3c";
+      c.lineWidth = s * 0.09;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(-s * 0.16, s * 0.7);
+      c.lineTo(-s * 0.32, s * 0.14);
+      c.moveTo(0, s * 0.72);
+      c.lineTo(0, s * 0.08);
+      c.moveTo(s * 0.16, s * 0.7);
+      c.lineTo(s * 0.32, s * 0.14);
+      c.stroke();
+      c.fillStyle = "#e0344f";
+      c.beginPath();
+      c.ellipse(0, s * 0.6, s * 0.15, s * 0.09, 0, 0, Math.PI * 2);
+      c.fill();
+      const heads: [number, number, string][] = [
+        [-s * 0.34, -s * 0.1, "#ff6b9d"],
+        [0, -s * 0.42, "#ffd24c"],
+        [s * 0.34, -s * 0.08, "#ff8a3d"],
+        [-s * 0.1, s * 0.06, "#ffffff"],
+        [s * 0.16, s * 0.08, "#e0344f"],
+      ];
+      for (const [hx, hy, col] of heads) {
+        c.fillStyle = col;
+        for (let p = 0; p < 5; p++) {
+          const ang = (p / 5) * Math.PI * 2;
+          c.beginPath();
+          c.ellipse(
+            hx + Math.cos(ang) * s * 0.13,
+            hy + Math.sin(ang) * s * 0.13,
+            s * 0.11,
+            s * 0.08,
+            ang,
+            0,
+            Math.PI * 2,
+          );
+          c.fill();
+        }
+        c.fillStyle = "#ffe873";
+        c.beginPath();
+        c.arc(hx, hy, s * 0.08, 0, Math.PI * 2);
+        c.fill();
+      }
+      break;
+    }
+    case "rose": {
+      c.strokeStyle = "#3c7a3c";
+      c.lineWidth = s * 0.1;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(0, s * 0.85);
+      c.quadraticCurveTo(s * 0.12, s * 0.32, 0, s * 0.04);
+      c.stroke();
+      c.fillStyle = "#3c7a3c";
+      c.beginPath();
+      c.ellipse(s * 0.17, s * 0.44, s * 0.17, s * 0.08, 0.6, 0, Math.PI * 2);
+      c.fill();
+      const reds = ["#7a1224", "#a3172f", "#d4224a", "#f0416a"];
+      for (let i = 0; i < reds.length; i++) {
+        c.fillStyle = reds[i];
+        const rr = s * 0.42 - i * s * 0.09;
+        c.beginPath();
+        c.arc(0, -s * 0.26, rr, Math.PI * 0.15, Math.PI * 1.95);
+        c.fill();
+      }
+      break;
+    }
+    case "wallet": {
+      c.fillStyle = "#5a3a24";
+      roundRect(c, -s * 0.55, -s * 0.4, s * 1.1, s * 0.8, s * 0.1);
+      c.fill();
+      c.fillStyle = "#7a5334";
+      roundRect(c, -s * 0.55, -s * 0.4, s * 1.1, s * 0.36, s * 0.1);
+      c.fill();
+      c.strokeStyle = "#3d2716";
+      c.lineWidth = s * 0.04;
+      c.beginPath();
+      c.moveTo(-s * 0.55, -s * 0.02);
+      c.lineTo(s * 0.55, -s * 0.02);
+      c.stroke();
+      c.fillStyle = "#e8b84b";
+      c.beginPath();
+      c.arc(s * 0.3, -s * 0.02, s * 0.08, 0, Math.PI * 2);
+      c.fill();
+      break;
+    }
+    case "gold": {
+      c.fillStyle = "#caa02a";
+      c.beginPath();
+      c.moveTo(-s * 0.5, s * 0.3);
+      c.lineTo(-s * 0.34, -s * 0.24);
+      c.lineTo(s * 0.34, -s * 0.24);
+      c.lineTo(s * 0.5, s * 0.3);
+      c.closePath();
+      c.fill();
+      c.fillStyle = "#f0d873";
+      c.beginPath();
+      c.moveTo(-s * 0.5, s * 0.3);
+      c.lineTo(-s * 0.34, -s * 0.24);
+      c.lineTo(-s * 0.08, -s * 0.24);
+      c.lineTo(-s * 0.2, s * 0.3);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = "#8a6a12";
+      c.lineWidth = s * 0.035;
+      c.beginPath();
+      c.moveTo(-s * 0.3, -s * 0.06);
+      c.lineTo(s * 0.3, -s * 0.06);
+      c.stroke();
+      break;
+    }
+    case "coins": {
+      const cols = ["#a3801c", "#caa02a", "#e8c65a"];
+      for (let i = 0; i < 3; i++) {
+        c.fillStyle = cols[i];
+        c.beginPath();
+        c.ellipse(0, s * 0.24 - i * s * 0.17, s * 0.42, s * 0.15, 0, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = "#8a6a12";
+        c.lineWidth = s * 0.025;
+        c.stroke();
+      }
+      c.globalAlpha = 0.55;
+      c.fillStyle = "#fff8d8";
+      c.beginPath();
+      c.ellipse(-s * 0.12, -s * 0.24, s * 0.14, s * 0.05, -0.3, 0, Math.PI * 2);
+      c.fill();
+      c.globalAlpha = 1;
+      break;
+    }
+    case "cash": {
+      const notes: [number, string][] = [
+        [-0.18, "#2f7d42"],
+        [0, "#3d9950"],
+        [0.18, "#2f7d42"],
+      ];
+      for (const [rot, col] of notes) {
+        c.save();
+        c.rotate(rot);
+        c.fillStyle = col;
+        roundRect(c, -s * 0.46, -s * 0.28, s * 0.92, s * 0.56, s * 0.05);
+        c.fill();
+        c.strokeStyle = "rgba(255,255,255,0.55)";
+        c.lineWidth = s * 0.03;
+        c.beginPath();
+        c.arc(0, 0, s * 0.16, 0, Math.PI * 2);
+        c.stroke();
+        c.restore();
+      }
+      break;
+    }
+    case "diamond": {
+      c.fillStyle = "#bff2ff";
+      c.beginPath();
+      c.moveTo(-s * 0.42, -s * 0.05);
+      c.lineTo(-s * 0.2, -s * 0.42);
+      c.lineTo(s * 0.2, -s * 0.42);
+      c.lineTo(s * 0.42, -s * 0.05);
+      c.lineTo(0, s * 0.48);
+      c.closePath();
+      c.fill();
+      c.fillStyle = "#7fd8f0";
+      c.beginPath();
+      c.moveTo(-s * 0.42, -s * 0.05);
+      c.lineTo(0, -s * 0.05);
+      c.lineTo(0, s * 0.48);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = "#ffffff";
+      c.lineWidth = s * 0.03;
+      c.beginPath();
+      c.moveTo(-s * 0.2, -s * 0.42);
+      c.lineTo(0, -s * 0.05);
+      c.lineTo(s * 0.2, -s * 0.42);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(0, -s * 0.05);
+      c.lineTo(0, s * 0.48);
+      c.stroke();
+      c.fillStyle = "#ffffff";
+      c.globalAlpha = 0.9;
+      c.beginPath();
+      c.arc(-s * 0.14, -s * 0.2, s * 0.05, 0, Math.PI * 2);
+      c.fill();
+      c.globalAlpha = 1;
+      break;
+    }
+    case "keys": {
+      c.fillStyle = "#26262c";
+      roundRect(c, -s * 0.3, -s * 0.5, s * 0.6, s * 0.62, s * 0.12);
+      c.fill();
+      c.fillStyle = "#3a3a44";
+      c.beginPath();
+      c.arc(0, -s * 0.22, s * 0.1, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = "#e8c65a";
+      c.beginPath();
+      c.arc(0, -s * 0.22, s * 0.045, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = "#c7c7d1";
+      c.fillRect(-s * 0.06, s * 0.1, s * 0.12, s * 0.42);
+      c.fillRect(-s * 0.16, s * 0.32, s * 0.32, s * 0.08);
+      c.strokeStyle = "#c7c7d1";
+      c.lineWidth = s * 0.05;
+      c.beginPath();
+      c.arc(-s * 0.42, -s * 0.5, s * 0.12, 0, Math.PI * 2);
+      c.stroke();
+      break;
+    }
+  }
+}
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
 // jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
 const SMOKE_COLORS = ["222,224,232", "200,202,212", "180,182,196", "158,160,176"];
@@ -366,6 +589,7 @@ export class Game {
   private iceLayerKey = ""; // `${W}x${H}` — przerysuj warstwę przy zmianie rozmiaru
   private canvasFilterOK: boolean | null = null; // czy WebView wspiera ctx.filter
   private skullCache = new Map<string, HTMLCanvasElement>(); // nuty-czaszki (Pogrzebówka)
+  private lootCache = new Map<string, HTMLCanvasElement>(); // nuty-łupy (Książę z bajki)
   private puffCache = new Map<string, HTMLCanvasElement>(); // miękka kulka dymu (raz na kolor)
   private noteHeadCache = new Map<string, HTMLCanvasElement>(); // główki nut (kolor × stan)
   private resultStarSeen = 0;
@@ -1939,6 +2163,7 @@ export class Game {
     // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
     if (typeof document !== "undefined") {
       if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
+      else if (NOTE_SKIN[this.trackId] === "loot") this.prewarmLoot();
       else
         for (const col of LANE_COLORS) {
           this.noteHeadSprite(col, false);
@@ -3765,6 +3990,19 @@ export class Game {
         continue;
       }
 
+      if (NOTE_SKIN[this.trackId] === "loot") {
+        // łup zamiast kółka — rodzaj stabilny per nuta (tor+czas), delikatne bujanie
+        const bob = Math.sin(this.songTime * 6 + n.lane * 1.3) * r * 0.05;
+        const S = 96;
+        const full = S + Game.LOOT_PAD * 2;
+        const d = ((r * 2.3) / S) * full;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.drawImage(this.lootSprite(col, this.lootIconFor(n)), x - d / 2, y - d / 2 + bob, d, d);
+        ctx.restore();
+        continue;
+      }
+
       // główka nuty = wypalony sprite (poświata + gradient + białe oczko),
       // po jednym na (kolor toru × stan) — zero shadowBlur/gradientu w pętli (audyt B3)
       const spr = this.noteHeadSprite(col, n.judged && !n.hit);
@@ -3884,6 +4122,53 @@ export class Game {
    *  nie było zacięcia przy pierwszej nadlatującej czaszce. */
   private prewarmSkulls() {
     for (const col of LANE_COLORS) for (let jaw = 0; jaw < 3; jaw++) this.skullSprite(col, jaw);
+  }
+
+  /** Który łup leci na danej nucie — stabilne po (torze, czasie), więc się nie
+   *  zmienia klatka po klatce ani przy ponownym rozliczeniu tej samej nuty. */
+  private lootIconFor(n: Note): LootIcon {
+    const h = Math.sin(n.time * 78.233 + n.lane * 12.9898) * 43758.5453;
+    const f = h - Math.floor(h);
+    return LOOT_ICONS[Math.floor(f * LOOT_ICONS.length) % LOOT_ICONS.length];
+  }
+
+  /** Sprite łupu („Książę z bajki") — rysowany raz na (kolor toru × rodzaj) i
+   *  cache'owany, poświata WPALONA (bez shadowBlur w pętli klatki). */
+  private static readonly LOOT_PAD = 20;
+  private lootSprite(col: string, kind: LootIcon): HTMLCanvasElement {
+    const key = `${col}|${kind}`;
+    const hit = this.lootCache.get(key);
+    if (hit) return hit;
+
+    const S = 96;
+    const PAD = Game.LOOT_PAD;
+    const tmp = document.createElement("canvas");
+    tmp.width = S;
+    tmp.height = S;
+    const c = tmp.getContext("2d");
+    const cv = document.createElement("canvas");
+    cv.width = S + PAD * 2;
+    cv.height = S + PAD * 2;
+    if (!c) return cv;
+    c.translate(S / 2, S / 2);
+    drawLootIcon(c, kind, S * 0.4);
+
+    const fc = cv.getContext("2d");
+    if (fc) {
+      fc.shadowColor = col;
+      fc.shadowBlur = 16;
+      fc.drawImage(tmp, PAD, PAD);
+      fc.drawImage(tmp, PAD, PAD); // drugi pass — mocniejsza poświata
+      fc.shadowBlur = 0;
+      fc.drawImage(tmp, PAD, PAD);
+    }
+    this.lootCache.set(key, cv);
+    return cv;
+  }
+
+  /** Wygeneruj z góry wszystkie sprite'y łupów (4 kolory × 8 rodzajów). */
+  private prewarmLoot() {
+    for (const col of LANE_COLORS) for (const k of LOOT_ICONS) this.lootSprite(col, k);
   }
 
   /** Główka nuty z poświatą — wypalona raz na (kolor toru × trafiona/pudło).
