@@ -54,6 +54,24 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" || \
             sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" || true
 
+      # Stały keystore debug — bez tego każdy build ma inny podpis i Android
+      # odmawia instalacji nowego APK na starym. Generujemy RAZ i zapisujemy w repo.
+      - name: Stały keystore debug
+        run: |
+          KS=android/keystore/denis-debug.jks
+          if [ ! -f "$KS" ]; then
+            mkdir -p android/keystore
+            keytool -genkeypair -v -keystore "$KS" \
+              -storepass denisdebug -keypass denisdebug -alias denis \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Denis Impulsywni Live, O=Impulsywni, C=PL"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -f "$KS"
+            git commit -m "chore(android): stały keystore debug [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
       - name: Capacitor sync
         run: npx cap sync android
 

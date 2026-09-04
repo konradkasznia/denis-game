@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Stały keystore debug (w repo). Bez tego każdy build CI generuje losowy klucz
+// debug → Android odmawia instalacji nowego APK na starym ("nie można
+// zainstalować aplikacji"). Z jednym kluczem aktualizacja działa bez odinstalowania.
+def stableKeystore = file('../keystore/denis-debug.jks')
+
 android {
     namespace = "pl.impulsywni.denis"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,7 +12,8 @@ android {
         applicationId "pl.impulsywni.denis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // w CI: numer builda (rośnie) → czysta aktualizacja; lokalnie: 1
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,7 +22,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    if (stableKeystore.exists()) {
+        signingConfigs {
+            stable {
+                storeFile stableKeystore
+                storePassword 'denisdebug'
+                keyAlias 'denis'
+                keyPassword 'denisdebug'
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (stableKeystore.exists()) {
+                signingConfig signingConfigs.stable
+            }
+        }
         release {
             minifyEnabled true
             shrinkResources true

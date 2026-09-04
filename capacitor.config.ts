@@ -27,8 +27,10 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      // chowamy ręcznie po 1. klatce (main.ts); auto-hide = twardy bezpiecznik
-      launchShowDuration: 2500,
+      // Natywny splash tylko na moment (jednolita ciemność) — potem widać
+      // webowy #splash z animacją Lottie. Chowamy ręcznie po 1. klatce
+      // (main.ts); auto-hide = twardy bezpiecznik.
+      launchShowDuration: 900,
       launchAutoHide: true,
       backgroundColor: "#0b0b12",
       showSpinner: false,
