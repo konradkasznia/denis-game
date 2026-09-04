@@ -541,7 +541,16 @@ export class Game {
       this.checkMisses();
       this.resolveHeldHolds();
       this.pulseHoldHaptics();
-      if (this.songTime > this.song.duration + 0.6) {
+      // koniec: albo minął `duration`, albo wszystkie nuty rozliczone i minęły
+      // 2,5 s od ostatniej (beatmapa z edytora bywa krótsza niż `duration`)
+      const lastNote = this.song.notes.length
+        ? this.song.notes[this.song.notes.length - 1].time
+        : 0;
+      const allDone = this.song.notes.every((n) => n.judged);
+      if (
+        this.songTime > this.song.duration + 0.6 ||
+        (allDone && this.song.notes.length > 0 && this.songTime > lastNote + 2.5)
+      ) {
         // koniec utworu: cokolwiek zostało nierozliczone = pudło (np. zegar
         // audio się zaciął i nuty nie zdążyły przelecieć — bez tego wynik
         // liczył się tylko z trafień i wychodziło 100% mimo „ominiętych" nut)
@@ -1748,9 +1757,16 @@ export class Game {
       this.character.load({ character: song.character, characters: song.characters });
 
       if (song.audioUrl) {
-        await this.audio.loadTrack(song.audioUrl, (s) => {
-          if (guard()) this.prepStep = s;
-        });
+        try {
+          await this.audio.loadTrack(song.audioUrl, (s) => {
+            if (guard()) this.prepStep = s;
+          });
+        } catch (e) {
+          // brak pliku mp3 (np. beatmapa opublikowana z edytora dla utworu bez
+          // audio) — NIE przerywamy: audio.start() zagra podkład syntezowany,
+          // a nuty z beatmapy i tak są
+          console.warn("audio.loadTrack — brak pliku, gram podkład syntezowany:", e);
+        }
       }
       if (!guard()) return;
       this.song = song;

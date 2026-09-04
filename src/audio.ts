@@ -588,7 +588,11 @@ export class AudioEngine {
     const roots = [55.0, 43.65, 65.41, 49.0]; // A1, F1, C2, G1
     const arpSemis = [0, 7, 12, 7];
 
-    for (let bar = 0; bar < song.bars; bar++) {
+    // twardy limit taktów: ~66 węzłów/takt, więc beatmapa z edytora z długim
+    // `duration` (np. 157 s = ~980 taktów) zbudowałaby ~65 tys. węzłów naraz
+    // i zamroziła wątek. 48 taktów ≈ 76 s podkładu — grywalne, bezpieczne.
+    const barCount = Math.min(song.bars, 48);
+    for (let bar = 0; bar < barCount; bar++) {
       const barStart = t0 + bar * 16 * step;
       const root = roots[Math.floor(bar / 2) % roots.length];
       const playBeat = bar >= song.startBar;

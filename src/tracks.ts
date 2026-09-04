@@ -133,12 +133,18 @@ export function rawToSong(raw: RawChart): SongDef {
   const notes: Note[] = raw.notes
     .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
+  // beatmapa z edytora może nie mieć sensownego `duration` (utwór bez mp3) —
+  // wtedy licz go z ostatniej nuty, żeby podkład syntezowany nie skończył się
+  // od razu i gra nie wpadła w „finish()" tuż po odliczaniu
+  const lastNote = notes.length ? notes[notes.length - 1].time + notes[notes.length - 1].dur : 0;
+  const duration = raw.duration > lastNote + 1 ? raw.duration : lastNote + 3;
+  const bpm = raw.bpm > 20 ? raw.bpm : 120;
   return {
     id: raw.id,
     title: raw.title,
     artist: raw.artist,
-    bpm: raw.bpm,
-    bars: Math.max(1, Math.ceil((raw.duration * raw.bpm) / 60 / 4)),
+    bpm,
+    bars: Math.max(1, Math.ceil((duration * bpm) / 60 / 4)),
     startBar: 0,
     lanes: LANES,
     audioUrl: raw.audioUrl,
@@ -149,7 +155,7 @@ export function rawToSong(raw: RawChart): SongDef {
     characterY: raw.characterY,
     notes,
     events: raw.events,
-    duration: raw.duration,
+    duration,
   };
 }
 
