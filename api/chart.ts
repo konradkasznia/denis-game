@@ -45,7 +45,8 @@ interface RawChart {
 
 const SONG_ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const UJ_RE = /^ujecie[1-9]\d?$/;
-const EVENT_TYPES = new Set(["ice", "spotlight"]); // przeszkody na osi czasu (bomby to nuty)
+const EVENT_TYPES = new Set(["ice", "spotlight", "drunk"]); // przeszkody na osi czasu (bomby to nuty)
+const DUR_EVENTS = new Set(["spotlight", "drunk"]); // param = sekundy
 
 /** Wymusza bezpieczne, względne ścieżki w opublikowanej mapie (blokuje np.
  *  `audioUrl: "https://evil.com/x.mp3"` → apka pobierałaby treść z obcego serwera). */
@@ -73,7 +74,7 @@ function sanitizeChart(raw: RawChart, songId: string): RawChart {
         .map((e) => {
           const type = String(e.type);
           const base = { type, at: Math.max(0, +Number(e.at).toFixed(4)) };
-          if (type === "spotlight") {
+          if (DUR_EVENTS.has(type)) {
             return { ...base, dur: Math.max(1, Math.min(30, +Number(e.dur || 6).toFixed(2))) };
           }
           // ice

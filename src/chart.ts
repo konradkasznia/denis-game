@@ -29,12 +29,12 @@ export interface Note {
 
 /** Zdarzenie na osi czasu utworu (poza nutami) — „przeszkoda" z edytora. */
 export interface SongEvent {
-  type: "ice" | "spotlight";
+  type: "ice" | "spotlight" | "drunk";
   /** sekunda utworu, w której się uruchamia */
   at: number;
   /** LÓD: ile tapnięć trzeba, by rozbić lód */
   taps?: number;
-  /** REFLEKTOR: ile sekund trwa ciemność ze snopem światła */
+  /** REFLEKTOR / PIJANY EKRAN: ile sekund trwa efekt */
   dur?: number;
 }
 

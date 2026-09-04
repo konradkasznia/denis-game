@@ -19,6 +19,7 @@ const GUTTER = WAVE + SEGCOL + OBSTCOL; // cała lewa strefa przed torami nut
 const OBST_KINDS: { id: string; label: string; short: string; def: number; unit: string }[] = [
   { id: "ice", label: "Lód", short: "LÓD", def: 20, unit: "tap." },
   { id: "spotlight", label: "Reflektor", short: "RFLKT", def: 6, unit: "s" },
+  { id: "drunk", label: "Pijany ekran", short: "PIJANY", def: 5, unit: "s" },
 ];
 const obstKind = (id: string) => OBST_KINDS.find((k) => k.id === id) ?? OBST_KINDS[0];
 // klawisze nagrywania Live (C V B N) + alias na klawisze gry (D F J K)
@@ -1030,7 +1031,8 @@ function buildChart() {
       .map((o) => {
         const type = obstKind(o.kind).id;
         const base = { type, at: +o.at.toFixed(3) };
-        return type === "spotlight" ? { ...base, dur: o.param } : { ...base, taps: o.param };
+        // spotlight + drunk = parametr w sekundach; lód = tapnięcia
+        return type === "ice" ? { ...base, taps: o.param } : { ...base, dur: o.param };
       }),
     notes: notes
       .slice()

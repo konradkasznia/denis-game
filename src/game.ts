@@ -350,6 +350,9 @@ export class Game {
   private evFired = new Set<number>(); // indeksy zdarzeń (przeszkód) już uruchomionych
   private spotlightStart = -10; // songTime początku reflektora
   private spotlightUntil = -10; // songTime końca reflektora
+  private drunkStart = -10; // songTime początku „pijanego ekranu"
+  private drunkUntil = -10; // songTime końca
+  private noteAlphaMul = 1; // mnożnik krycia nut (do „ducha" przy pijanym ekranie)
   private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
@@ -535,6 +538,11 @@ export class Game {
             this.spotlightStart = this.songTime;
             this.spotlightUntil = this.songTime + (e.dur ?? 6);
             this.shake = Math.max(this.shake, 6);
+            haptic("flowUp");
+          } else if (e.type === "drunk") {
+            this.drunkStart = this.songTime;
+            this.drunkUntil = this.songTime + (e.dur ?? 5);
+            this.shake = Math.max(this.shake, 5);
             haptic("flowUp");
           }
         }
@@ -1890,6 +1898,9 @@ export class Game {
     this.iceShatterAt = -10;
     this.spotlightStart = -10;
     this.spotlightUntil = -10;
+    this.drunkStart = -10;
+    this.drunkUntil = -10;
+    this.noteAlphaMul = 1;
     this.bombLockMs = 0;
     this.audio.stop(); // ucisz poprzedni przebieg
     // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
@@ -3239,6 +3250,22 @@ export class Game {
       ctx.restore();
     }
 
+    // „Pijany ekran" — wychylenie CAŁEGO świata gry (nie HUD-u, nie pauzy).
+    // Wszystko przez `dk` (0..1), więc na końcu wraca do pionu bez przeskoku.
+    const dk = this.drunkAmount();
+    const dxf = dk > 0 ? this.drunkXform(dk) : null;
+    if (dxf) {
+      // obrót wokół linii trafienia — cel gracza mniej „ucieka", dalsze tło
+      // buja się mocniej (jak realna pijana perspektywa)
+      const cx = VW / 2;
+      const cy = this.hitY();
+      ctx.save();
+      ctx.translate(cx + dxf.dx, cy + dxf.dy);
+      ctx.rotate(dxf.rot);
+      ctx.scale(dxf.sc, dxf.sc);
+      ctx.translate(-cx, -cy);
+    }
+
     this.drawPlayfield(ctx, pulse);
     this.drawNotes(ctx);
     this.drawFx(ctx); // za postacią
@@ -3248,6 +3275,28 @@ export class Game {
     this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
+
+    if (dxf) {
+      // podwójne widzenie — drugi, przesunięty i przyciemniony przebieg nut
+      ctx.save();
+      ctx.translate(Math.sin(this.songTime * 3.1) * 10 * dk, Math.sin(this.songTime * 2.3) * 6 * dk);
+      this.noteAlphaMul = 0.42 * dk;
+      this.drawNotes(ctx);
+      this.noteAlphaMul = 1;
+      ctx.restore();
+      ctx.restore(); // koniec wychylenia świata
+
+      // pulsująca winieta + przyciemnienie krawędzi (na wprost, nie wychylone)
+      const pulseV = 0.55 + 0.45 * Math.sin(this.songTime * 3.4);
+      const cx = VW / 2;
+      const cy = this.sh() / 2 - this.vdy;
+      const vg = ctx.createRadialGradient(cx, cy, this.sh() * 0.22, cx, cy, this.sh() * 0.62);
+      vg.addColorStop(0, "rgba(0,0,0,0)");
+      vg.addColorStop(1, `rgba(6,3,10,${0.6 * dk * (0.55 + 0.45 * pulseV)})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, -this.vdy, VW, this.sh());
+    }
+
     this.drawHud(ctx);
     this.drawCountdown(ctx);
     if (this.paused) this.drawPause(ctx);
@@ -3524,11 +3573,12 @@ export class Game {
       }
       ctx.closePath();
       ctx.save();
-      ctx.globalAlpha = n.holding
-        ? 0.72
-        : n.judged
-          ? clamp(1 - (this.songTime - n.judgedAt) / 0.25, 0, 1) * 0.4
-          : 0.42;
+      ctx.globalAlpha =
+        (n.holding
+          ? 0.72
+          : n.judged
+            ? clamp(1 - (this.songTime - n.judgedAt) / 0.25, 0, 1) * 0.4
+            : 0.42) * this.noteAlphaMul;
       ctx.fillStyle = LANE_COLORS[n.lane];
       if (n.holding) {
         ctx.shadowColor = LANE_COLORS[n.lane];
@@ -3563,7 +3613,7 @@ export class Game {
       const y = this.yForE(ec);
       const r = RECEPTOR_R * this.sizeAtE(e);
       const col = LANE_COLORS[n.lane];
-      const a = clamp(alpha, 0, 1);
+      const a = clamp(alpha, 0, 1) * this.noteAlphaMul;
 
       if (n.bomb) {
         this.drawBombNote(ctx, x, y, r, a);
@@ -3602,7 +3652,7 @@ export class Game {
       const x = this.hitX(fx.lane);
       const r = RECEPTOR_R * (0.7 + life * 1.8);
       ctx.save();
-      ctx.globalAlpha = (1 - life) * 0.8;
+      ctx.globalAlpha = (1 - life) * 0.8 * this.noteAlphaMul;
       ctx.lineWidth = 5 * (1 - life) + 1;
       ctx.strokeStyle = JUDGE_COLOR[fx.kind];
       ctx.beginPath();
@@ -4042,6 +4092,31 @@ export class Game {
     vg.addColorStop(1, "rgba(224,242,255,0.72)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  /** PIJANY EKRAN (przeszkoda z edytora): 0..1 — obwiednia z płynnym wejściem
+   *  (0.55 s) i wyjściem (0.7 s). Przy końcu dochodzi DOKŁADNIE do 0, więc
+   *  transformacja wraca do identyczności bez przeskoku. */
+  private drunkAmount(): number {
+    const left = this.drunkUntil - this.songTime;
+    if (left <= 0 || this.songTime < this.drunkStart) return 0;
+    const fin = clamp((this.songTime - this.drunkStart) / 0.55, 0, 1);
+    const fout = clamp(left / 0.7, 0, 1);
+    // wygładzenie krawędzi obwiedni (smoothstep) — jeszcze mniej „progu"
+    const m = Math.min(fin, fout);
+    return m * m * (3 - 2 * m);
+  }
+
+  /** Wychylenie świata gry dla „pijanego ekranu" (wariant MOCNY). Wszystko
+   *  mnożone przez `m` (0..1), więc przy m=0 = brak transformacji. */
+  private drunkXform(m: number) {
+    const t = this.songTime;
+    return {
+      rot: m * (Math.sin(t * 1.9) * 0.06 + Math.sin(t * 1.05 + 1) * 0.038),
+      dx: m * (Math.sin(t * 1.12) * 30 + Math.sin(t * 2.5) * 12),
+      dy: m * (Math.sin(t * 0.85) * 15 + Math.sin(t * 2.0) * 6),
+      sc: 1 + m * Math.sin(t * 1.4) * 0.042,
+    };
   }
 
   /** REFLEKTOR (przeszkoda z edytora): ekran ciemnieje, zostaje snop światła
