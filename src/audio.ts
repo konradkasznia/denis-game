@@ -17,6 +17,7 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private startTime = 0;
+  private leadIn = 0.25; // odstęp start()→pierwszy dźwięk (= ciche odliczanie 3-2-1)
   private lastSongT = -Infinity; // zegar utworu NIGDY nie cofa się w trakcie grania
   private _running = false;
   // awaryjny zegar na performance.now() — używany, gdy AudioContext.currentTime
@@ -130,6 +131,13 @@ export class AudioEngine {
 
   setUiEnabled(on: boolean) {
     this._uiOn = on;
+  }
+
+  /** Testy: „przewiń" lead-in do zwykłego 0.25 s (jak poza odliczaniem). */
+  skipLeadIn() {
+    this.leadIn = 0.25;
+    if (this.ctx) this.startTime = this.ctx.currentTime + 0.25;
+    this.lastSongT = -Infinity;
   }
 
   /** Krótki dźwięk interfejsu (GRAJ / cofnij / przycisk). No-op, gdy kontekst
@@ -270,7 +278,7 @@ export class AudioEngine {
       ? this.ctx.currentTime - this.startTime
       : this.clockAlive()
         ? this.ctx.currentTime - this.startTime
-        : this.wallElapsed() - 0.25;
+        : this.wallElapsed() - this.leadIn;
     if (raw > this.lastSongT) this.lastSongT = raw;
     return this.lastSongT;
   }
@@ -508,10 +516,14 @@ export class AudioEngine {
     }
   }
 
-  /** Uruchamia zegar utworu: prawdziwy plik audio albo syntezowany podkład. */
-  start(song: SongDef) {
+  /** Uruchamia zegar utworu: prawdziwy plik audio albo syntezowany podkład.
+   *  `leadInSec` = ile sekund od TERAZ zacznie grać dźwięk. Wołane na początku
+   *  odliczania z `leadInSec = 3` → `getSongTime()` sam zwraca -3 → 0 (jest
+   *  odliczaniem), a ciężkie kolejkowanie syntezy dzieje się gdy stoi „3". */
+  start(song: SongDef, leadInSec = 0.25) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
+    this.leadIn = leadInSec;
     // wyczyść wszystko z poprzedniego przebiegu (defensywnie — gdyby stop() nie padł)
     this.killScheduled();
     try {
@@ -534,7 +546,7 @@ export class AudioEngine {
       const src = ctx.createBufferSource();
       src.buffer = this.trackBuffers.get(song.audioUrl)!;
       src.connect(this.master);
-      const t0 = ctx.currentTime + 0.25;
+      const t0 = ctx.currentTime + this.leadIn;
       this.startTime = t0;
       this._running = true;
       // jeśli zegar ctx nie ruszy w ~0.4 s (błąd iOS), wystartuj źródło „od razu"
@@ -554,7 +566,7 @@ export class AudioEngine {
             s2.connect(this.master!);
             // wznów od WŁAŚCIWEJ pozycji utworu (zegar ścienny), nie od zera —
             // inaczej po „martwym" zegarze muzyka leciała od początku
-            const pos = Math.max(0, this.wallElapsed() - 0.25);
+            const pos = Math.max(0, this.wallElapsed() - this.leadIn);
             s2.start(0, Math.min(pos, (s2.buffer?.duration ?? pos) - 0.05));
             this.srcNode = s2;
           } catch {
@@ -568,7 +580,7 @@ export class AudioEngine {
     // --- syntezowany podkład ---
     const beat = 60 / song.bpm;
     const step = beat / 4;
-    const t0 = ctx.currentTime + 0.25;
+    const t0 = ctx.currentTime + this.leadIn;
     this.startTime = t0;
     this._running = true;
 

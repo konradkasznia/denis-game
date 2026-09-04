@@ -307,7 +307,6 @@ export class Game {
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
   /** ciche odliczanie 3-2-1 PRZED startem utworu — audio rusza dopiero po „1" */
   private rolling = false;
-  private rollEndMs = 0;
   private static readonly ROLL_MS = 3000;
 
   private score = 0;
@@ -496,16 +495,18 @@ export class Game {
       this.resumeAt = 0;
       void this.audio.resumePlayback();
     }
-    // ciche odliczanie 3-2-1 przed startem — nuty i dźwięk stoją, ale efekty
-    // (konfetti po GRAJ) lecą dalej, więc tylko przesuwamy songTime
-    if (this.scene === "play" && this.rolling && !this.paused) {
-      const remMs = this.rollEndMs - performance.now();
-      this.songTime = -Math.max(0, remMs) / 1000;
-      if (remMs <= 0) this.launchSongAudio();
+    if (this.scene === "play" && !this.awaitingStart && !this.paused) {
+      // zegar utworu = zegar audio przez CAŁY czas (odliczanie zwraca -3 → 0)
+      this.songTime = this.audio.getSongTime();
+      // odliczanie kończy się, gdy zegar utworu dojdzie do 0 (pauza-bezpieczne —
+      // songTime zamarza przy suspend, więc pauza w trakcie „3-2-1" nie psuje)
+      if (this.rolling && this.songTime >= 0) {
+        this.rolling = false;
+        this.songStartedAt = performance.now(); // od teraz aktywny watchdog dźwięku
+      }
     }
 
     if (this.scene === "play" && !this.awaitingStart && !this.paused && !this.rolling) {
-      this.songTime = this.audio.getSongTime();
       // watchdog: dźwięk nie ruszył (AudioContext utknął w suspended) —
       // zegar utworu stoi przy zerze; próbujemy wznowić, a po chwili poddajemy się.
       if (this.songStartedAt && this.songTime < 0.1 && !this.preparing) {
@@ -1857,7 +1858,6 @@ export class Game {
 
   private beginSong() {
     this.awaitingStart = false;
-    this.songTime = -Game.ROLL_MS / 1000;
     this.iceActive = false;
     this.iceTapsLeft = 0;
     this.iceCracks = [];
@@ -1878,28 +1878,28 @@ export class Game {
         }
       if (COMBO_FX[this.trackId] === "smoke") for (const c of SMOKE_COLORS) this.smokePuff(c);
     }
-    // NAJPIERW ciche odliczanie 3-2-1, DOPIERO POTEM rusza muzyka i nuty
+    // Audio startuje JUŻ TERAZ z lead-inem = długość odliczania. Dzięki temu:
+    //  - getSongTime() sam zwraca -3 → 0 (JEST odliczaniem) — brak styku
+    //    „zegar ścienny → zegar audio", brak cofnięcia o 0,25 s,
+    //  - ciężkie kolejkowanie syntezy (~2000 węzłów) dzieje się, gdy na
+    //    ekranie stoi „3" i gracz i tak nie może tapować.
     this.rolling = true;
-    this.rollEndMs = performance.now() + Game.ROLL_MS;
-    this.songStartedAt = 0;
-  }
-
-  /** Testy: pomija ciche odliczanie 3-2-1, startuje utwór natychmiast. */
-  skipIntroForTest() {
-    if (this.rolling) this.launchSongAudio();
-  }
-
-  /** Koniec cichego odliczania — teraz rusza dźwięk i oś czasu utworu. */
-  private launchSongAudio() {
-    this.rolling = false;
     try {
       void this.audio.ctx?.resume?.();
     } catch {
       /* ignore */
     }
-    this.audio.start(this.song);
+    this.audio.start(this.song, Game.ROLL_MS / 1000);
+    this.songStartedAt = 0; // watchdog rusza dopiero po odliczaniu
+    this.songTime = this.audio.getSongTime(); // ≈ -3
+  }
+
+  /** Testy: pomija ciche odliczanie 3-2-1, startuje utwór natychmiast. */
+  skipIntroForTest() {
+    if (!this.rolling) return;
+    this.rolling = false;
     this.songStartedAt = performance.now();
-    // od tej klatki źródłem prawdy jest zegar audio — bez skoku 0 → -0.25
+    this.audio.skipLeadIn();
     this.songTime = this.audio.getSongTime();
   }
 
@@ -4245,9 +4245,9 @@ export class Game {
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
-    // ciche odliczanie 3-2-1 PRZED startem utworu (bez dźwięku, nuty stoją)
-    if (!this.rolling) return;
-    const rel = Math.max(0, (this.rollEndMs - performance.now()) / 1000);
+    // ciche odliczanie 3-2-1 PRZED startem utworu — songTime leci -3 → 0
+    if (!this.rolling || this.paused) return;
+    const rel = Math.max(0, -this.songTime);
     if (rel <= 0.05 || rel > 3.2) return;
     const n = Math.ceil(rel);
     const f = n - rel;
