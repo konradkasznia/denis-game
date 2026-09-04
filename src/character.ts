@@ -88,12 +88,23 @@ export class Character {
     this.singleReady = false;
   }
 
+  /** Wczytuje postać dla utworu. Zdekodowane arkusze SĄ cache'owane między
+   *  wywołaniami (karuzela → GRAJ → OD NOWA tego samego utworu) — bez tego
+   *  4 arkusze po ~0,8 MB dekodowały się od nowa w trakcie odliczania 3-2-1
+   *  i było widać moment bez postaci (audyt B7). */
   load(opts: { character?: string; characters?: CharSegment[] }) {
-    this.reset();
+    this.segments = [];
+    this.single = null;
+    this.singleReady = false;
+
     if (opts.characters?.length) {
       this.segments = [...opts.characters].sort((a, b) => a.at - b.at);
+      const wanted = new Set(this.segments.map((s) => s.sprite));
+      // eksmituj arkusze innych utworów (pamięć), zachowaj potrzebne
+      for (const dir of [...this.anims.keys()]) if (!wanted.has(dir)) this.anims.delete(dir);
       for (const s of this.segments) if (!this.anims.has(s.sprite)) void this.loadAnim(s.sprite);
     } else if (opts.character) {
+      this.anims.clear();
       const img = new Image();
       img.onload = () => {
         this.singleReady = true;

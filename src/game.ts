@@ -243,6 +243,12 @@ const NOTE_SKIN: Record<string, "skull"> = {
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
 // jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
 const SMOKE_COLORS = ["222,224,232", "200,202,212", "180,182,196", "158,160,176"];
+// 3 nachodzące garby → kłębiasta sylwetka (wcześniej 3 gradienty/klatkę)
+const SMOKE_LOBES: [number, number, number][] = [
+  [0, 0, 1],
+  [-0.55, 0.15, 0.72],
+  [0.5, -0.1, 0.66],
+];
 
 const APP_VERSION = "0.9.0";
 const SUPPORT_EMAIL = "impulsywni.media@gmail.com";
@@ -352,6 +358,8 @@ export class Game {
   private iceLayerKey = ""; // `${W}x${H}` — przerysuj warstwę przy zmianie rozmiaru
   private canvasFilterOK: boolean | null = null; // czy WebView wspiera ctx.filter
   private skullCache = new Map<string, HTMLCanvasElement>(); // nuty-czaszki (Pogrzebówka)
+  private puffCache = new Map<string, HTMLCanvasElement>(); // miękka kulka dymu (raz na kolor)
+  private noteHeadCache = new Map<string, HTMLCanvasElement>(); // główki nut (kolor × stan)
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -774,26 +782,15 @@ export class Game {
       const outA = Math.pow(Math.max(0, 1 - t), 1.15); // rozwiewa się u góry
       const a = inA * outA * 0.62;
       if (a <= 0.004) continue;
+      // gotowa, wypalona kulka dymu — blit zamiast 3 gradientów/klatkę (audyt B2)
+      const puff = this.smokePuff(p.color);
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
-      // 3 nachodzące garby → kłębiasta, nieregularna sylwetka
-      for (const [ox, oy, rs] of [
-        [0, 0, 1],
-        [-0.55, 0.15, 0.72],
-        [0.5, -0.1, 0.66],
-      ] as [number, number, number][]) {
+      ctx.globalAlpha = a;
+      for (const [ox, oy, rs] of SMOKE_LOBES) {
         const rr = p.w * rs;
-        const cx = ox * p.w;
-        const cy = oy * p.w;
-        const g = ctx.createRadialGradient(cx, cy, rr * 0.15, cx, cy, rr);
-        g.addColorStop(0, `rgba(${p.color},${a})`);
-        g.addColorStop(0.55, `rgba(${p.color},${a * 0.7})`);
-        g.addColorStop(1, `rgba(${p.color},0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.drawImage(puff, ox * p.w - rr, oy * p.w - rr, rr * 2, rr * 2);
       }
       ctx.restore();
     }
@@ -1518,7 +1515,10 @@ export class Game {
     void (async () => {
       try {
         const song = await loadTrack(meta.id);
-        // tylko pobierz bajty — NIE twórz AudioContextu w tle (iOS Safari:
+        // dekoduj arkusze postaci JUŻ TERAZ (cache w Character) — żeby przy
+        // GRAJ! nie było „fragmentu bez ludzika" w trakcie odliczania
+        this.character.load({ character: song.character, characters: song.characters });
+        // tylko pobierz bajty audio — NIE twórz AudioContextu w tle (iOS Safari:
         // kontekst musi powstać w geście GRAJ!, inaczej zostaje „suspended")
         if (song.audioUrl) await this.audio.prefetch(song.audioUrl);
       } catch {
@@ -1868,8 +1868,10 @@ export class Game {
     this.spotlightUntil = -10;
     this.bombLockMs = 0;
     this.audio.stop(); // ucisz poprzedni przebieg
-    // sprite'y czaszek z góry (w czasie odliczania) — bez zacięcia na 1. czaszce
+    // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
     if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
+    else for (const col of LANE_COLORS) { this.noteHeadSprite(col, false); this.noteHeadSprite(col, true); }
+    if (COMBO_FX[this.trackId] === "smoke") for (const c of SMOKE_COLORS) this.smokePuff(c);
     // NAJPIERW ciche odliczanie 3-2-1, DOPIERO POTEM rusza muzyka i nuty
     this.rolling = true;
     this.rollEndMs = performance.now() + Game.ROLL_MS;
@@ -3505,9 +3507,12 @@ export class Game {
       ctx.restore();
     }
 
-    // głowy nut (bliższe rysujemy później → na wierzchu)
-    const order = [...this.song.notes].sort((a, b) => b.time - a.time);
-    for (const n of order) {
+    // głowy nut (bliższe rysujemy później → na wierzchu). Nuty są już
+    // posortowane rosnąco po czasie (rawToSong / build), więc „od najdalszej"
+    // to po prostu iteracja od końca — bez kopii i sortu 60×/s (audyt B1).
+    const notes = this.song.notes;
+    for (let i = notes.length - 1; i >= 0; i--) {
+      const n = notes[i];
       let e = n.holding ? 1 : this.eForTime(n.time);
       if (!n.judged && (e > 1.2 || e < -0.2)) continue;
       let alpha = 1;
@@ -3549,23 +3554,13 @@ export class Game {
         continue;
       }
 
+      // główka nuty = wypalony sprite (poświata + gradient + białe oczko),
+      // po jednym na (kolor toru × stan) — zero shadowBlur/gradientu w pętli (audyt B3)
+      const spr = this.noteHeadSprite(col, n.judged && !n.hit);
+      const nd = (r / Game.NOTE_R) * spr.width;
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.shadowColor = col;
-      ctx.shadowBlur = 14 + (n.dur > 0 ? 8 : 0);
-      const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
-      g.addColorStop(0, "#ffffff");
-      g.addColorStop(0.55, col);
-      g.addColorStop(1, n.judged && !n.hit ? "#5a1e26" : shade(col, -40));
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = a * 0.85;
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.drawImage(spr, x - nd / 2, y - nd / 2, nd, nd);
       ctx.restore();
     }
 
@@ -3678,6 +3673,64 @@ export class Game {
    *  nie było zacięcia przy pierwszej nadlatującej czaszce. */
   private prewarmSkulls() {
     for (const col of LANE_COLORS) for (let jaw = 0; jaw < 3; jaw++) this.skullSprite(col, jaw);
+  }
+
+  /** Główka nuty z poświatą — wypalona raz na (kolor toru × trafiona/pudło).
+   *  Bazowy promień = NOTE_R; w rysowaniu skalujemy do `r` z perspektywy. */
+  static readonly NOTE_R = 60;
+  private noteHeadSprite(col: string, missed: boolean): HTMLCanvasElement {
+    const key = `${col}|${missed ? 1 : 0}`;
+    const hit = this.noteHeadCache.get(key);
+    if (hit) return hit;
+    const R = Game.NOTE_R;
+    const PAD = 22;
+    const S = (R + PAD) * 2;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      const cx = S / 2;
+      c.shadowColor = col;
+      c.shadowBlur = 18;
+      const g = c.createRadialGradient(cx, cx, R * 0.2, cx, cx, R);
+      g.addColorStop(0, "#ffffff");
+      g.addColorStop(0.55, col);
+      g.addColorStop(1, missed ? "#5a1e26" : shade(col, -40));
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(cx, cx, R, 0, Math.PI * 2);
+      c.fill();
+      c.shadowBlur = 0;
+      c.globalAlpha = 0.85;
+      c.fillStyle = "rgba(255,255,255,0.92)";
+      c.beginPath();
+      c.arc(cx, cx, R * 0.4, 0, Math.PI * 2);
+      c.fill();
+    }
+    this.noteHeadCache.set(key, cv);
+    return cv;
+  }
+
+  /** Miękka kulka dymu wypalona raz na kolor (blit zamiast gradientu w pętli). */
+  private smokePuff(color: string): HTMLCanvasElement {
+    const hit = this.puffCache.get(color);
+    if (hit) return hit;
+    const S = 128;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      const g = c.createRadialGradient(S / 2, S / 2, S * 0.08, S / 2, S / 2, S / 2);
+      g.addColorStop(0, `rgba(${color},1)`);
+      g.addColorStop(0.55, `rgba(${color},0.7)`);
+      g.addColorStop(1, `rgba(${color},0)`);
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+    }
+    this.puffCache.set(color, cv);
+    return cv;
   }
 
   private drawJudgePopups(ctx: CanvasRenderingContext2D) {

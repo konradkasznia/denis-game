@@ -44,7 +44,9 @@ function resize() {
   viewport.vh = vh;
 
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
-  ctx.imageSmoothingQuality = "high";
+  // "medium" wygląda w tej stylistyce tak samo, a przy dużych skalowanych
+  // bitmapach (postać, tła) na telefonie kosztuje wyraźnie mniej (audyt B7)
+  ctx.imageSmoothingQuality = "medium";
 }
 
 const game = new Game(canvas);
