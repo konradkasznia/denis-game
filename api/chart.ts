@@ -125,8 +125,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // POST — publikacja z edytora
     const need = process.env.EDITOR_PASSWORD || "";
-    if (!need && process.env.VERCEL_ENV === "production") {
-      // fail-closed: brak hasła w produkcji = nie przyjmujemy publikacji
+    if (!need && process.env.VERCEL_ENV !== "development") {
+      // fail-closed WSZĘDZIE poza lokalnym devem (także preview) — inaczej na
+      // preview-deploymencie każdy publikuje beatmapy bez hasła do wspólnej bazy
       return json(res, 503, { error: "Publikacja wyłączona (brak konfiguracji hasła)." });
     }
     const key = String(req.headers["x-editor-key"] || "");

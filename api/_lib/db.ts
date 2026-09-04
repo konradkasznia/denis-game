@@ -38,6 +38,11 @@ export function ensureSchema(): Promise<void> {
     }
     for (const sql of MIGRATIONS_SQL) await c.execute(sql);
     await c.batch(SCHEMA_SQL, "write");
-  })();
+  })().catch((e) => {
+    // nie zatruwaj całej instancji lambdy odrzuconą obietnicą — kolejne
+    // żądanie spróbuje jeszcze raz (audyt A8)
+    _schema = null;
+    throw e;
+  });
   return _schema;
 }

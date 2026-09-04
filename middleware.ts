@@ -9,9 +9,10 @@ export const config = {
 export default function middleware(request: Request): Response | undefined {
   const pass = process.env.EDITOR_PASSWORD;
   if (!pass) {
-    // Lokalnie / preview bez hasła — przepuszczamy. W PRODUKCJI odwrotnie:
-    // brak hasła = zamknięte (fail-closed), żeby edytor nie stał się publiczny.
-    if (process.env.VERCEL_ENV === "production") {
+    // Tylko lokalny dev bez hasła przepuszczamy. Na każdym deployu Vercela
+    // (produkcja I preview) brak hasła = zamknięte — adresy preview nie są
+    // sekretem, a baza `charts` bywa wspólna z produkcją.
+    if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "development") {
       return new Response("Edytor niedostępny (brak konfiguracji).", {
         status: 503,
         headers: { "content-type": "text/plain; charset=utf-8" },
