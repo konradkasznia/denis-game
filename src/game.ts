@@ -12,7 +12,7 @@ import {
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
-import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, votedChoice } from "./poll.ts";
+import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
@@ -251,6 +251,22 @@ function bestScore(): number {
   return Number(localStorage.getItem("denis.best") || 0);
 }
 
+/** Ostrzeżenie o migotaniu: pokazane raz w życiu instalacji (nie co sesję). */
+function healthWarnSeen(): boolean {
+  try {
+    return localStorage.getItem("denis.healthWarn") === "1";
+  } catch {
+    return false;
+  }
+}
+function markHealthWarnSeen(): void {
+  try {
+    localStorage.setItem("denis.healthWarn", "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 export class Game {
   private scene: Scene = "loading";
   private audio = new AudioEngine();
@@ -283,6 +299,10 @@ export class Game {
   private awaitingStart = false;
   private paused = false;
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
+  /** ciche odliczanie 3-2-1 PRZED startem utworu — audio rusza dopiero po „1" */
+  private rolling = false;
+  private rollEndMs = 0;
+  private static readonly ROLL_MS = 3000;
 
   private score = 0;
   private displayScore = 0;
@@ -324,8 +344,7 @@ export class Game {
   private evFired = new Set<number>(); // indeksy zdarzeń (przeszkód) już uruchomionych
   private spotlightStart = -10; // songTime początku reflektora
   private spotlightUntil = -10; // songTime końca reflektora
-  private bombAt = -10; // songTime ostatniego wybuchu (animacja)
-  private bombUntil = -10; // songTime końca ogłuszenia (blokada tapów, 3 s)
+  private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
   private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
@@ -419,10 +438,11 @@ export class Game {
   /** Wejście do karuzeli od zera — z modalem „włącz dźwięk" (raz na sesję). */
   private enterHitsFresh() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
-    if (!this.healthHintDone) this.healthModal = true;
+    if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
     else if (!this.soundHintDone) this.soundModal = true;
     this.scene = "hits";
     this.preloadHitAudio();
+    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
   }
 
   private async preloadChart() {
@@ -468,7 +488,15 @@ export class Game {
       this.resumeAt = 0;
       void this.audio.resumePlayback();
     }
-    if (this.scene === "play" && !this.awaitingStart && !this.paused) {
+    // ciche odliczanie 3-2-1 przed startem — nuty i dźwięk stoją, ale efekty
+    // (konfetti po GRAJ) lecą dalej, więc tylko przesuwamy songTime
+    if (this.scene === "play" && this.rolling && !this.paused) {
+      const remMs = this.rollEndMs - performance.now();
+      this.songTime = -Math.max(0, remMs) / 1000;
+      if (remMs <= 0) this.launchSongAudio();
+    }
+
+    if (this.scene === "play" && !this.awaitingStart && !this.paused && !this.rolling) {
       this.songTime = this.audio.getSongTime();
       // watchdog: dźwięk nie ruszył (AudioContext utknął w suspended) —
       // zegar utworu stoi przy zerze; próbujemy wznowić, a po chwili poddajemy się.
@@ -999,6 +1027,7 @@ export class Game {
       void this.audio.unlock();
       this.healthModal = false;
       this.healthHintDone = true;
+      markHealthWarnSeen();
       if (!this.soundHintDone) this.soundModal = true;
       return;
     }
@@ -1036,6 +1065,7 @@ export class Game {
     if (this.scene === "profile") return this.handleProfileTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
+      if (this.rolling) return; // ciche odliczanie 3-2-1 — ignoruj dotyk
       if (this.paused) {
         if (this.resumeAt) return; // trwa odliczanie
         return this.handlePauseTap(x, y);
@@ -1043,6 +1073,8 @@ export class Game {
       // lód: każde tapnięcie idzie w rozbijanie tafli (nie w tory, nie w pauzę)
       if (this.iceActive) return this.iceTap(x, y);
       if (x >= 0 && inRect(PAUSE_RECT, x, y)) return this.pauseGame();
+      // ogłuszenie po bombie — 3 s żadnych tapów w tory (pauza wyżej działa)
+      if (this.bombLocked()) return;
       if (lane < 0 && x < 0) return; // np. spacja podczas gry
       if (lane < 0) lane = this.laneAtX(x);
       if (lane >= 0) this.pressLane(lane);
@@ -1133,6 +1165,7 @@ export class Game {
       void this.audio.unlock();
       this.healthModal = false;
       this.healthHintDone = true;
+      markHealthWarnSeen();
       if (!this.soundHintDone) this.soundModal = true;
       return true;
     }
@@ -1169,8 +1202,8 @@ export class Game {
       case "play":
         if (this.paused) {
           if (this.resumeAt) return true; // trwa odliczanie — zignoruj
+          this.audio.stop(); // ucisz muzykę zanim zagra „cofnij" (bez urwanego blipu)
           uiSound("back");
-          this.audio.stop();
           this.paused = false;
           this.scene = "hits";
         } else {
@@ -1473,6 +1506,7 @@ export class Game {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
     this.scene = "hits";
     this.preloadHitAudio();
+    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
   }
 
   /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
@@ -1597,7 +1631,8 @@ export class Game {
   }
 
   private handleRewardsTap(x: number, y: number) {
-    if (x < 0 || inRect(BACK, x, y) || inRect(REW_HOME, x, y)) {
+    // x < 0 = systemowy „wstecz"; REW_HOME = przycisk „POWRÓT" na dole
+    if (x < 0 || inRect(REW_HOME, x, y)) {
       uiSound("back");
       this.scene = "hits";
     }
@@ -1810,8 +1845,8 @@ export class Game {
       return;
     }
     if (inRect(PZ_MENU, x, y)) {
+      this.audio.stop(); // najpierw ucisz muzykę (czysty stan), potem dźwięk „cofnij"
       uiSound("back");
-      this.audio.stop();
       this.paused = false;
       this.scene = "hits";
     }
@@ -1822,7 +1857,7 @@ export class Game {
 
   private beginSong() {
     this.awaitingStart = false;
-    this.songTime = 0;
+    this.songTime = -Game.ROLL_MS / 1000;
     this.iceActive = false;
     this.iceTapsLeft = 0;
     this.iceCracks = [];
@@ -1831,9 +1866,23 @@ export class Game {
     this.iceShatterAt = -10;
     this.spotlightStart = -10;
     this.spotlightUntil = -10;
-    this.bombAt = -10;
-    this.bombUntil = -10;
-    this.audio.stop(); // ucisz poprzedni przebieg (pauza → „OD NOWA" nie nakłada dźwięku)
+    this.bombLockMs = 0;
+    this.audio.stop(); // ucisz poprzedni przebieg
+    // NAJPIERW ciche odliczanie 3-2-1, DOPIERO POTEM rusza muzyka i nuty
+    this.rolling = true;
+    this.rollEndMs = performance.now() + Game.ROLL_MS;
+    this.songStartedAt = 0;
+  }
+
+  /** Testy: pomija ciche odliczanie 3-2-1, startuje utwór natychmiast. */
+  skipIntroForTest() {
+    if (this.rolling) this.launchSongAudio();
+  }
+
+  /** Koniec cichego odliczania — teraz rusza dźwięk i oś czasu utworu. */
+  private launchSongAudio() {
+    this.rolling = false;
+    this.songTime = 0;
     try {
       void this.audio.ctx?.resume?.();
     } catch {
@@ -1897,10 +1946,15 @@ export class Game {
     return typeof l === "number" && isFinite(l) ? clamp(l, 0, 0.4) : 0.03;
   }
 
+  private bombLocked(): boolean {
+    return performance.now() < this.bombLockMs;
+  }
+
   private pressLane(lane: number) {
     this.lanePress[lane] = 1;
-    // ogłuszenie po bombie — tapy nie działają przez 3 s (nuty lecą dalej)
-    if (this.songTime < this.bombUntil) return;
+    // ogłuszenie po bombie — tapy nie działają przez 3 s (zegar ścienny, żeby
+    // skoki zegara audio nie skróciły blokady); nuty lecą dalej (kara)
+    if (this.bombLocked()) return;
     const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
     if (!picked) return;
     const { note, absDt } = picked;
@@ -1928,8 +1982,7 @@ export class Game {
     note.hit = false;
     note.headJ = null;
     note.judgedAt = this.songTime;
-    this.bombAt = this.songTime;
-    this.bombUntil = this.songTime + 3;
+    this.bombLockMs = performance.now() + 3000; // blokada tapów + animacja (zegar ścienny)
     this.bombLane = lane;
     this.score = Math.max(0, this.score - 100);
     this.combo = 0;
@@ -2982,12 +3035,7 @@ export class Game {
 
   private drawRewards(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
-    text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
-      size: 24,
-      align: "left",
-      color: "#ffce8a",
-      weight: "700",
-    });
+    // bez przycisku „‹ WRÓĆ" w rogu — zostaje systemowy powrót + „POWRÓT" na dole
     text(ctx, "NAGRODY", VW / 2, 130, {
       size: 48,
       weight: "900",
@@ -3999,9 +4047,11 @@ export class Game {
   /** Wybuch bomby + 3 s ogłuszenia (blokada tapów). Krótki błysk ~0.7 s,
    *  potem czerwona winieta z odliczaniem do końca blokady. */
   private drawBomb(ctx: CanvasRenderingContext2D) {
-    const since = this.songTime - this.bombAt;
-    const left = this.bombUntil - this.songTime;
-    if (left <= 0 || since < 0) return;
+    // czas blokady = zegar ścienny (spójnie z bombLocked()); animacja błysku
+    // startuje od momentu wybuchu
+    const left = (this.bombLockMs - performance.now()) / 1000;
+    if (left <= 0) return;
+    const since = 3 - left; // sekundy od wybuchu
 
     const top = -this.vdy;
     const H = this.sh();
@@ -4100,8 +4150,9 @@ export class Game {
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
-    const first = this.song.notes[0]?.time ?? 3;
-    const rel = first - this.songTime;
+    // ciche odliczanie 3-2-1 PRZED startem utworu (bez dźwięku, nuty stoją)
+    if (!this.rolling) return;
+    const rel = Math.max(0, (this.rollEndMs - performance.now()) / 1000);
     if (rel <= 0.05 || rel > 3.2) return;
     const n = Math.ceil(rel);
     const f = n - rel;
@@ -4449,7 +4500,7 @@ export class Game {
       ctx.globalAlpha = vFade;
       // nagłówek: zaliczone (zielony) / za mało na kolejny poziom (bursztyn) /
       // niezaliczone (czerwony)
-      const headline = lockedNext ? "NIEWIELE ZABRAKŁO" : passed ? "ZALICZONE!" : "NIE ZALICZONE";
+      const headline = lockedNext ? "NIEWIELE ZABRAKŁO" : passed ? "ZALICZONE!" : "NIEZALICZONE";
       const headColor = lockedNext ? "#ffb44a" : passed ? "#5ef2a0" : "#ff6b7d";
       text(ctx, headline, cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
         size: lockedNext ? 34 : passed ? 42 : 36,

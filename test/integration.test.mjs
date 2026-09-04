@@ -84,7 +84,8 @@ async function playthrough(mode) {
   g.trackId = "panna-mloda"; // syntezowany podkład (runda 1) — bez fetch/audio
   await new Promise((r) => setTimeout(r, 5));
   await g.startPlay();
-  ok(g.scene === "play" && g.audio.running, mode + ": gra startuje od razu po GRAJ!");
+  g.skipIntroForTest(); // pomiń ciche odliczanie 3-2-1
+  ok(g.scene === "play" && g.audio.running, mode + ": gra startuje po GRAJ! (po odliczaniu)");
   const ac = g.audio.ctx;
   const dt = 1 / 60;
   let frame = 0;

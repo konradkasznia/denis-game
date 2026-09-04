@@ -18,7 +18,8 @@ ok(
   s.notes.every((n, i) => i === 0 || n.time >= s.notes[i - 1].time),
   "czasy nut rosnące",
 );
-ok(s.notes[0].time > 3, `pierwsza nuta po lead-inie: ${s.notes[0].time.toFixed(2)}s`);
+// lead-in to teraz ciche odliczanie 3-2-1 w grze — chart rusza od zera
+ok(s.notes[0].time < 1, `pierwsza nuta od startu: ${s.notes[0].time.toFixed(2)}s`);
 ok(
   s.notes.every((n) => n.time + n.dur < s.duration),
   "każda nuta (z ogonem) kończy się przed końcem utworu",

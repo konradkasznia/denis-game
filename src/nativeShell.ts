@@ -12,8 +12,12 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import type { Game } from "./game.ts";
 import { setLoopActive } from "./main.ts";
 import { isNative } from "./native.ts";
+import { showSplashAgain } from "./splash.ts";
 
 let splashHidden = false;
+// splash powitalny wraca, gdy apka była w tle dłużej niż tyle
+const SPLASH_REARM_MS = 3 * 60_000;
+let backgroundedAt = 0;
 
 export function hideSplash() {
   if (splashHidden || !isNative) return;
@@ -41,7 +45,13 @@ export function initNativeShell(game: Game) {
     if (isActive) {
       setLoopActive(true);
       game.onAppForeground();
+      // powrót po dłuższej nieobecności → znów pokaż splash z animacją
+      if (backgroundedAt && Date.now() - backgroundedAt > SPLASH_REARM_MS) {
+        showSplashAgain();
+      }
+      backgroundedAt = 0;
     } else {
+      backgroundedAt = Date.now();
       game.onAppBackground(); // pauza PRZED zatrzymaniem pętli
       setLoopActive(false); // w tle pętla renderu całkiem stoi (bateria / temperatura)
     }

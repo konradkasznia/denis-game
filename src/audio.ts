@@ -97,7 +97,9 @@ export class AudioEngine {
     this.sfxGain.connect(this.master);
     this.uiGain = this.ctx.createGain();
     this.uiGain.gain.value = 0.5;
-    this.uiGain.connect(this.master);
+    // prosto do wyjścia — dźwięki UI nie mają być tłumione wyciszaniem `master`
+    // (stop() robi rampę do 0), a przy wyjściu z gry „cofnij" ma być słyszalne
+    this.uiGain.connect(this.ctx.destination);
     this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
     this.uiBuffers.clear();
     void this.loadUiClips();
@@ -138,7 +140,12 @@ export class AudioEngine {
       void this.loadUiClips();
       return;
     }
-    if ((this.ctx.state as string) !== "running") void this.ctx.resume().catch(() => {});
+    // NIE wznawiamy kontekstu, gdy gra jest w PAUZIE (pauseStartMs != 0) —
+    // inaczej klik „GRAJ" w menu pauzy wznawiał muzykę pod odliczaniem 3-2-1
+    if ((this.ctx.state as string) !== "running") {
+      if (this.pauseStartMs) return; // pauza gry — klik zostaje bez dźwięku
+      void this.ctx.resume().catch(() => {});
+    }
     try {
       const s = this.ctx.createBufferSource();
       s.buffer = buf;
@@ -474,6 +481,8 @@ export class AudioEngine {
 
   stop() {
     this._running = false;
+    this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
+    this.pausedTotalMs = 0;
     try {
       this.srcNode?.stop();
     } catch {

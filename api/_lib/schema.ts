@@ -60,6 +60,9 @@ export const SCHEMA_SQL: string[] = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS poll_votes_idx ON poll_votes (poll, choice)`,
+  // jeden głos na (głosowanie, głosujący) — „voter" = "u:<id>" dla zalogowanych,
+  // "ip:<addr>" w ostateczności; wymusza jednorazowość ankiety
+  `CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_voter_uidx ON poll_votes (poll, voter)`,
 ];
 
 /**
@@ -68,4 +71,12 @@ export const SCHEMA_SQL: string[] = [
  */
 export const MIGRATIONS_SQL: string[] = [
   `DROP TABLE IF EXISTS password_resets`,
+  // przed założeniem UNIQUE(poll, voter): tabela musi istnieć i być bez duplikatów
+  `CREATE TABLE IF NOT EXISTS poll_votes (
+    poll TEXT NOT NULL,
+    choice TEXT NOT NULL,
+    voter TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  )`,
+  `DELETE FROM poll_votes WHERE rowid NOT IN (SELECT MIN(rowid) FROM poll_votes GROUP BY poll, voter)`,
 ];

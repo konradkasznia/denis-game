@@ -31,14 +31,35 @@ export function votedChoice(poll: string): string | null {
   }
 }
 
-export function submitVote(poll: string, choice: string): void {
+function markVoted(poll: string, choice: string): void {
   try {
-    localStorage.setItem(key(poll), choice);
+    localStorage.setItem(key(poll), choice || "1");
   } catch {
     /* ignore */
   }
+}
+
+export function submitVote(poll: string, choice: string): void {
+  markVoted(poll, choice);
   tagOneSignal(`wybor_${poll}`, choice);
-  void api("/api/vote", { method: "POST", body: { poll, choice } }).catch(() => {
+  // auth: głos jest wiązany z kontem (jeden na użytkownika, wymuszane serwerowo)
+  void api("/api/vote", { method: "POST", body: { poll, choice }, auth: true }).catch(() => {
     /* offline / brak backendu — mamy przynajmniej tag OneSignal + localStorage */
   });
+}
+
+/** Dociąga z serwera „czy ten użytkownik już głosował" i zapisuje lokalnie —
+ *  dzięki temu modal nie wróci nawet po wyczyszczeniu danych aplikacji /
+ *  na innym urządzeniu tego samego konta. Bezpieczne do wołania w tle. */
+export async function syncVoted(poll: string): Promise<void> {
+  if (votedChoice(poll)) return;
+  try {
+    const r = await api<{ voted?: boolean; choice?: string | null }>(
+      `/api/vote?poll=${encodeURIComponent(poll)}`,
+      { auth: true },
+    );
+    if (r?.voted) markVoted(poll, r.choice || "1");
+  } catch {
+    /* offline / brak backendu — trudno, zostaje gate lokalny */
+  }
 }
