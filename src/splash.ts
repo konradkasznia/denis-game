@@ -1,11 +1,19 @@
-// Ekran powitalny: czarne tło + animacja Lottie (public/assets/ui/splash.json).
+// Ekran powitalny: czarne tło + animacja Lottie.
 //
-// - czarne tło pojawia się NATYCHMIAST (HTML/CSS, w index.html) — zanim
-//   cokolwiek się wczyta
-// - lottie-web ładowany dynamicznie (osobny chunk), żeby nie obciążać wejścia
-// - splash znika, gdy gra narysowała pierwszą klatkę I animacja się dograła
-//   (albo po twardym limicie czasu)
+// Animacja i biblioteka są STATYCZNIE zbundlowane (import poniżej) — żadnego
+// dynamicznego import()/fetch, który potrafił milczkiem paść w WebView APK
+// (wtedy widać było samą czerń). Źródło animacji: `src/splash-anim.json`
+// (kopia tego, co Konrad wrzuca do `public/assets/ui/splash.json`).
+//
+// - czarne tło pojawia się NATYCHMIAST (HTML/CSS, w index.html)
+// - splash znika po dograniu animacji (albo po twardym limicie czasu)
 // - można go pokazać ponownie (powrót do apki po dłuższej nieobecności)
+
+// lottie_light (renderer SVG, bez expressions/efektów — których ta animacja
+// nie używa) STATYCZNIE w bundlu — żadnego dynamicznego import(), który
+// potrafił milczkiem paść w WebView APK
+import lottie from "lottie-web/build/player/lottie_light";
+import splashAnim from "./splash-anim.json";
 
 let dismissed = false;
 let gameReady = false;
@@ -14,73 +22,49 @@ let root: HTMLElement | null = null;
 let shownAt = performance.now();
 let runId = 0;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let lottieMod: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let animData: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let currentAnim: any = null;
 
-const MIN_SHOW_MS = 1200; // nie mrugaj splashem
-const SOFT_CAP_MS = 4600; // animacja ma ~3 s — daj jej dojść, potem nie czekaj
-const HARD_CAP_MS = 6500; // absolutny limit — splash zawsze zniknie
+const MIN_SHOW_MS = 1200;
+const SOFT_CAP_MS = 4600; // animacja ~3 s — daj jej dojść
+const HARD_CAP_MS = 6500;
+
+// podmiana czcionki na pewny stack systemowy (polskie znaki; tekst w JSON to
+// żywy string, nie ścieżki) — robimy RAZ na module
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const list = (splashAnim as any)?.fonts?.list;
+  if (Array.isArray(list)) {
+    for (const f of list) f.fFamily = "Arial, Helvetica, 'Segoe UI', 'Liberation Sans', sans-serif";
+  }
+} catch {
+  /* ignore */
+}
 
 function reduceMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Ładuje bibliotekę + dane animacji RAZ (cache między pokazami). */
-async function ensureAssets(): Promise<boolean> {
-  try {
-    if (!lottieMod) lottieMod = await import("lottie-web/build/player/lottie_light");
-    if (!animData) {
-      const url = new URL("assets/ui/splash.json", document.baseURI).href;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`splash.json HTTP ${res.status}`);
-      animData = await res.json();
-      // polskie znaki: podmień czcionkę z projektu na pewny stack systemowy
-      const list = animData?.fonts?.list;
-      if (Array.isArray(list)) {
-        for (const f of list) f.fFamily = "Arial, Helvetica, 'Segoe UI', 'Liberation Sans', sans-serif";
-      }
-    }
-    return true;
-  } catch (e) {
-    console.warn("[splash] animacja niedostępna:", e);
-    return false;
-  }
-}
-
-async function playLottie(myRun: number) {
+function playLottie(myRun: number) {
   const host = document.getElementById("splash-anim");
-  if (!host) return;
+  if (!host || myRun !== runId) return;
   host.innerHTML = "";
-  const ok = await ensureAssets();
-  if (myRun !== runId) return; // w międzyczasie splash zszedł / pokazano nowy
-  if (!ok || !lottieMod || !animData) {
-    // brak animacji — pokaż prosty tekstowy fallback zamiast samej czerni
-    host.innerHTML =
-      '<div style="font:800 40px/1.1 Arial,sans-serif;letter-spacing:2px;color:#ffce8a;text-align:center;">' +
-      "DENIS<br><span style=\"font-size:18px;color:#c9b7a6;letter-spacing:4px;\">IMPULSYWNI&nbsp;LIVE</span></div>";
-    lottieDone = true;
-    maybeDismiss();
-    return;
-  }
   const reduce = reduceMotion();
   try {
     if (currentAnim) {
       currentAnim.destroy();
       currentAnim = null;
     }
-    currentAnim = lottieMod.default.loadAnimation({
+    currentAnim = lottie.loadAnimation({
       container: host,
       renderer: "svg",
       loop: false,
       autoplay: !reduce,
-      animationData: animData,
+      animationData: splashAnim,
       rendererSettings: { preserveAspectRatio: "xMidYMid meet" },
     });
     if (reduce) {
-      currentAnim.goToAndStop(Math.max(0, (animData.op ?? 1) - 1), true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      currentAnim.goToAndStop(Math.max(0, ((splashAnim as any).op ?? 1) - 1), true);
       lottieDone = true;
       maybeDismiss();
     } else {
@@ -90,29 +74,32 @@ async function playLottie(myRun: number) {
       });
     }
   } catch (e) {
-    console.warn("[splash] lottie loadAnimation:", e);
+    console.warn("[splash] lottie:", e);
+    // fallback tekstowy, żeby nie było samej czerni
+    host.innerHTML =
+      '<div style="font:800 40px/1.15 Arial,sans-serif;letter-spacing:2px;color:#ffce8a;text-align:center;">' +
+      "DENIS<br><span style=\"font-size:16px;color:#c9b7a6;letter-spacing:3px;\">IMPULSYWNI&nbsp;LIVE</span></div>";
     lottieDone = true;
     maybeDismiss();
   }
+}
+
+function startRun() {
+  if (!root) return;
+  runId++;
+  dismissed = false;
+  lottieDone = false;
+  shownAt = performance.now();
+  root.classList.remove("splash-hide");
+  root.style.removeProperty("display");
+  playLottie(runId);
+  setTimeout(maybeDismiss, HARD_CAP_MS + 100);
 }
 
 export function initSplash() {
   root = document.getElementById("splash");
   if (!root) return;
   startRun();
-}
-
-function startRun() {
-  if (!root) return;
-  runId++;
-  const myRun = runId;
-  dismissed = false;
-  lottieDone = false;
-  shownAt = performance.now();
-  root.classList.remove("splash-hide");
-  root.style.removeProperty("display");
-  void playLottie(myRun);
-  setTimeout(maybeDismiss, HARD_CAP_MS + 100);
 }
 
 /** Woła main.ts, gdy gra narysowała pierwszą klatkę. */
@@ -123,10 +110,8 @@ export function splashGameReady() {
 
 /** Pokazuje splash ponownie (powrót do apki po dłuższej nieobecności). */
 export function showSplashAgain() {
-  if (!root) {
-    root = document.getElementById("splash");
-    if (!root) return;
-  }
+  if (!root) root = document.getElementById("splash");
+  if (!root) return;
   gameReady = true; // gra już działa — czekamy tylko na animację / SOFT_CAP
   startRun();
 }

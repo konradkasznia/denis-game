@@ -1868,6 +1868,8 @@ export class Game {
     this.spotlightUntil = -10;
     this.bombLockMs = 0;
     this.audio.stop(); // ucisz poprzedni przebieg
+    // sprite'y czaszek z góry (w czasie odliczania) — bez zacięcia na 1. czaszce
+    if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
     // NAJPIERW ciche odliczanie 3-2-1, DOPIERO POTEM rusza muzyka i nuty
     this.rolling = true;
     this.rollEndMs = performance.now() + Game.ROLL_MS;
@@ -3429,26 +3431,35 @@ export class Game {
       ctx.restore();
     }
 
-    // puste kółka (receptory) — zawsze na miejscu
-    for (let l = 0; l < LANES; l++) {
-      const x = this.hitX(l);
-      const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
-      const held = !!this.held[l];
-      const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
-      ctx.save();
-      ctx.lineWidth = 5 + (held ? 3 : 0);
-      ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
-      ctx.shadowColor = LANE_COLORS[l];
-      ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
-      ctx.beginPath();
-      ctx.arc(x, hitY, r, 0, Math.PI * 2);
-      ctx.stroke();
-      if (flash > 0.01) {
-        ctx.globalAlpha = flash * 0.32;
-        ctx.fillStyle = "#fff";
-        ctx.fill();
+    // puste kółka (receptory). Po tapnięciu bomby znikają na czas ogłuszenia
+    // (nie ma w co celować), wracają płynnie pod koniec blokady.
+    let recAlpha = 1;
+    if (this.bombLocked()) {
+      const left = (this.bombLockMs - performance.now()) / 1000; // 3..0
+      recAlpha = left > 0.5 ? 0 : clamp((0.5 - left) / 0.5, 0, 1);
+    }
+    if (recAlpha > 0.01) {
+      for (let l = 0; l < LANES; l++) {
+        const x = this.hitX(l);
+        const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
+        const held = !!this.held[l];
+        const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
+        ctx.save();
+        ctx.globalAlpha = recAlpha;
+        ctx.lineWidth = 5 + (held ? 3 : 0);
+        ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
+        ctx.shadowColor = LANE_COLORS[l];
+        ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
+        ctx.beginPath();
+        ctx.arc(x, hitY, r, 0, Math.PI * 2);
+        ctx.stroke();
+        if (flash > 0.01) {
+          ctx.globalAlpha = recAlpha * flash * 0.32;
+          ctx.fillStyle = "#fff";
+          ctx.fill();
+        }
+        ctx.restore();
       }
-      ctx.restore();
     }
   }
 
@@ -3524,14 +3535,15 @@ export class Game {
       }
 
       if (NOTE_SKIN[this.trackId] === "skull") {
-        // czaszki „szczękają" w rytm — wszystkie zsynchronizowane po songTime
+        // czaszki „szczękają" w rytm — wszystkie zsynchronizowane po songTime.
+        // Poświata jest WPALONA w sprite → żadnego shadowBlur w pętli klatki.
         const jaw = Math.min(2, (((Math.sin(this.songTime * 8) + 1) / 2) * 3) | 0);
         const bob = Math.sin(this.songTime * 6 + n.lane * 1.3) * r * 0.06;
-        const d = r * 2.5;
+        const skull = 96;
+        const full = skull + Game.SKULL_PAD * 2;
+        const d = ((r * 2.5) / skull) * full; // zachowaj rozmiar czaszki, margines to poświata
         ctx.save();
         ctx.globalAlpha = a;
-        ctx.shadowColor = col;
-        ctx.shadowBlur = 12 + (n.dur > 0 ? 8 : 0);
         ctx.drawImage(this.skullSprite(col, jaw), x - d / 2, y - d / 2 + bob, d, d);
         ctx.restore();
         continue;
@@ -3575,17 +3587,24 @@ export class Game {
   }
 
   /** Sprite czaszki (nuta w „Pogrzebówce") — rysowany raz na (kolor toru × pozycja
-   *  szczęki) i cache'owany. `jaw` 0..2 = szczęka zamknięta → otwarta. */
+   *  szczęki) i cache'owany, z WPALONĄ poświatą (żadnego ctx.shadowBlur w pętli
+   *  klatki — to dławi słabsze telefony). `jaw` 0..2 = szczęka zamknięta → otwarta. */
+  private static readonly SKULL_PAD = 20; // margines na poświatę
   private skullSprite(col: string, jaw: number): HTMLCanvasElement {
     const key = `${col}|${jaw}`;
     const hit = this.skullCache.get(key);
     if (hit) return hit;
 
     const S = 96;
+    const PAD = Game.SKULL_PAD;
+    // rysujemy czaszkę na osobnym płótnie, potem składamy z poświatą
+    const tmp = document.createElement("canvas");
+    tmp.width = S;
+    tmp.height = S;
+    const c = tmp.getContext("2d");
     const cv = document.createElement("canvas");
-    cv.width = S;
-    cv.height = S;
-    const c = cv.getContext("2d");
+    cv.width = S + PAD * 2;
+    cv.height = S + PAD * 2;
     if (!c) return cv;
     c.translate(S / 2, S / 2 + 3);
     const s = S * 0.4;
@@ -3641,8 +3660,24 @@ export class Game {
     c.closePath();
     c.fill();
 
+    // złożenie: poświata (jeden pass z cieniem — koszt jednorazowy) + ostra czaszka
+    const fc = cv.getContext("2d");
+    if (fc) {
+      fc.shadowColor = col;
+      fc.shadowBlur = 16;
+      fc.drawImage(tmp, PAD, PAD);
+      fc.drawImage(tmp, PAD, PAD); // drugi pass — mocniejsza poświata
+      fc.shadowBlur = 0;
+      fc.drawImage(tmp, PAD, PAD);
+    }
     this.skullCache.set(key, cv);
     return cv;
+  }
+
+  /** Wygeneruj z góry wszystkie sprite'y czaszek (4 kolory × 3 szczęki), żeby
+   *  nie było zacięcia przy pierwszej nadlatującej czaszce. */
+  private prewarmSkulls() {
+    for (const col of LANE_COLORS) for (let jaw = 0; jaw < 3; jaw++) this.skullSprite(col, jaw);
   }
 
   private drawJudgePopups(ctx: CanvasRenderingContext2D) {
