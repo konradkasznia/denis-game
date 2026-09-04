@@ -12,8 +12,7 @@ android {
         applicationId "pl.impulsywni.denis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // w CI: numer builda (rośnie) → czysta aktualizacja; lokalnie: 1
-        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+        versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -22,10 +21,14 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    if (stableKeystore.exists()) {
-        signingConfigs {
-            stable {
+    // Nadpisujemy WBUDOWANY signingConfig `debug` naszym stałym keystore z repo,
+    // jeśli plik istnieje (w CI generuje go krok workflow). Bez pliku (lokalny
+    // dev) AGP użyje swojego automatycznego ~/.android/debug.keystore.
+    signingConfigs {
+        debug {
+            if (stableKeystore.exists()) {
                 storeFile stableKeystore
+                storeType 'PKCS12' // keytool z JDK 21 tworzy PKCS12 mimo rozszerzenia .jks
                 storePassword 'denisdebug'
                 keyAlias 'denis'
                 keyPassword 'denisdebug'
@@ -34,11 +37,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            if (stableKeystore.exists()) {
-                signingConfig signingConfigs.stable
-            }
-        }
         release {
             minifyEnabled true
             shrinkResources true
