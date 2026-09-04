@@ -242,10 +242,11 @@ const NOTE_SKIN: Record<string, "skull" | "loot"> = {
   pogrzebowka: "skull",
   "ksiaze-z-bajki": "loot",
 };
-// „Książę z bajki" — zamiast kółek lecą losowe łupy (jedna z 8 ikon na nutę,
-// wybór stabilny po torze+czasie, więc się nie zmienia klatka po klatce)
-const LOOT_ICONS = ["bouquet", "rose", "wallet", "gold", "coins", "cash", "diamond", "keys"] as const;
-type LootIcon = (typeof LOOT_ICONS)[number];
+// „Książę z bajki" — zamiast kółek lecą diamenty. (Reszta łupów zostaje
+// zaimplementowana w `drawLootIcon` na wypadek gdyby wróciła różnorodność —
+// wystarczy dopisać rodzaj z powrotem do tej listy.)
+const LOOT_ICONS = ["diamond"] as const;
+type LootIcon = "bouquet" | "rose" | "wallet" | "gold" | "coins" | "cash" | "diamond" | "keys";
 
 /** Rysuje jeden łup wyśrodkowany na (0,0), skala `s` = „połowa" ikony (jak w
  *  czaszce). Kolory własne przedmiotu — poświatę toru dokłada wywołujący
