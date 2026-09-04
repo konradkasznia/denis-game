@@ -401,8 +401,20 @@ function computePeaks() {
     peaks[i] = max;
   }
 }
-function play() {
+async function play() {
   if (!audioBuffer || playing) return;
+  // KLUCZOWE na telefonie: kontekst trzeba wznowić PRZED odpaleniem źródła,
+  // nie po. Powstał (`new AudioContext()`) poza gestem użytkownika, więc na
+  // starcie jest „suspended" — jeśli źródło ruszy zanim kontekst faktycznie
+  // działa, dźwięku po prostu nie słychać (mimo że `resume()` i tak zostanie
+  // wywołane chwilę później). Ten sam gest kliknięcia ► graj / spacji cały
+  // czas trwa, więc `await` tutaj nie gubi uprawnienia do audio.
+  try {
+    await actx.resume();
+  } catch {
+    /* nadal suspended — spróbujemy i tak, gorzej niż cisza już nie będzie */
+  }
+  if (!audioBuffer || playing) return; // coś się zmieniło w trakcie oczekiwania
   src = actx.createBufferSource();
   src.buffer = audioBuffer;
   src.playbackRate.value = speed();
@@ -417,7 +429,6 @@ function play() {
   lastTick = startAt;
   playing = true;
   playBtn.textContent = "❚❚ pauza";
-  void actx.resume();
 }
 function stop() {
   if (src) {
@@ -446,7 +457,7 @@ function seekTo(t: number) {
   if (was) stop();
   audioTime = Math.max(0, Math.min(duration(), t));
   view.top = audioTime - (H() * 0.7) / view.pps;
-  if (was) play();
+  if (was) void play();
 }
 function beep(freq: number, when: number, gain = 0.22) {
   const o = actx.createOscillator();
@@ -896,7 +907,7 @@ window.addEventListener("keydown", (e) => {
     return;
   if (e.code === "Space") {
     e.preventDefault();
-    playing ? stop() : play();
+    playing ? stop() : void play();
   } else if (e.code === "KeyZ") {
     undo();
   } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
@@ -966,6 +977,23 @@ window.addEventListener("keyup", (e) => {
   window.addEventListener("pointercancel", endTouch);
 }
 
+// ---- chowane menu opcji (telefon) ---------------------------------------
+// Na telefonie pasek opcji (projekt/BPM/siatka/tryby…) zasłania płótno i
+// przez to nie widać, w co się trafia palcem — domyślnie zwinięty na
+// urządzeniach dotykowych, rozwijany przyciskiem „☰ opcje".
+{
+  const menuToggle = $<HTMLButtonElement>("menuToggle");
+  const barOptions = $<HTMLDivElement>("barOptions");
+  const syncMenu = (open: boolean) => {
+    barOptions.classList.toggle("collapsed", !open);
+    menuToggle.textContent = open ? "✕ zamknij" : "☰ opcje";
+  };
+  syncMenu(!matchMedia("(pointer: coarse)").matches);
+  menuToggle.addEventListener("click", () => {
+    syncMenu(barOptions.classList.contains("collapsed"));
+  });
+}
+
 // ---- BPM tap + przyciski --------------------------------
 
 let taps: number[] = [];
@@ -984,11 +1012,11 @@ const bumpOffset = (d: number) => {
 };
 $<HTMLButtonElement>("offm").addEventListener("click", () => bumpOffset(-5));
 $<HTMLButtonElement>("offp").addEventListener("click", () => bumpOffset(5));
-playBtn.addEventListener("click", () => (playing ? stop() : play()));
+playBtn.addEventListener("click", () => (playing ? stop() : void play()));
 speedSel.addEventListener("change", () => {
   if (playing) {
     stop();
-    play();
+    void play();
   }
 });
 bpmInput.addEventListener("change", markDirty);

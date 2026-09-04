@@ -14,6 +14,11 @@
       .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
         padding: 10px 14px; background: #15121c; border-bottom: 1px solid #2c2636; }
       .bar.foot { border-top: 1px solid #2c2636; border-bottom: 0; font-size: 12px; color: #9a8c7e; }
+      /* opcje (projekt/BPM/siatka/tryby…) — chowane, żeby na telefonie nie
+         zasłaniały płótna; `display:contents` sprawia, że rozwinięte dzieci
+         płyną normalnie w fleksie `.bar`, jakby nie było opakowującego diva */
+      #barOptions { display: contents; }
+      #barOptions.collapsed { display: none; }
       label { display: inline-flex; align-items: center; gap: 6px; color: #9a8c7e; }
       input[type="text"], input[type="number"] { background: #0f0f18; color: #fff;
         border: 1px solid #34344a; border-radius: 8px; padding: 6px 8px; font: inherit; }
@@ -56,63 +61,66 @@
   <body>
     <div id="app">
       <div class="bar">
-        <label>projekt
-          <select id="proj"></select>
-        </label>
-        <button class="ghost" id="delproj">usuń projekt</button>
-        <label>MP3 <input type="file" id="file" accept="audio/*" /></label>
-        <label>id <input type="text" id="sid" value="nowy-utwor" /></label>
-        <label>tytuł <input type="text" id="title" value="Nowy utwór" /></label>
-        <label>BPM <input type="number" id="bpm" value="120" step="0.1" /></label>
-        <button class="ghost" id="tap">wystukaj BPM</button>
-        <label>offset ms <input type="number" id="offset" value="0" step="5" /></label>
-        <button class="ghost" id="offm">−5</button>
-        <button class="ghost" id="offp">+5</button>
-        <label>siatka
-          <select id="snap">
-            <option value="1">1/1</option>
-            <option value="2">1/2</option>
-            <option value="3">1/3</option>
-            <option value="4" selected>1/4</option>
-            <option value="6">1/6</option>
-            <option value="8">1/8</option>
-          </select>
-        </label>
-        <label>tempo
-          <select id="speed">
-            <option value="0.5">0,5×</option>
-            <option value="0.75">0,75×</option>
-            <option value="1" selected>1×</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="metro" /> metronom</label>
-        <label><input type="checkbox" id="ntick" checked /> tik nut</label>
-        <label title="Duże przyciski na dole ekranu — nagrywasz nuty dotykiem tak samo jak grając (C V B N)"><input type="checkbox" id="touchmode" /> tryb dotykowy (nagrywanie)</label>
-        <label title="Każde kliknięcie w siatkę stawia bombę zamiast nuty"><input type="checkbox" id="bombmode" /> ustawiam bomby</label>
-        <label title="Każde kliknięcie stawia płonącą nutę — gracz musi ją najpierw zgasić (gaśnica w okręgu), potem trafić"><input type="checkbox" id="firemode" /> płonące nuty</label>
-        <label>ujęcie
-          <select id="ujsel">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-          </select>
-        </label>
-        <label>przeszkoda
-          <select id="obstsel">
-            <option value="ice">Lód</option>
-            <option value="spotlight">Reflektor</option>
-            <option value="drunk">Pijany ekran</option>
-          </select>
-        </label>
+        <button class="ghost" id="menuToggle">☰ opcje</button>
         <button id="play">► graj</button>
-        <button class="ghost" id="newproj">nowy</button>
         <span class="val" id="time">0:00,0</span>
         <span id="saved" style="color:#7fdc9a; font-size:12px;"></span>
         <span style="flex:1"></span>
         <span id="pubstat" style="font-size:12px; color:#7fdc9a"></span>
         <button id="publish">⬆ Wyślij do aplikacji</button>
         <button class="ghost" id="helpbtn">Instrukcja</button>
+        <div id="barOptions">
+          <label>projekt
+            <select id="proj"></select>
+          </label>
+          <button class="ghost" id="delproj">usuń projekt</button>
+          <label>MP3 <input type="file" id="file" accept="audio/*" /></label>
+          <label>id <input type="text" id="sid" value="nowy-utwor" /></label>
+          <label>tytuł <input type="text" id="title" value="Nowy utwór" /></label>
+          <label>BPM <input type="number" id="bpm" value="120" step="0.1" /></label>
+          <button class="ghost" id="tap">wystukaj BPM</button>
+          <label>offset ms <input type="number" id="offset" value="0" step="5" /></label>
+          <button class="ghost" id="offm">−5</button>
+          <button class="ghost" id="offp">+5</button>
+          <label>siatka
+            <select id="snap">
+              <option value="1">1/1</option>
+              <option value="2">1/2</option>
+              <option value="3">1/3</option>
+              <option value="4" selected>1/4</option>
+              <option value="6">1/6</option>
+              <option value="8">1/8</option>
+            </select>
+          </label>
+          <label>tempo
+            <select id="speed">
+              <option value="0.5">0,5×</option>
+              <option value="0.75">0,75×</option>
+              <option value="1" selected>1×</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="metro" /> metronom</label>
+          <label><input type="checkbox" id="ntick" checked /> tik nut</label>
+          <label title="Duże przyciski na dole ekranu — nagrywasz nuty dotykiem tak samo jak grając (C V B N)"><input type="checkbox" id="touchmode" /> tryb dotykowy (nagrywanie)</label>
+          <label title="Każde kliknięcie w siatkę stawia bombę zamiast nuty"><input type="checkbox" id="bombmode" /> ustawiam bomby</label>
+          <label title="Każde kliknięcie stawia płonącą nutę — gracz musi ją najpierw zgasić (gaśnica w okręgu), potem trafić"><input type="checkbox" id="firemode" /> płonące nuty</label>
+          <label>ujęcie
+            <select id="ujsel">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label>przeszkoda
+            <select id="obstsel">
+              <option value="ice">Lód</option>
+              <option value="spotlight">Reflektor</option>
+              <option value="drunk">Pijany ekran</option>
+            </select>
+          </label>
+          <button class="ghost" id="newproj">nowy</button>
+        </div>
       </div>
 
       <div id="wrap">
