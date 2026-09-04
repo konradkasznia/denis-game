@@ -234,7 +234,7 @@ interface FxParticle {
 /** Który efekt leci przy combo co 10 dla danego utworu (domyślnie konfetti). */
 const COMBO_FX: Record<string, FxKind> = {
   "ksiaze-z-bajki": "roses",
-  pogrzebowka: "bats",
+  pogrzebowka: "smoke",
   "byleby-nie-byla-ciepla": "iceShard",
 };
 const BAT_COLORS = ["#160f1c", "#1d1424", "#120b17"];
