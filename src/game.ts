@@ -212,7 +212,7 @@ interface Popup {
 }
 
 // ---- efekt combo (co 10) — per utwór ----------------------------------
-type FxKind = "confetti" | "smoke" | "roses" | "iceShard";
+type FxKind = "confetti" | "smoke" | "roses" | "iceShard" | "bats";
 interface FxParticle {
   kind: FxKind;
   x: number;
@@ -234,9 +234,10 @@ interface FxParticle {
 /** Który efekt leci przy combo co 10 dla danego utworu (domyślnie konfetti). */
 const COMBO_FX: Record<string, FxKind> = {
   "ksiaze-z-bajki": "roses",
-  pogrzebowka: "smoke",
+  pogrzebowka: "bats",
   "byleby-nie-byla-ciepla": "iceShard",
 };
+const BAT_COLORS = ["#160f1c", "#1d1424", "#120b17"];
 /** Wygląd „głów" nut dla danego utworu. Brak wpisu = zwykłe kółka. */
 const NOTE_SKIN: Record<string, "skull" | "loot"> = {
   pogrzebowka: "skull",
@@ -827,6 +828,7 @@ export class Game {
     if (kind === "smoke") this.spawnSmoke(x, y);
     else if (kind === "roses") this.spawnRoses(x, y);
     else if (kind === "iceShard") this.spawnFrost(x, y);
+    else if (kind === "bats") this.spawnBats(x, y);
     else this.spawnConfetti(x, y);
     if (this.fx.length > 360) this.fx.splice(0, this.fx.length - 360);
   }
@@ -932,6 +934,34 @@ export class Game {
     }
   }
 
+  /** Wystrzał nietoperzy z punktu (x, y) — rozlatują się na wszystkie strony
+   *  i uciekają w górę, trzepocząc skrzydłami (Pogrzebówka). W odróżnieniu od
+   *  konfetti/płatków nie opadają — nietoperz nie spada, tylko odlatuje. */
+  private spawnBats(x: number, y: number) {
+    for (let i = 0; i < 24; i++) {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.7; // szeroki stożek w górę
+      const spd = 210 + Math.random() * 300;
+      this.fx.push({
+        kind: "bats",
+        x: x + (Math.random() - 0.5) * 60,
+        y: y + (Math.random() - 0.5) * 40,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        rot: ang + Math.PI / 2,
+        vr: (Math.random() - 0.5) * 1.4, // lekkie bujanie, bez fikołków
+        w: 26 + Math.random() * 16, // rozpiętość skrzydeł
+        h: 0,
+        color: BAT_COLORS[(Math.random() * BAT_COLORS.length) | 0],
+        life: 0,
+        ttl: 1.1 + Math.random() * 0.7,
+        swayA: 30 + Math.random() * 40,
+        swayF: 2.6 + Math.random() * 2.2, // nerwowe, szybkie trzepotanie lotu
+        swayP: Math.random() * Math.PI * 2,
+        grow: 0,
+      });
+    }
+  }
+
   /** Kłąb pary przy zgaszeniu płonącej nuty — krótki, wznoszący się. */
   private spawnSteam(x: number, y: number) {
     for (let i = 0; i < 9; i++) {
@@ -1027,6 +1057,10 @@ export class Game {
       } else if (p.kind === "iceShard") {
         p.vx *= Math.pow(0.6, dt);
         p.vy += 900 * dt; // grawitacja — odłamki lecą i spadają
+      } else if (p.kind === "bats") {
+        // nietoperz ucieka, nie spada — lekki opór i stały unos w górę
+        p.vx *= Math.pow(0.9, dt);
+        p.vy = p.vy * Math.pow(0.92, dt) - 60 * dt;
       } else {
         // dym: wznosi się, S-owy skręt (2 częstotliwości), rośnie umiarkowanie
         p.vx *= smokeXDrag;
@@ -1111,6 +1145,41 @@ export class Game {
         ctx.strokeStyle = "rgba(120,180,235,0.8)";
         ctx.lineWidth = 1;
         ctx.stroke();
+      } else if (p.kind === "bats") {
+        // nietoperz — korpus + dwa skrzydła, kąt zależny od trzepotania (bez sprite'a)
+        const flap = Math.sin(p.life * 16 + p.swayP);
+        const spread = 0.4 + 0.6 * (0.5 + 0.5 * flap);
+        const bw = p.w;
+        ctx.fillStyle = p.color;
+        for (const side of [-1, 1] as const) {
+          ctx.beginPath();
+          ctx.moveTo(0, -bw * 0.04);
+          ctx.quadraticCurveTo(
+            side * bw * 0.5 * spread,
+            -bw * 0.32 * spread,
+            side * bw * 0.62 * spread,
+            bw * 0.02,
+          );
+          ctx.quadraticCurveTo(side * bw * 0.3, bw * 0.14, side * bw * 0.08, bw * 0.06);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bw * 0.1, bw * 0.16, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // uszki
+        ctx.beginPath();
+        ctx.moveTo(-bw * 0.05, -bw * 0.14);
+        ctx.lineTo(-bw * 0.09, -bw * 0.24);
+        ctx.lineTo(-bw * 0.01, -bw * 0.16);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(bw * 0.05, -bw * 0.14);
+        ctx.lineTo(bw * 0.09, -bw * 0.24);
+        ctx.lineTo(bw * 0.01, -bw * 0.16);
+        ctx.closePath();
+        ctx.fill();
       } else {
         // konfetti
         ctx.scale(1, 0.35 + 0.65 * Math.abs(flutter));
