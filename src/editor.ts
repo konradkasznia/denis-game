@@ -60,6 +60,8 @@ const metroChk = $<HTMLInputElement>("metro");
 const ntickChk = $<HTMLInputElement>("ntick");
 const bombChk = $<HTMLInputElement>("bombmode");
 const fireChk = $<HTMLInputElement>("firemode");
+const touchChk = $<HTMLInputElement>("touchmode");
+const touchLanesEl = $<HTMLDivElement>("touchLanes");
 const playBtn = $<HTMLButtonElement>("play");
 const timeLbl = $<HTMLSpanElement>("time");
 const cntLbl = $<HTMLSpanElement>("cnt");
@@ -97,8 +99,29 @@ type Drag =
   | { mode: "obst"; obst: Obst };
 let drag: Drag | null = null;
 
-// nuty aktualnie „trzymane" w nagrywaniu Live (klawisz wciśnięty)
+// nuty aktualnie „trzymane" w nagrywaniu Live (klawisz albo palec wciśnięty)
 const recording = new Map<number, { note: Note; downT: number }>();
+
+/** Nagrywanie Live — początek nuty w torze `lane` (klawiatura albo dotyk).
+ *  Czas surowy (nie przyklejony do siatki) — wyrównasz później. */
+function startRecNote(lane: number) {
+  if (!playing || recording.has(lane)) return;
+  pushHistory();
+  const note: Note = { lane, time: +audioTime.toFixed(4), dur: 0 };
+  notes.push(note);
+  recording.set(lane, { note, downT: audioTime });
+}
+
+/** Nagrywanie Live — koniec nuty w torze `lane` (puszczony klawisz/palec).
+ *  Krótkie przytrzymanie (<80 ms) = zwykły tap, nie nuta trzymana. */
+function endRecNote(lane: number) {
+  const rec = recording.get(lane);
+  if (!rec) return;
+  rec.note.dur = Math.max(0, +(audioTime - rec.downT).toFixed(4));
+  if (rec.note.dur < 0.08) rec.note.dur = 0;
+  recording.delete(lane);
+  markDirty();
+}
 
 const character = new Character();
 let charSig = "";
@@ -893,27 +916,55 @@ window.addEventListener("keydown", (e) => {
     syncCharacter();
   } else if (LANE_KEYS[e.code] !== undefined && playing && !e.repeat) {
     // nagrywanie Live: keydown = start nuty (czas surowy, wyrównasz później)
-    const lane = LANE_KEYS[e.code];
-    if (!recording.has(lane)) {
-      pushHistory();
-      const note: Note = { lane, time: +audioTime.toFixed(4), dur: 0 };
-      notes.push(note);
-      recording.set(lane, { note, downT: audioTime });
-    }
+    startRecNote(LANE_KEYS[e.code]);
   }
 });
 
 window.addEventListener("keyup", (e) => {
   const lane = LANE_KEYS[e.code];
   if (lane === undefined) return;
-  const rec = recording.get(lane);
-  if (rec) {
-    rec.note.dur = Math.max(0, +(audioTime - rec.downT).toFixed(4));
-    if (rec.note.dur < 0.08) rec.note.dur = 0; // krótkie = zwykły tap
-    recording.delete(lane);
-    markDirty();
-  }
+  endRecNote(lane);
 });
+
+// ---- nagrywanie Live dotykiem (telefon) — te same 4 tory co w grze --------
+// Śledzimy pointerId → tor (jak w prawdziwej grze, patrz input.ts): dzięki
+// temu palec kończy nutę poprawnie nawet gdy zjedzie z przycisku, i działa
+// kilka palców naraz (osobne tory).
+{
+  const laneButtons: HTMLButtonElement[] = [];
+  for (const btn of touchLanesEl.querySelectorAll<HTMLButtonElement>("button[data-lane]")) {
+    laneButtons[Number(btn.dataset.lane)] = btn;
+  }
+  const touchLane = new Map<number, number>();
+
+  touchChk.checked = matchMedia("(pointer: coarse)").matches;
+  const syncTouchMode = () => touchLanesEl.classList.toggle("on", touchChk.checked);
+  syncTouchMode();
+  touchChk.addEventListener("change", syncTouchMode);
+
+  for (const btn of laneButtons) {
+    const lane = Number(btn.dataset.lane);
+    btn.addEventListener(
+      "pointerdown",
+      (e) => {
+        e.preventDefault();
+        touchLane.set(e.pointerId, lane);
+        btn.classList.add("pressed");
+        startRecNote(lane);
+      },
+      { passive: false },
+    );
+  }
+  const endTouch = (e: PointerEvent) => {
+    const lane = touchLane.get(e.pointerId);
+    if (lane === undefined) return;
+    touchLane.delete(e.pointerId);
+    laneButtons[lane]?.classList.remove("pressed");
+    endRecNote(lane);
+  };
+  window.addEventListener("pointerup", endTouch);
+  window.addEventListener("pointercancel", endTouch);
+}
 
 // ---- BPM tap + przyciski --------------------------------
 

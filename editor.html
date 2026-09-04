@@ -26,6 +26,17 @@
       button:disabled { opacity: 0.4; cursor: default; }
       #wrap { flex: 1; position: relative; overflow: hidden; }
       canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      #touchLanes { display: none; position: absolute; left: 8px; right: 8px;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px)); gap: 8px; z-index: 5;
+        pointer-events: none; }
+      #touchLanes.on { display: flex; }
+      #touchLanes button { flex: 1; min-height: 74px; pointer-events: auto;
+        border-radius: 16px; border: 2px solid var(--lc); background: var(--lcbg);
+        color: #fff; font: 800 17px/1 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+        touch-action: none; -webkit-user-select: none; user-select: none;
+        transition: transform 0.06s ease, background 0.08s ease; padding: 0; }
+      #touchLanes button.pressed { background: var(--lc); color: #1a0d12;
+        transform: scale(0.96); box-shadow: 0 0 22px var(--lc); }
       .val { color: #fff; font-weight: 600; }
       a { color: #ff9f43; }
       #drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -76,6 +87,7 @@
         </label>
         <label><input type="checkbox" id="metro" /> metronom</label>
         <label><input type="checkbox" id="ntick" checked /> tik nut</label>
+        <label title="Duże przyciski na dole ekranu — nagrywasz nuty dotykiem tak samo jak grając (C V B N)"><input type="checkbox" id="touchmode" /> tryb dotykowy (nagrywanie)</label>
         <label title="Każde kliknięcie w siatkę stawia bombę zamiast nuty"><input type="checkbox" id="bombmode" /> ustawiam bomby</label>
         <label title="Każde kliknięcie stawia płonącą nutę — gracz musi ją najpierw zgasić (gaśnica w okręgu), potem trafić"><input type="checkbox" id="firemode" /> płonące nuty</label>
         <label>ujęcie
@@ -106,6 +118,12 @@
       <div id="wrap">
         <canvas id="cv"></canvas>
         <div id="drop">przeciągnij tu plik MP3 albo wybierz go powyżej</div>
+        <div id="touchLanes">
+          <button data-lane="0" style="--lc:#ff9f43;--lcbg:rgba(255,159,67,.22)">C</button>
+          <button data-lane="1" style="--lc:#ff6b3d;--lcbg:rgba(255,107,61,.22)">V</button>
+          <button data-lane="2" style="--lc:#ffd24c;--lcbg:rgba(255,210,76,.22)">B</button>
+          <button data-lane="3" style="--lc:#ff5e7e;--lcbg:rgba(255,94,126,.22)">N</button>
+        </div>
       </div>
 
       <div class="bar foot">
@@ -194,6 +212,16 @@
             (stare nuty zostają — usuń je prawym klikiem albo <kbd>Z</kbd>).</li>
         </ul>
 
+        <h2>Nagrywanie dotykiem (telefon)</h2>
+        <ul>
+          <li>Zaznacz <b>„tryb dotykowy (nagrywanie)”</b> w górnym pasku (na telefonie włącza się
+            sam) — na dole ekranu pojawiają się 4 duże kolorowe przyciski, tak jak tory w grze.</li>
+          <li>Wciśnij <kbd>► graj</kbd> i tapuj przyciski w rytm — <b>tap</b> = zwykła nuta,
+            <b>przytrzymanie palca</b> = nuta do przytrzymania. Działa też kilkoma palcami naraz.</li>
+          <li>Reszta tak samo jak przy nagrywaniu klawiaturą: „wyrównaj do siatki” na koniec,
+            pojedyncze poprawki przeciągnięciem palcem po nucie.</li>
+        </ul>
+
         <h2>Nuty (myszką)</h2>
         <ul>
           <li><b>Klik w pusty tor</b> — postaw zwykłą nutę (tap).</li>
@@ -237,7 +265,9 @@
           <li>Brak „zagraj w prawdziwym silniku gry” — weryfikujesz słuchem (tiki + muzyka)
             i klikając „Wyślij do aplikacji”, a potem sprawdzając w grze.</li>
           <li>Brak zaznaczania wielu nut naraz i kopiowania fragmentów.</li>
-          <li>Nie działa dobrze na telefonie — rób na komputerze.</li>
+          <li>Nagrywanie nut dotykiem działa na telefonie (patrz „tryb dotykowy” wyżej), ale
+            precyzyjna edycja pojedynczych nut na malutkiej osi czasu i dłuższa praca nad mapą
+            wciąż wygodniejsze są na komputerze.</li>
           <li>Zapis roboczy jest lokalny (ta przeglądarka). „Wyślij do aplikacji” zapisuje
             mapę na serwerze — to jest wersja, którą widzi gra.</li>
           <li>„Wyślij do aplikacji” wysyła mapę, nie plik MP3 nowego utworu.</li>
