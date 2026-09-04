@@ -66,6 +66,13 @@ globalThis.Image = class {
   }
 };
 globalThis.window = { AudioContext: FakeAudioContext };
+globalThis.document = {
+  createElement: (tag) =>
+    tag === "canvas"
+      ? { width: 0, height: 0, getContext: () => chain() }
+      : chain(),
+  getElementById: () => null,
+};
 
 const { Game } = await import("../src/game.ts");
 

@@ -1869,9 +1869,15 @@ export class Game {
     this.bombLockMs = 0;
     this.audio.stop(); // ucisz poprzedni przebieg
     // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
-    if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
-    else for (const col of LANE_COLORS) { this.noteHeadSprite(col, false); this.noteHeadSprite(col, true); }
-    if (COMBO_FX[this.trackId] === "smoke") for (const c of SMOKE_COLORS) this.smokePuff(c);
+    if (typeof document !== "undefined") {
+      if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
+      else
+        for (const col of LANE_COLORS) {
+          this.noteHeadSprite(col, false);
+          this.noteHeadSprite(col, true);
+        }
+      if (COMBO_FX[this.trackId] === "smoke") for (const c of SMOKE_COLORS) this.smokePuff(c);
+    }
     // NAJPIERW ciche odliczanie 3-2-1, DOPIERO POTEM rusza muzyka i nuty
     this.rolling = true;
     this.rollEndMs = performance.now() + Game.ROLL_MS;
@@ -1886,7 +1892,6 @@ export class Game {
   /** Koniec cichego odliczania — teraz rusza dźwięk i oś czasu utworu. */
   private launchSongAudio() {
     this.rolling = false;
-    this.songTime = 0;
     try {
       void this.audio.ctx?.resume?.();
     } catch {
@@ -1894,6 +1899,8 @@ export class Game {
     }
     this.audio.start(this.song);
     this.songStartedAt = performance.now();
+    // od tej klatki źródłem prawdy jest zegar audio — bez skoku 0 → -0.25
+    this.songTime = this.audio.getSongTime();
   }
 
   /** Przerywa trwające wczytywanie i wraca do karuzeli. */

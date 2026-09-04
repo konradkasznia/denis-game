@@ -17,6 +17,7 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private startTime = 0;
+  private lastSongT = -Infinity; // zegar utworu NIGDY nie cofa się w trakcie grania
   private _running = false;
   // awaryjny zegar na performance.now() — używany, gdy AudioContext.currentTime
   // nie rusza (błąd iOS Safari: state="running", a zegar stoi na 0)
@@ -248,24 +249,30 @@ export class AudioEngine {
     return (performance.now() - this.wallStartMs - pausedMs) / 1000;
   }
 
-  /** Czy zegar AudioContextu faktycznie chodzi. Sprawdzane CIĄGLE (nie raz):
-   *  „żywy" = nadąża za zegarem ściennym (0.5 s karencji na rozruch). */
+  /** Czy zegar AudioContextu faktycznie chodzi. „Martwy" = błąd iOS, gdzie
+   *  `currentTime` STOI (jest kilka sekund za zegarem ściennym). Przejściowe
+   *  zacięcie wątku (haptyka, dekodowanie) daje lag rzędu 0.1–0.3 s i NIE
+   *  może przełączać zegara — inaczej `getSongTime()` skacze (nuty się cofają). */
   clockAlive(): boolean {
     if (!this.ctx || !this.wallStartMs) return true;
     const w = this.wallElapsed();
     const ctxElapsed = this.ctx.currentTime - this.ctxAtStart;
-    return w < 0.5 || ctxElapsed > w - 0.3;
+    return w < 1.0 || ctxElapsed > w - 0.9;
   }
 
   /** Czas utworu w sekundach (ujemny w trakcie lead-inu przed startem).
    *  Preferuje zegar AudioContextu; gdy ten NIE nadąża (błąd iOS —
-   *  `currentTime` zamiera), przechodzi na performance.now(). */
+   *  `currentTime` zamiera), przechodzi na performance.now().
+   *  MONOTONICZNY — nigdy nie zwraca mniej niż poprzednio (nuty się nie cofają). */
   getSongTime(): number {
-    if (!this.ctx || !this._running) return 0;
-    if (!this.wallStartMs) return this.ctx.currentTime - this.startTime;
-    return this.clockAlive()
+    if (!this.ctx || !this._running) return this.lastSongT === -Infinity ? 0 : this.lastSongT;
+    const raw = !this.wallStartMs
       ? this.ctx.currentTime - this.startTime
-      : this.wallElapsed() - 0.25;
+      : this.clockAlive()
+        ? this.ctx.currentTime - this.startTime
+        : this.wallElapsed() - 0.25;
+    if (raw > this.lastSongT) this.lastSongT = raw;
+    return this.lastSongT;
   }
 
   // --- diagnostyka (do ekranu błędu na telefonie) ---
@@ -483,6 +490,7 @@ export class AudioEngine {
     this._running = false;
     this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
     this.pausedTotalMs = 0;
+    this.lastSongT = -Infinity;
     try {
       this.srcNode?.stop();
     } catch {
@@ -519,6 +527,7 @@ export class AudioEngine {
     this.ctxAtStart = ctx.currentTime;
     this.pausedTotalMs = 0;
     this.pauseStartMs = 0;
+    this.lastSongT = -Infinity; // nowy przebieg — zegar może wrócić do ~0
 
     // --- prawdziwy plik audio ---
     if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
