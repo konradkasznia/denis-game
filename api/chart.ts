@@ -16,6 +16,7 @@ interface RawNote {
   time: number;
   dur?: number;
   bomb?: boolean;
+  fire?: boolean;
 }
 interface RawChar {
   at: number;
@@ -66,7 +67,7 @@ function sanitizeChart(raw: RawChart, songId: string): RawChart {
       lane: Math.max(0, Math.min(3, Math.round(n.lane))),
       time: Math.max(0, +Number(n.time).toFixed(4)),
       dur: n.dur ? Math.max(0, +Number(n.dur).toFixed(4)) : 0,
-      ...(n.bomb ? { bomb: true } : {}),
+      ...(n.bomb ? { bomb: true } : n.fire ? { fire: true } : {}),
     }));
   const events = Array.isArray(raw.events)
     ? raw.events

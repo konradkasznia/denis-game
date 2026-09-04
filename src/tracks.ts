@@ -24,6 +24,7 @@ type SynthCfg = {
   characterY?: number;
   events?: SongEvent[];
   bombs?: { lane: number; time: number }[];
+  fires?: { lane: number; time: number }[];
 };
 
 /** naprzemienne ujęcia postaci co `every` s przez `secs` s utworu */
@@ -123,7 +124,7 @@ interface RawChart {
   characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
-  notes: { lane: number; time: number; dur?: number; bomb?: boolean }[];
+  notes: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean }[];
   events?: SongEvent[];
 }
 
@@ -131,7 +132,7 @@ const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)))
 
 export function rawToSong(raw: RawChart): SongDef {
   const notes: Note[] = raw.notes
-    .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb))
+    .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb, !!n.fire))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
   // beatmapa z edytora może nie mieć sensownego `duration` (utwór bez mp3) —
   // wtedy licz go z ostatniej nuty, żeby podkład syntezowany nie skończył się

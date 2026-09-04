@@ -33,6 +33,7 @@ interface Note {
   time: number;
   dur: number;
   bomb?: boolean;
+  fire?: boolean;
 }
 interface Seg {
   at: number;
@@ -58,6 +59,7 @@ const obstSel = $<HTMLSelectElement>("obstsel");
 const metroChk = $<HTMLInputElement>("metro");
 const ntickChk = $<HTMLInputElement>("ntick");
 const bombChk = $<HTMLInputElement>("bombmode");
+const fireChk = $<HTMLInputElement>("firemode");
 const playBtn = $<HTMLButtonElement>("play");
 const timeLbl = $<HTMLSpanElement>("time");
 const cntLbl = $<HTMLSpanElement>("cnt");
@@ -599,6 +601,25 @@ function draw() {
       ctx2d.textBaseline = "alphabetic";
       continue;
     }
+    if (n.fire) {
+      // płonąca nuta — pomarańczowy krążek z literką „O"
+      const cx = x + bw / 2;
+      ctx2d.fillStyle = "#f97316";
+      ctx2d.strokeStyle = "#fde68a";
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      ctx2d.arc(cx, y, 9, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.stroke();
+      ctx2d.fillStyle = "#3a1a06";
+      ctx2d.font = "bold 11px system-ui";
+      ctx2d.textAlign = "center";
+      ctx2d.textBaseline = "middle";
+      ctx2d.fillText("O", cx, y + 0.5);
+      ctx2d.textAlign = "left";
+      ctx2d.textBaseline = "alphabetic";
+      continue;
+    }
     if (n.dur > 0) {
       ctx2d.fillStyle = "rgba(99,153,34,0.6)";
       ctx2d.fillRect(x, y, bw, n.dur * view.pps);
@@ -768,6 +789,7 @@ cv.addEventListener("pointerdown", (e) => {
   pushHistory();
   const note: Note = { lane, time: startT, dur: 0 };
   if (bombChk.checked) note.bomb = true; // tryb bomb — stawiamy bombę zamiast nuty
+  else if (fireChk.checked) note.fire = true; // tryb ogień — nuta do zgaszenia gaśnicą
   notes.push(note);
   drag = { mode: "create", note, startT };
 });
@@ -977,7 +999,7 @@ interface RawChart {
   title?: string;
   bpm?: number;
   gridOffset?: number;
-  notes?: { lane: number; time: number; dur?: number; bomb?: boolean }[];
+  notes?: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean }[];
   characters?: { at: number; sprite: string }[];
   events?: { type: string; at: number; taps?: number; dur?: number }[];
 }
@@ -991,7 +1013,7 @@ function applyChart(raw: RawChart) {
     lane: n.lane,
     time: n.time,
     dur: n.dur || 0,
-    ...(n.bomb ? { bomb: true as const } : {}),
+    ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : {}),
   }));
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
   segments = (raw.characters || []).map((c) => ({
@@ -1041,7 +1063,7 @@ function buildChart() {
         lane: n.lane,
         time: +n.time.toFixed(3),
         dur: n.dur ? +n.dur.toFixed(3) : 0,
-        ...(n.bomb ? { bomb: true } : {}),
+        ...(n.bomb ? { bomb: true } : n.fire ? { fire: true } : {}),
       })),
   };
 }
@@ -1227,7 +1249,7 @@ async function persistSeed(cfg: SeedCfg) {
         lane: n.lane,
         time: n.time,
         dur: n.dur || 0,
-        ...(n.bomb ? { bomb: true as const } : {}),
+        ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : {}),
       }));
       p.bpm = raw.bpm || cfg.bpm;
       p.offsetMs = Math.round((raw.gridOffset ?? 0) * 1000);

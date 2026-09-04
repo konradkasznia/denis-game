@@ -244,6 +244,8 @@ const NOTE_SKIN: Record<string, "skull"> = {
 const ROSE_COLORS = ["#e0344f", "#c8213f", "#ff6b83", "#a3172f", "#d94b63"];
 // jasnoszary „sceniczny" dym (widoczny na ciemnym tle)
 const SMOKE_COLORS = ["222,224,232", "200,202,212", "180,182,196", "158,160,176"];
+// biało-błękitna para przy gaszeniu płonącej nuty
+const STEAM_COLOR = "228,238,248";
 // 3 nachodzące garby → kłębiasta sylwetka (wcześniej 3 gradienty/klatkę)
 const SMOKE_LOBES: [number, number, number][] = [
   [0, 0, 1],
@@ -355,6 +357,9 @@ export class Game {
   private noteAlphaMul = 1; // mnożnik krycia nut (do „ducha" przy pijanym ekranie)
   private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
+  private songHasFire = false; // czy w utworze są płonące nuty (pomija pętlę, gdy nie ma)
+  private fireLanes: (Note | null)[] = [null, null, null, null]; // płonąca nuta w drodze per tor (cache klatki)
+  private extCache: HTMLCanvasElement | null = null; // sprite gaśnicy (raz)
   private iceCracks: { x: number; y: number; a: number; born: number; len: number }[] = [];
   private iceSnap: HTMLCanvasElement | null = null; // kopia tła do rozmycia
   private iceLayer: HTMLCanvasElement | null = null; // zbuforowana grafika tafli
@@ -548,6 +553,7 @@ export class Game {
         }
       }
       this.checkMisses();
+      this.refreshFireLanes();
       this.resolveHeldHolds();
       this.pulseHoldHaptics();
       // koniec: albo minął `duration`, albo wszystkie nuty rozliczone i minęły
@@ -699,6 +705,31 @@ export class Game {
         grow: 0,
       });
     }
+  }
+
+  /** Kłąb pary przy zgaszeniu płonącej nuty — krótki, wznoszący się. */
+  private spawnSteam(x: number, y: number) {
+    for (let i = 0; i < 9; i++) {
+      this.fx.push({
+        kind: "smoke",
+        x: x + (Math.random() - 0.5) * 44,
+        y: y + (Math.random() - 0.5) * 22,
+        vx: (Math.random() - 0.5) * 80,
+        vy: -70 - Math.random() * 90,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.8,
+        w: 16 + Math.random() * 16,
+        h: 0,
+        color: STEAM_COLOR,
+        life: 0,
+        ttl: 0.45 + Math.random() * 0.4,
+        swayA: 18 + Math.random() * 28,
+        swayF: 0.9 + Math.random() * 0.7,
+        swayP: Math.random() * Math.PI * 2,
+        grow: 52 + Math.random() * 30,
+      });
+    }
+    if (this.fx.length > 360) this.fx.splice(0, this.fx.length - 360);
   }
 
   /** Wystrzał odłamków lodu — combo co 10 przy „Byleby nie była ciepła".
@@ -1902,6 +1933,8 @@ export class Game {
     this.drunkUntil = -10;
     this.noteAlphaMul = 1;
     this.bombLockMs = 0;
+    this.fireLanes = [null, null, null, null];
+    this.songHasFire = this.song.notes.some((n) => n.fire);
     this.audio.stop(); // ucisz poprzedni przebieg
     // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
     if (typeof document !== "undefined") {
@@ -1912,6 +1945,10 @@ export class Game {
           this.noteHeadSprite(col, true);
         }
       if (COMBO_FX[this.trackId] === "smoke") for (const c of SMOKE_COLORS) this.smokePuff(c);
+      if (this.songHasFire) {
+        this.extSprite();
+        this.smokePuff(STEAM_COLOR);
+      }
     }
     // Audio startuje JUŻ TERAZ z lead-inem = długość odliczania. Dzięki temu:
     //  - getSongTime() sam zwraca -3 → 0 (JEST odliczaniem) — brak styku
@@ -2001,11 +2038,22 @@ export class Game {
     // ogłuszenie po bombie — tapy nie działają przez 3 s (zegar ścienny, żeby
     // skoki zegara audio nie skróciły blokady); nuty lecą dalej (kara)
     if (this.bombLocked()) return;
+    // płonąca nuta jeszcze w drodze → tap gasi ogień (nie liczy się jako trafienie)
+    const burning = this.fireLanes[lane];
+    if (burning) {
+      this.extinguishFire(burning, lane);
+      return;
+    }
     const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
     if (!picked) return;
     const { note, absDt } = picked;
     if (note.bomb) {
       this.triggerBomb(note, lane);
+      return;
+    }
+    // płonąca nuta dojechała do okręgu, a gracz jej nie zgasił → skucie
+    if (note.fire && !note.fireOut) {
+      this.burnHit(note, lane);
       return;
     }
     const j = classify(absDt) ?? "good";
@@ -2041,6 +2089,46 @@ export class Game {
     haptic("miss");
     this.pushPopup("-100", "#ff5a3c", lane);
     this.pushBanner("BOMBA!");
+  }
+
+  /** Odświeża cache „płonąca nuta w drodze per tor" (raz na klatkę). Gaśnica w
+   *  okręgu i logika gaszenia czytają tylko ten cache — bez pętli po nutach przy
+   *  każdym tapnięciu i przy rysowaniu. */
+  private refreshFireLanes() {
+    for (let l = 0; l < LANES; l++) this.fireLanes[l] = null;
+    if (!this.songHasFire) return;
+    for (const n of this.song.notes) {
+      if (!n.fire || n.fireOut || n.judged || n.holding) continue;
+      const e = this.eForTime(n.time);
+      if (e >= 1 || e < -0.1) continue; // tylko nad linią trafienia
+      const cur = this.fireLanes[n.lane];
+      if (!cur || e > this.eForTime(cur.time)) this.fireLanes[n.lane] = n;
+    }
+  }
+
+  /** Tapnięcie w gaśnicę — gasi ogień na płonącej nucie. Nie ocenia nuty:
+   *  gracz musi ją jeszcze normalnie trafić na linii. */
+  private extinguishFire(note: Note, lane: number) {
+    note.fireOut = true;
+    note.fireOutAt = this.songTime;
+    this.fireLanes[lane] = null;
+    this.lanePress[lane] = 1;
+    const e = clamp(this.eForTime(note.time), 0, 1);
+    this.spawnSteam(this.laneXAtE(lane, e), this.yForE(e));
+    this.shake = Math.max(this.shake, 3);
+    this.audio.sfx("iceForm"); // krótki syk „psssz"
+    haptic("holdTick");
+  }
+
+  /** Płonąca nuta trafiona/miniona wciąż z ogniem → skucie: kara jak pudło + minus punkty. */
+  private burnHit(note: Note, lane: number) {
+    note.judged = true;
+    note.hit = false;
+    note.headJ = "miss";
+    note.judgedAt = this.songTime;
+    this.apply("miss", lane, "SKUCIE!", "#ff7a2c");
+    this.score = Math.max(0, this.score - 60);
+    this.shake = Math.max(this.shake, 13);
   }
 
   private releaseLane(lane: number) {
@@ -2120,11 +2208,12 @@ export class Game {
       n.hit = false;
       n.headJ = "miss";
       n.judgedAt = n.time + 0.145;
-      this.apply("miss", n.lane);
+      if (n.fire && !n.fireOut) this.apply("miss", n.lane, "SKUCIE!", "#ff7a2c");
+      else this.apply("miss", n.lane);
     }
   }
 
-  private apply(j: Judgement, lane: number) {
+  private apply(j: Judgement, lane: number, missLabel?: string, missColor?: string) {
     this.counts[j]++;
     this.judgedCount++;
     this.accSum += ACC_WEIGHT[j];
@@ -2139,7 +2228,7 @@ export class Game {
       this.shake = Math.max(this.shake, 9);
       this.audio.sfx("miss");
       haptic("miss");
-      this.pushPopup(JUDGE_LABEL.miss, JUDGE_COLOR.miss, lane);
+      this.pushPopup(missLabel ?? JUDGE_LABEL.miss, missColor ?? JUDGE_COLOR.miss, lane);
       return;
     }
 
@@ -3541,6 +3630,23 @@ export class Game {
           ctx.fill();
         }
         ctx.restore();
+
+        // gaśnica w okręgu, gdy w tym torze leci płonąca nuta (jeszcze nad linią)
+        if (this.fireLanes[l]) {
+          const pulse = 0.5 + 0.5 * Math.sin(this.songTime * 7);
+          ctx.save();
+          ctx.globalAlpha = recAlpha * (0.55 + 0.35 * pulse);
+          ctx.strokeStyle = "#ff8a1e";
+          ctx.lineWidth = 4 + 3 * pulse;
+          ctx.beginPath();
+          ctx.arc(x, hitY, RECEPTOR_R + 6, 0, Math.PI * 2);
+          ctx.stroke();
+          const spr = this.extSprite();
+          const d = RECEPTOR_R * 1.55;
+          ctx.globalAlpha = recAlpha;
+          ctx.drawImage(spr, x - d / 2, hitY - d / 2, d, d);
+          ctx.restore();
+        }
       }
     }
   }
@@ -3617,6 +3723,30 @@ export class Game {
 
       if (n.bomb) {
         this.drawBombNote(ctx, x, y, r, a);
+        continue;
+      }
+
+      if (n.fire) {
+        // płonąca nuta = zwykła okrągła główka + ogień na wierzchu (dopóki nie zgaszona)
+        const spr = this.noteHeadSprite(col, n.judged && !n.hit);
+        const nd = (r / Game.NOTE_R) * spr.width;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.drawImage(spr, x - nd / 2, y - nd / 2, nd, nd);
+        if (!n.fireOut && !n.judged) {
+          this.drawFlame(ctx, x, y, r, a);
+        } else {
+          const ct = this.songTime - (n.fireOutAt ?? -9);
+          if (ct >= 0 && ct < 0.35) {
+            ctx.globalAlpha = a * (1 - ct / 0.35) * 0.9;
+            ctx.strokeStyle = "#bfe9ff";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(x, y, r + 3 + ct * 26, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
         continue;
       }
 
@@ -4236,6 +4366,108 @@ export class Game {
     ctx.arc(sx, sy, r * 0.6, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+
+  /** Płomień na płonącej nucie — 3 migoczące „języki" + iskry. Bez shadowBlur
+   *  i bez gradientu (tanie: parę nut naraz), migotanie z songTime. */
+  private drawFlame(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    r: number,
+    a: number,
+  ) {
+    const t = this.songTime;
+    const flick = 0.5 * Math.sin(t * 17 + x * 0.3) + 0.5 * Math.sin(t * 9.3 - x * 0.2);
+    ctx.save();
+    ctx.globalAlpha = a;
+    const layers: [string, number, number][] = [
+      ["#c2410c", 1.0, -0.15],
+      ["#f97316", 0.66, 0.05],
+      ["#facc15", 0.32, 0.2],
+    ];
+    for (const [col, sc, lift] of layers) {
+      const lw = r * 0.95 * sc * (0.9 + 0.15 * flick);
+      const lh = r * (1.7 + 0.3 * flick) * sc;
+      const sway = Math.sin(t * 8 + x + sc * 5) * r * 0.14 * sc;
+      const by = y - r * lift;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x + sway, by - lh);
+      ctx.quadraticCurveTo(x + lw, by - lh * 0.25, x + lw * 0.4, by + lh * 0.28);
+      ctx.quadraticCurveTo(x, by + lh * 0.52, x - lw * 0.4, by + lh * 0.28);
+      ctx.quadraticCurveTo(x - lw, by - lh * 0.25, x + sway, by - lh);
+      ctx.fill();
+    }
+    for (let k = 0; k < 2; k++) {
+      const ph = (t * 1.7 + k * 0.53 + x * 0.013) % 1;
+      ctx.globalAlpha = a * (1 - ph) * 0.9;
+      ctx.fillStyle = k ? "#fde68a" : "#fb923c";
+      const ex = x + Math.sin((t + k) * 5) * r * 0.5;
+      const ey = y - r * 0.9 - ph * r * 2.4;
+      ctx.beginPath();
+      ctx.arc(ex, ey, r * 0.1 + 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Sprite gaśnicy (ikona w okręgu przy płonącej nucie) — rysowany raz. */
+  private extSprite(): HTMLCanvasElement {
+    if (this.extCache) return this.extCache;
+    const S = 96;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      c.translate(S / 2, S / 2);
+      const bw = 36;
+      const bh = 54;
+      const rrp = (px: number, py: number, w: number, h: number, rad: number) => {
+        c.beginPath();
+        c.moveTo(px + rad, py);
+        c.arcTo(px + w, py, px + w, py + h, rad);
+        c.arcTo(px + w, py + h, px, py + h, rad);
+        c.arcTo(px, py + h, px, py, rad);
+        c.arcTo(px, py, px + w, py, rad);
+        c.closePath();
+      };
+      // korpus
+      c.fillStyle = "#d81f1f";
+      rrp(-bw / 2, -bh / 2 + 10, bw, bh - 10, 9);
+      c.fill();
+      // pasek etykiety
+      c.fillStyle = "rgba(255,255,255,0.92)";
+      c.fillRect(-bw / 2, 0, bw, 13);
+      // czarny łeb zaworu
+      c.fillStyle = "#141418";
+      c.fillRect(-11, -bh / 2, 22, 11);
+      // rączka
+      c.strokeStyle = "#141418";
+      c.lineWidth = 6;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(-11, -bh / 2 + 4);
+      c.lineTo(-27, -bh / 2 - 4);
+      c.stroke();
+      // wąż
+      c.lineWidth = 5;
+      c.beginPath();
+      c.moveTo(11, -bh / 2 + 5);
+      c.quadraticCurveTo(33, -6, 22, 18);
+      c.stroke();
+      // dysza (róg)
+      c.fillStyle = "#141418";
+      c.beginPath();
+      c.moveTo(13, 9);
+      c.lineTo(34, 1);
+      c.lineTo(34, 25);
+      c.closePath();
+      c.fill();
+    }
+    this.extCache = cv;
+    return this.extCache;
   }
 
   /** Wybuch bomby + 3 s ogłuszenia (blokada tapów). Krótki błysk ~0.7 s,

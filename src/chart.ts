@@ -14,7 +14,13 @@ export interface Note {
   dur: number;
   /** bomba — tapnięcie karze (-100 pkt) i ogłusza gracza na 3 s; omijać */
   bomb?: boolean;
+  /** płonąca nuta — najpierw trzeba zgasić (tap w gaśnicę w okręgu), potem trafić normalnie */
+  fire?: boolean;
   // --- stan runtime ---
+  /** płonąca nuta: ogień już zgaszony (zachowuje się dalej jak zwykła nuta) */
+  fireOut?: boolean;
+  /** songTime zgaszenia ognia — do krótkiej animacji „stygnięcia" */
+  fireOutAt?: number;
   /** rozliczona do końca (można pominąć w dalszej logice) */
   judged: boolean;
   /** głowa nuty trafiona */
@@ -71,7 +77,7 @@ export const LANES = 4;
 // żeby granie było płynne i miało sens muzyczny.
 const LANE_PATTERN = [0, 1, 2, 3, 2, 1, 0, 2, 3, 1, 2, 0, 1, 3, 2, 1];
 
-export function mkNote(lane: number, time: number, dur = 0, bomb = false): Note {
+export function mkNote(lane: number, time: number, dur = 0, bomb = false, fire = false): Note {
   const n: Note = {
     lane,
     time: +time.toFixed(4),
@@ -83,6 +89,10 @@ export function mkNote(lane: number, time: number, dur = 0, bomb = false): Note 
     judgedAt: 0,
   };
   if (bomb) n.bomb = true;
+  if (fire && !bomb) {
+    n.fire = true;
+    n.fireOut = false;
+  }
   return n;
 }
 
@@ -101,6 +111,8 @@ export interface SynthOpts {
   events?: SongEvent[];
   /** bomby — nuty-pułapki dokładane do wygenerowanego strumienia (tap = -100 pkt) */
   bombs?: { lane: number; time: number }[];
+  /** płonące nuty — najbliższa nuta w torze zostaje oznaczona jako „do zgaszenia" */
+  fires?: { lane: number; time: number }[];
 }
 
 function build(o: SynthOpts): SongDef {
@@ -185,6 +197,28 @@ function build(o: SynthOpts): SongDef {
     cleaned.push(mkNote(lane, time, 0, true));
   }
 
+  // 6. Płonące nuty — oznacz najbliższą zwykłą nutę w tym torze; jak brak, dołóż tap.
+  for (const f of o.fires ?? []) {
+    const lane = Math.max(0, Math.min(LANES - 1, Math.round(f.lane)));
+    const time = +f.time.toFixed(4);
+    let best = -1;
+    let bestAbs = Infinity;
+    for (let i = 0; i < cleaned.length; i++) {
+      if (cleaned[i].lane !== lane || cleaned[i].bomb) continue;
+      const d = Math.abs(cleaned[i].time - time);
+      if (d < bestAbs && d < 0.2) {
+        bestAbs = d;
+        best = i;
+      }
+    }
+    if (best >= 0) {
+      cleaned[best].fire = true;
+      cleaned[best].fireOut = false;
+    } else {
+      cleaned.push(mkNote(lane, time, 0, false, true));
+    }
+  }
+
   cleaned.sort((a, b) => a.time - b.time || a.lane - b.lane);
   const duration = bars * barLen;
 
@@ -218,5 +252,5 @@ const DEFAULT_SYNTH: SynthOpts = {
 /** Syntezowany podkład testowy dla utworu bez pliku audio. */
 export function buildSynthSong(opts?: Partial<SynthOpts>): SongDef {
   const s = build({ ...DEFAULT_SYNTH, ...opts });
-  return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur, n.bomb)) };
+  return { ...s, notes: s.notes.map((n) => mkNote(n.lane, n.time, n.dur, n.bomb, n.fire)) };
 }
