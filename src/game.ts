@@ -5460,10 +5460,15 @@ export class Game {
     ctx.fill();
     ctx.restore();
 
-    // krawędź
+    // krawędź (spód/bevel) — zielona pod zielonym Spotify, brązowa pod resztą
     const edge = ctx.createLinearGradient(0, r.y + faceH - 6, 0, r.y + r.h);
-    edge.addColorStop(0, "#b05206");
-    edge.addColorStop(1, "#70380b");
+    if (style === "dark-green") {
+      edge.addColorStop(0, "#0e8a3e");
+      edge.addColorStop(1, "#0a4d24");
+    } else {
+      edge.addColorStop(0, "#b05206");
+      edge.addColorStop(1, "#70380b");
+    }
     ctx.fillStyle = edge;
     roundRect(ctx, r.x, r.y + lip, r.w, r.h - lip, rad);
     ctx.fill();
