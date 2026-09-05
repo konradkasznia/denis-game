@@ -1087,30 +1087,41 @@ interface RawChart {
   characters?: { at: number; sprite: string }[];
   events?: { type: string; at: number; taps?: number; dur?: number }[];
 }
-function applyChart(raw: RawChart) {
-  pushHistory();
-  if (raw.id) sidInput.value = raw.id;
-  if (raw.title) titleInput.value = raw.title;
-  if (raw.bpm) bpmInput.value = String(raw.bpm);
-  if (raw.gridOffset != null) offsetInput.value = String(Math.round(raw.gridOffset * 1000));
-  notes = (raw.notes || []).map((n) => ({
+/** Czyste przełożenie chartu (JSON eksportu / API / seeda) na nuty + ujęcia +
+ *  przeszkody edytora — wspólne dla importu pliku, wczytania z serwera i
+ *  zakładania projektów startowych, żeby te trzy ścieżki się nie rozjeżdżały. */
+function mapRawChart(raw: RawChart): { notes: Note[]; segments: Seg[]; obstacles: Obst[] } {
+  const notes: Note[] = (raw.notes || []).map((n) => ({
     lane: n.lane,
     time: n.time,
     dur: n.dur || 0,
     ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : {}),
   }));
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
-  segments = (raw.characters || []).map((c) => ({
+  let segments: Seg[] = (raw.characters || []).map((c) => ({
     at: c.at,
     uj: Number(c.sprite.match(/ujecie(\d+)/)?.[1] || 1),
   }));
   // usuń kolejne wpisy z tym samym ujęciem (auto-rotacja → punkty zmiany)
   segments = segments.filter((s, i) => i === 0 || s.uj !== segments[i - 1].uj);
-  obstacles = (raw.events || []).map((e) => ({
+  const obstacles: Obst[] = (raw.events || []).map((e) => ({
     at: e.at,
     kind: obstKind(e.type).id,
     param: e.taps ?? e.dur ?? obstKind(e.type).def,
   }));
+  return { notes, segments, obstacles };
+}
+
+function applyChart(raw: RawChart) {
+  pushHistory();
+  if (raw.id) sidInput.value = raw.id;
+  if (raw.title) titleInput.value = raw.title;
+  if (raw.bpm) bpmInput.value = String(raw.bpm);
+  if (raw.gridOffset != null) offsetInput.value = String(Math.round(raw.gridOffset * 1000));
+  const mapped = mapRawChart(raw);
+  notes = mapped.notes;
+  segments = mapped.segments;
+  obstacles = mapped.obstacles;
   syncCharacter();
   markDirty();
 }
@@ -1236,6 +1247,27 @@ $<HTMLButtonElement>("publish").addEventListener("click", async () => {
   }
 });
 
+// ---- „⬇ Wczytaj z serwera" — pobiera opublikowaną mapę tego utworu -----
+// Ten sam chart co widzi gra i co wysyła „Wyślij do aplikacji" — dzięki temu
+// mapę da się edytować z różnych urządzeń: wyślij z telefonu, wczytaj na
+// komputerze (i odwrotnie), bez ręcznego przenoszenia plików JSON.
+$<HTMLButtonElement>("pullchart").addEventListener("click", async () => {
+  const id = songId();
+  setPub("wczytuję z serwera…");
+  try {
+    const r = await fetch(`/api/chart?songId=${encodeURIComponent(id)}`);
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; chart?: RawChart; error?: string };
+    if (!r.ok || !j.ok || !j.chart) {
+      setPub(j.error || `brak opublikowanej mapy dla "${id}" na serwerze`, true);
+      return;
+    }
+    applyChart(j.chart);
+    setPub(`wczytano z serwera ✓  ${j.chart.notes?.length ?? 0} nut`);
+  } catch {
+    setPub("brak połączenia z serwerem", true);
+  }
+});
+
 // ---- start / wczytanie projektu ------------------------
 
 /** Cichy WAV z delikatnym „tik" na każdym beacie — żeby `play()` działało
@@ -1326,31 +1358,33 @@ async function persistSeed(cfg: SeedCfg) {
   };
 
   if (cfg.realAudio) {
-    // panna-mloda: dołóż prawdziwe nuty + rotację ujęć z gotowego chartu
+    // 1. najpierw opublikowana mapa z serwera (Turso) — to samo źródło co gra
+    //    i co "⬆ Wyślij do aplikacji", więc świeżo założony projekt od razu
+    //    ma to, co ostatnio wysłano stąd albo z innego urządzenia/komputera;
+    // 2. jak nic nie opublikowano — plik `public/charts/<id>.json` (panna-mloda);
+    // 3. inaczej zostają same segmenty podglądowe (bez nut).
+    let raw: RawChart | null = null;
     try {
-      const raw = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
-      p.notes = (raw.notes || []).map((n) => ({
-        lane: n.lane,
-        time: n.time,
-        dur: n.dur || 0,
-        ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : {}),
-      }));
+      const r = await fetch(`/api/chart?songId=${encodeURIComponent(cfg.id)}`);
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; chart?: RawChart };
+      if (r.ok && j.ok && j.chart) raw = j.chart;
+    } catch {
+      /* offline / brak API — spróbuj pliku statycznego */
+    }
+    if (!raw) {
+      try {
+        raw = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
+      } catch {
+        /* brak chartu — zostają segmenty podglądowe */
+      }
+    }
+    if (raw) {
+      const mapped = mapRawChart(raw);
+      p.notes = mapped.notes;
+      if (mapped.segments.length) p.segments = mapped.segments;
+      if (mapped.obstacles.length) p.obstacles = mapped.obstacles;
       p.bpm = raw.bpm || cfg.bpm;
       p.offsetMs = Math.round((raw.gridOffset ?? 0) * 1000);
-      let cs = (raw.characters || []).map((c) => ({
-        at: c.at,
-        uj: Number(c.sprite.match(/ujecie(\d+)/)?.[1] || 1),
-      }));
-      cs = cs.filter((s, i) => i === 0 || s.uj !== cs[i - 1].uj);
-      if (cs.length) p.segments = cs;
-      const evs = (raw.events || []).map((e) => ({
-        at: e.at,
-        kind: obstKind(e.type).id,
-        param: e.taps ?? e.dur ?? obstKind(e.type).def,
-      }));
-      if (evs.length) p.obstacles = evs;
-    } catch {
-      /* brak chartu — zostają segmenty podglądowe */
     }
     try {
       const blob = await (await fetch(`assets/songs/${cfg.id}.mp3`)).blob();

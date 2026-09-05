@@ -67,6 +67,7 @@
         <span id="saved" style="color:#7fdc9a; font-size:12px;"></span>
         <span style="flex:1"></span>
         <span id="pubstat" style="font-size:12px; color:#7fdc9a"></span>
+        <button class="ghost" id="pullchart" title="Pobiera opublikowaną mapę tego utworu z serwera — do edycji na innym urządzeniu">⬇ Wczytaj z serwera</button>
         <button id="publish">⬆ Wyślij do aplikacji</button>
         <button class="ghost" id="helpbtn">Instrukcja</button>
         <div id="barOptions">
@@ -140,7 +141,6 @@
         <button class="ghost" id="loadjson">wgraj JSON</button>
         <input type="file" id="jsonfile" accept=".json,application/json" style="display:none" />
         <button id="export">eksportuj JSON</button>
-        <span>tory: klik = nuta · przeciągnij nutę = przesuń · przeciągnij w dół z pustego = przytrzymanie · prawy klik w nutę = usuń · 1. kolumna (fala): klik = przewiń utwór · 2. kolumna (ujęcia): klik = wstaw ujęcie, klawisze 1–4 w trakcie grania, prawy klik = usuń · Z = cofnij · spacja = graj · ← → = przewiń · kółko = zoom</span>
       </div>
     </div>
     <div id="help">
@@ -168,6 +168,19 @@
           <li><b>„eksportuj JSON”</b> (na dole) zostaje jako kopia zapasowa / awaryjny sposób.</li>
         </ul>
 
+        <h2>Edycja z różnych urządzeń (telefon ↔ komputer)</h2>
+        <ul>
+          <li>Przycisk <b>„⬇ Wczytaj z serwera”</b> pobiera aktualnie opublikowaną mapę tego utworu
+            (tę samą, którą widzi gra) do edytora — niezależnie od tego, z jakiego urządzenia i
+            przeglądarki ją wcześniej wysłano.</li>
+          <li>Typowy przepływ: ustaw nuty na telefonie → <b>„⬆ Wyślij do aplikacji”</b> → na
+            komputerze otwórz ten sam utwór → <b>„⬇ Wczytaj z serwera”</b> → dalej edytujesz →
+            znowu wyślij. Działa w obie strony i na dowolnej liczbie urządzeń.</li>
+          <li>Uwaga: „Wczytaj z serwera” <b>nadpisuje</b> lokalne, jeszcze niewysłane zmiany w tym
+            projekcie (tak samo jak „wgraj JSON”) — wyślij najpierw, jeśli coś ważnego jeszcze nie
+            poszło na serwer.</li>
+        </ul>
+
         <h2>Projekty (praca się zapisuje)</h2>
         <ul>
           <li>Wszystko, co ustawisz, <b>zapisuje się automatycznie w tej przeglądarce</b> (napis
@@ -175,8 +188,10 @@
           <li>Zapisywany jest też <b>plik MP3</b>, więc nie musisz go wgrywać od nowa.</li>
           <li>Wiele utworów: lista <b>projekt</b> u góry. „＋ nowy projekt…” zakłada kolejny.
             „usuń projekt” kasuje go z przeglądarki (wyeksportowany plik zostaje).</li>
-          <li>To zapis <b>lokalny</b> — działa na tym komputerze i w tej przeglądarce. Ważne mapy
-            eksportuj do pliku i wysyłaj Konradowi.</li>
+          <li>To zapis <b>lokalny</b> (ta przeglądarka, to urządzenie) — ale mapa, którą wyślesz
+            przyciskiem „⬆”, ląduje na serwerze i stamtąd można ją ściągnąć na inne urządzenie
+            (patrz wyżej). Do przenoszenia samego pliku MP3 między urządzeniami służy eksport/
+            wgranie JSON + ręczne przesłanie pliku dźwiękowego.</li>
         </ul>
 
         <h2>Podgląd animacji (3 gotowe projekty)</h2>
@@ -187,8 +202,8 @@
             znaczniki na osi przełączają ujęcia co 5 s (uj.1 → uj.2 → …).</li>
           <li>Tam oceniasz, czy <b>długości klatek</b> w animacji są OK (za szybko / za wolno / szarpie).
             Uwagi zgłaszasz Konradowi — on poprawi <code>scenario.txt</code> danego ujęcia.</li>
-          <li>Utwory bez mp3 (Książę, Pogrzebówka) mają cichy podkład z <b>„tik"</b> na każdym beacie —
-            do porównania animacji z rytmem.</li>
+          <li>Utwory bez mp3 (na razie Książę z bajki) mają cichy podkład z <b>„tik"</b> na każdym
+            beacie — do porównania animacji z rytmem.</li>
         </ul>
 
         <h2>Krok po kroku (robienie beatmapy)</h2>
