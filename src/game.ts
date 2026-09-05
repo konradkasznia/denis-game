@@ -2864,7 +2864,7 @@ export class Game {
       ]);
     }
 
-    // przyciski — oba z PNG, identycznych rozmiarów
+    // przyciski — oba rysowane w kodzie, identycznych rozmiarów
     if (R.primary) {
       this.uiButton(ctx, R.primary, reg ? "stworz-konto" : "zaloguj-sie", {
         fallback: reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ",
@@ -3258,9 +3258,9 @@ export class Game {
     this.fillViewport(ctx, g);
   }
 
-  /** Przycisk z grafiki `assets/ui/button-<name>.png` (napis wbudowany).
-   *  `r` wyznacza szerokość i górę; wysokość liczona z proporcji obrazka.
-   *  Zapas (brak PNG): prosty złoty prostokąt z napisem `fallback`. */
+  /** Przycisk rysowany w kodzie (bez grafiki `button-<name>.png`) — krawędź +
+   *  gradientowa twarz + napis, styl „makiety" (patrz `styledBtn`). Kodowane
+   *  przyciski dają swobodę zmiany koloru/stylu bez proszenia o nową grafikę. */
   private uiButton(
     ctx: CanvasRenderingContext2D,
     r: Rect,
@@ -3272,21 +3272,6 @@ export class Game {
     } = {},
   ) {
     const { disabled = false, fallback = name.toUpperCase(), style = "gold" } = opts;
-    const img = this.uiImg(`button-${name}.png`);
-    if (imgReady(img)) {
-      const h = (img.naturalHeight / img.naturalWidth) * r.w;
-      const y = r.y + (r.h - h) / 2;
-      if (disabled) {
-        ctx.save();
-        ctx.globalAlpha = 0.9;
-        ctx.drawImage(desaturated(img), r.x, y, r.w, h);
-        ctx.restore();
-      } else {
-        ctx.drawImage(img, r.x, y, r.w, h);
-      }
-      return;
-    }
-    // zapas: rysowany w stylu makiety
     this.styledBtn(ctx, r, fallback, disabled ? "dark-gold" : style);
   }
 
