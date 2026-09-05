@@ -9,9 +9,12 @@ import { Character } from "./character.ts";
 
 const LANES = 4;
 const WAVE = 46; // 1. kolumna: fala dźwiękowa — klik = przewiń utwór do tego miejsca
-const SEGCOL = 46; // 2. kolumna: oś ujęć postaci — klik = wstaw / chwyć znacznik ujęcia
+const SEGCOL_W = 46; // 2. kolumna (ujęcia postaci) — szerokość na komputerze
 const OBSTCOL = 46; // 3. kolumna: oś przeszkód (lód itd.) — wspólna dla wszystkich utworów
-const GUTTER = WAVE + SEGCOL + OBSTCOL; // cała lewa strefa przed torami nut
+// Na telefonie (tryb dotykowy) kolumna ujęć + podgląd postaci są zbędne —
+// telefon służy tylko do stawiania nut, więc oddajemy tę szerokość torom.
+const SEGCOL = () => (touchChk.checked ? 0 : SEGCOL_W);
+const GUTTER = () => WAVE + SEGCOL() + OBSTCOL; // cała lewa strefa przed torami nut
 
 // katalog przeszkód — rozszerzalny; `id` trafia do chartu jako `events[].type`.
 // `def` = domyślna wartość parametru, `unit` = jego jednostka (LÓD: tapnięcia,
@@ -488,9 +491,9 @@ window.addEventListener("resize", resize);
 
 const W = () => cv.clientWidth;
 const H = () => cv.clientHeight;
-const laneW = () => (W() - GUTTER) / LANES;
-const laneX = (lane: number) => GUTTER + lane * laneW();
-const laneAtX = (x: number) => Math.max(0, Math.min(LANES - 1, Math.floor((x - GUTTER) / laneW())));
+const laneW = () => (W() - GUTTER()) / LANES;
+const laneX = (lane: number) => GUTTER() + lane * laneW();
+const laneAtX = (x: number) => Math.max(0, Math.min(LANES - 1, Math.floor((x - GUTTER()) / laneW())));
 const yOf = (t: number) => (t - view.top) * view.pps;
 const tOf = (y: number) => view.top + y / view.pps;
 
@@ -518,19 +521,20 @@ function draw() {
       ctx2d.fillRect(cx - half, y, half * 2, 2);
     }
   }
-  // 2. kolumna: tło osi ujęć, 3. kolumna: tło osi przeszkód + linie działowe
+  // 2. kolumna: tło osi ujęć (0 px na telefonie), 3. kolumna: tło osi
+  // przeszkód + linie działowe
   ctx2d.fillStyle = "rgba(255,120,200,0.05)";
-  ctx2d.fillRect(WAVE, 0, SEGCOL, h);
+  ctx2d.fillRect(WAVE, 0, SEGCOL(), h);
   ctx2d.fillStyle = "rgba(120,200,255,0.06)";
-  ctx2d.fillRect(WAVE + SEGCOL, 0, OBSTCOL, h);
+  ctx2d.fillRect(WAVE + SEGCOL(), 0, OBSTCOL, h);
   ctx2d.strokeStyle = "rgba(255,255,255,0.14)";
   ctx2d.beginPath();
   ctx2d.moveTo(WAVE, 0);
   ctx2d.lineTo(WAVE, h);
-  ctx2d.moveTo(WAVE + SEGCOL, 0);
-  ctx2d.lineTo(WAVE + SEGCOL, h);
-  ctx2d.moveTo(GUTTER, 0);
-  ctx2d.lineTo(GUTTER, h);
+  ctx2d.moveTo(WAVE + SEGCOL(), 0);
+  ctx2d.lineTo(WAVE + SEGCOL(), h);
+  ctx2d.moveTo(GUTTER(), 0);
+  ctx2d.lineTo(GUTTER(), h);
   ctx2d.stroke();
 
   // linie torów
@@ -564,31 +568,33 @@ function draw() {
         : "rgba(255,255,255,0.07)";
     ctx2d.lineWidth = onBar ? 1.5 : 1;
     ctx2d.beginPath();
-    ctx2d.moveTo(GUTTER, y);
+    ctx2d.moveTo(GUTTER(), y);
     ctx2d.lineTo(w, y);
     ctx2d.stroke();
     if (onBar) {
       ctx2d.fillStyle = "rgba(255,206,138,0.7)";
-      ctx2d.fillText(`bar ${Math.round(barIdx) + 1}`, GUTTER + 4, y - 3);
+      ctx2d.fillText(`bar ${Math.round(barIdx) + 1}`, GUTTER() + 4, y - 3);
     }
   }
 
-  // oś ujęć postaci (2. kolumna)
-  const sorted = segments.slice().sort((a, b) => a.at - b.at);
-  for (const seg of sorted) {
-    const y = yOf(seg.at);
-    if (y < -20 || y > h + 20) continue;
-    ctx2d.strokeStyle = "rgba(255,120,200,0.5)";
-    ctx2d.lineWidth = 1;
-    ctx2d.beginPath();
-    ctx2d.moveTo(WAVE, y);
-    ctx2d.lineTo(w, y);
-    ctx2d.stroke();
-    ctx2d.fillStyle = "#ff78c8";
-    ctx2d.fillRect(WAVE + 3, y - 9, SEGCOL - 6, 18);
-    ctx2d.fillStyle = "#1a0d12";
-    ctx2d.font = "bold 11px system-ui";
-    ctx2d.fillText(`uj.${seg.uj}`, WAVE + 8, y + 4);
+  // oś ujęć postaci (2. kolumna) — schowana na telefonie (patrz SEGCOL())
+  if (!touchChk.checked) {
+    const sorted = segments.slice().sort((a, b) => a.at - b.at);
+    for (const seg of sorted) {
+      const y = yOf(seg.at);
+      if (y < -20 || y > h + 20) continue;
+      ctx2d.strokeStyle = "rgba(255,120,200,0.5)";
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.moveTo(WAVE, y);
+      ctx2d.lineTo(w, y);
+      ctx2d.stroke();
+      ctx2d.fillStyle = "#ff78c8";
+      ctx2d.fillRect(WAVE + 3, y - 9, SEGCOL_W - 6, 18);
+      ctx2d.fillStyle = "#1a0d12";
+      ctx2d.font = "bold 11px system-ui";
+      ctx2d.fillText(`uj.${seg.uj}`, WAVE + 8, y + 4);
+    }
   }
 
   // oś przeszkód (3. kolumna) — linia + etykieta typu przez całą szerokość
@@ -600,18 +606,18 @@ function draw() {
     ctx2d.lineWidth = 1;
     ctx2d.setLineDash([6, 4]);
     ctx2d.beginPath();
-    ctx2d.moveTo(WAVE + SEGCOL, y);
+    ctx2d.moveTo(WAVE + SEGCOL(), y);
     ctx2d.lineTo(w, y);
     ctx2d.stroke();
     ctx2d.setLineDash([]);
     ctx2d.fillStyle = "#7fc8ff";
-    ctx2d.fillRect(WAVE + SEGCOL + 3, y - 9, OBSTCOL - 6, 18);
+    ctx2d.fillRect(WAVE + SEGCOL() + 3, y - 9, OBSTCOL - 6, 18);
     ctx2d.fillStyle = "#0c1620";
     ctx2d.font = "bold 10px system-ui";
-    ctx2d.fillText(k.short, WAVE + SEGCOL + 6, y + 4);
+    ctx2d.fillText(k.short, WAVE + SEGCOL() + 6, y + 4);
     ctx2d.fillStyle = "rgba(127,200,255,0.85)";
     ctx2d.font = "10px system-ui";
-    ctx2d.fillText(`${k.label} · ${ob.param} ${k.unit}`, GUTTER + 6, y - 4);
+    ctx2d.fillText(`${k.label} · ${ob.param} ${k.unit}`, GUTTER() + 6, y - 4);
   }
 
   // nuty
@@ -680,33 +686,38 @@ function draw() {
   ctx2d.fillStyle = "rgba(255,255,255,0.35)";
   ctx2d.font = "10px system-ui";
   ctx2d.fillText("fala", 6, 14);
-  ctx2d.fillStyle = "rgba(255,120,200,0.6)";
-  ctx2d.fillText("ujęcia", WAVE + 5, 14);
+  if (!touchChk.checked) {
+    ctx2d.fillStyle = "rgba(255,120,200,0.6)";
+    ctx2d.fillText("ujęcia", WAVE + 5, 14);
+  }
   ctx2d.fillStyle = "rgba(120,200,255,0.7)";
-  ctx2d.fillText("przeszk.", WAVE + SEGCOL + 3, 14);
+  ctx2d.fillText("przeszk.", WAVE + SEGCOL() + 3, 14);
   ctx2d.fillStyle = "rgba(255,255,255,0.35)";
   ctx2d.font = "11px system-ui";
   ["D", "F", "J", "K"].forEach((c, i) => ctx2d.fillText(c, laneX(i) + laneW() / 2 - 3, 14));
 
-  // podgląd postaci (prawy dolny róg)
-  const pbw = Math.min(220, w * 0.34);
-  const pbh = Math.min(320, h * 0.55);
-  const px = w - pbw - 10;
-  const pgy = h - pbh - 10;
-  ctx2d.save();
-  ctx2d.beginPath();
-  ctx2d.rect(px, pgy, pbw, pbh);
-  ctx2d.clip();
-  ctx2d.fillStyle = "#16121c";
-  ctx2d.fillRect(px, pgy, pbw, pbh);
-  character.draw(ctx2d, px + pbw / 2, pgy + pbh - 24, audioTime, bpm(), pbh - 44);
-  ctx2d.restore();
-  ctx2d.strokeStyle = "rgba(255,206,138,0.35)";
-  ctx2d.lineWidth = 1;
-  ctx2d.strokeRect(px, pgy, pbw, pbh);
-  ctx2d.fillStyle = "#ffce8a";
-  ctx2d.font = "bold 12px system-ui";
-  ctx2d.fillText(segments.length ? `ujęcie ${activeUj(audioTime)}` : "brak ujęć", px + 8, pgy + 18);
+  // podgląd postaci (prawy dolny róg) — schowany na telefonie, tam liczą się
+  // tylko nuty; na komputerze bez zmian
+  if (!touchChk.checked) {
+    const pbw = Math.min(220, w * 0.34);
+    const pbh = Math.min(320, h * 0.55);
+    const px = w - pbw - 10;
+    const pgy = h - pbh - 10;
+    ctx2d.save();
+    ctx2d.beginPath();
+    ctx2d.rect(px, pgy, pbw, pbh);
+    ctx2d.clip();
+    ctx2d.fillStyle = "#16121c";
+    ctx2d.fillRect(px, pgy, pbw, pbh);
+    character.draw(ctx2d, px + pbw / 2, pgy + pbh - 24, audioTime, bpm(), pbh - 44);
+    ctx2d.restore();
+    ctx2d.strokeStyle = "rgba(255,206,138,0.35)";
+    ctx2d.lineWidth = 1;
+    ctx2d.strokeRect(px, pgy, pbw, pbh);
+    ctx2d.fillStyle = "#ffce8a";
+    ctx2d.font = "bold 12px system-ui";
+    ctx2d.fillText(segments.length ? `ujęcie ${activeUj(audioTime)}` : "brak ujęć", px + 8, pgy + 18);
+  }
 }
 
 // ---- pętla -----------------------------------------------
@@ -746,7 +757,7 @@ function frame() {
 // ---- interakcja -----------------------------------------
 
 function noteAt(x: number, y: number): Note | null {
-  if (x < GUTTER) return null;
+  if (x < GUTTER()) return null;
   const lane = laneAtX(x);
   for (const n of notes) {
     if (n.lane !== lane) continue;
@@ -764,7 +775,7 @@ function obstAt(y: number): Obst | null {
   for (const o of obstacles) if (Math.abs(yOf(o.at) - y) <= 10) return o;
   return null;
 }
-const inObstCol = (x: number) => x >= WAVE + SEGCOL && x < GUTTER;
+const inObstCol = (x: number) => x >= WAVE + SEGCOL() && x < GUTTER();
 
 cv.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || !audioBuffer) return;
@@ -797,8 +808,9 @@ cv.addEventListener("pointerdown", (e) => {
     }
     return;
   }
-  if (x < GUTTER) {
-    // 2. kolumna (oś ujęć) → wstaw / złap znacznik ujęcia
+  if (x < GUTTER()) {
+    // 2. kolumna (oś ujęć) → wstaw / złap znacznik ujęcia (zero szerokości,
+    // więc nieosiągalne na telefonie — patrz SEGCOL())
     const hit = segAt(y);
     if (hit) {
       pushHistory();
@@ -877,7 +889,7 @@ cv.addEventListener("contextmenu", (e) => {
     }
     return;
   }
-  if (x < GUTTER) {
+  if (x < GUTTER()) {
     const hs = segAt(y);
     if (hs) {
       pushHistory();
@@ -1458,6 +1470,7 @@ if (import.meta.env.DEV) {
     segments: () => segments,
     obstacles: () => obstacles,
     buildChart: () => buildChart(),
+    draw: () => draw(),
     view,
     get audioTime() {
       return audioTime;
