@@ -102,6 +102,11 @@ let drag: Drag | null = null;
 // nuty aktualnie „trzymane" w nagrywaniu Live (klawisz albo palec wciśnięty)
 const recording = new Map<number, { note: Note; downT: number }>();
 
+// Nagrywanie Live (klawiatura/dotyk): krócej niż to = zwykły tap, nie nuta
+// trzymana. Dotykiem bardzo łatwo o przypadkowe 100–200 ms przytrzymania,
+// więc próg jest świadomie wysoki — trzeba wyraźnie przytrzymać palec/klawisz.
+const MIN_HOLD_SEC = 1;
+
 /** Nagrywanie Live — początek nuty w torze `lane` (klawiatura albo dotyk).
  *  Czas surowy (nie przyklejony do siatki) — wyrównasz później. */
 function startRecNote(lane: number) {
@@ -113,12 +118,12 @@ function startRecNote(lane: number) {
 }
 
 /** Nagrywanie Live — koniec nuty w torze `lane` (puszczony klawisz/palec).
- *  Krótkie przytrzymanie (<80 ms) = zwykły tap, nie nuta trzymana. */
+ *  Krótsze niż `MIN_HOLD_SEC` = zwykły tap, nie nuta trzymana. */
 function endRecNote(lane: number) {
   const rec = recording.get(lane);
   if (!rec) return;
   rec.note.dur = Math.max(0, +(audioTime - rec.downT).toFixed(4));
-  if (rec.note.dur < 0.08) rec.note.dur = 0;
+  if (rec.note.dur < MIN_HOLD_SEC) rec.note.dur = 0;
   recording.delete(lane);
   markDirty();
 }
@@ -446,7 +451,7 @@ function stop() {
   // domknij nuty, których klawisz był jeszcze wciśnięty przy pauzie
   for (const [lane, rec] of recording) {
     rec.note.dur = Math.max(0, +(audioTime - rec.downT).toFixed(4));
-    if (rec.note.dur < 0.08) rec.note.dur = 0;
+    if (rec.note.dur < MIN_HOLD_SEC) rec.note.dur = 0;
     recording.delete(lane);
   }
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
@@ -1365,7 +1370,13 @@ async function startup() {
   // 3 projekty na starcie — po jednym na utwór z grą, z załadowanymi ujęciami
   await persistSeed({ id: "panna-mloda", title: "Panna Młoda", bpm: 155, ujecia: [1, 2, 3, 4], realAudio: true });
   await persistSeed({ id: "ksiaze-z-bajki", title: "Książę z bajki", bpm: 112, ujecia: [1, 2, 3] });
-  await persistSeed({ id: "pogrzebowka", title: "Pogrzebówka", bpm: 150, ujecia: [1, 2, 3, 4] });
+  await persistSeed({
+    id: "pogrzebowka",
+    title: "Pogrzebówka",
+    bpm: 150,
+    ujecia: [1, 2, 3, 4],
+    realAudio: true, // jest już prawdziwe mp3 w public/assets/songs/ — użyj go zamiast cichego "tik"
+  });
   await persistSeed({ id: "byleby-nie-byla-ciepla", title: "Byleby nie była ciepła", bpm: 140, ujecia: [1, 2, 3, 4] });
 
   refreshProjectList();
