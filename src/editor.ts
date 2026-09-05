@@ -107,8 +107,8 @@ const recording = new Map<number, { note: Note; downT: number }>();
 
 // Nagrywanie Live (klawiatura/dotyk): krócej niż to = zwykły tap, nie nuta
 // trzymana. Dotykiem bardzo łatwo o przypadkowe 100–200 ms przytrzymania,
-// więc próg jest świadomie wysoki — trzeba wyraźnie przytrzymać palec/klawisz.
-const MIN_HOLD_SEC = 1;
+// więc próg jest świadomie podniesiony — trzeba wyraźnie przytrzymać palec/klawisz.
+const MIN_HOLD_SEC = 0.5;
 
 /** Nagrywanie Live — początek nuty w torze `lane` (klawiatura albo dotyk).
  *  Czas surowy (nie przyklejony do siatki) — wyrównasz później. */
@@ -1058,6 +1058,7 @@ projSel.addEventListener("change", () => {
   if (projSel.value === "__new__") void newProject();
   else void openProject(projSel.value);
 });
+$<HTMLButtonElement>("undobtn").addEventListener("click", () => undo());
 $<HTMLButtonElement>("aligngrid").addEventListener("click", () => {
   pushHistory();
   for (const n of notes) {
