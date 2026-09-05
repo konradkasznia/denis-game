@@ -1068,6 +1068,13 @@ $<HTMLButtonElement>("aligngrid").addEventListener("click", () => {
   for (const s of segments) s.at = Math.max(0, snapTime(s.at));
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
 });
+$<HTMLButtonElement>("clearnotes").addEventListener("click", () => {
+  if (!notes.length) return;
+  if (!confirm(`Usunąć wszystkie ${notes.length} nut z tego projektu? („Z" cofnie, jeśli to pomyłka.)`)) return;
+  pushHistory();
+  notes = [];
+  markDirty();
+});
 
 // ---- pliki --------------------------------------------
 
