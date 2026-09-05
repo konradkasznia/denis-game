@@ -520,6 +520,10 @@ export class Game {
   private healthHintDone = false; // ostrzeżenie o światłoczułości pokazane w tej sesji
   private healthModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
+  private offlineModal = false; // „brak internetu — nie można się zalogować" na ekranie logowania
+  private logoutModal = false; // potwierdzenie „na pewno wylogować?" w ustawieniach
+  private logoutYesRect: Rect | null = null;
+  private logoutNoRect: Rect | null = null;
   /** pionowe przesunięcie układu UI w bieżącej klatce (ekran wyższy niż VH) */
   private vdy = 0;
   private song: SongDef = buildSynthSong();
@@ -1321,6 +1325,15 @@ export class Game {
         "Z powodu braku połączenia z internetem nie udało się zapisać wyniku do bazy.",
       );
     }
+    if (this.offlineModal && this.scene === "auth") {
+      this.drawModal(
+        ctx,
+        "📡",
+        "BRAK INTERNETU",
+        "Aby się zalogować, musisz mieć połączenie z internetem. Sprawdź Wi-Fi lub dane komórkowe i spróbuj ponownie.",
+      );
+    }
+    if (this.logoutModal) this.drawLogoutModal(ctx);
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -1380,6 +1393,31 @@ export class Game {
       void this.audio.unlock();
       this.soundModal = false;
       this.soundHintDone = true;
+      return;
+    }
+    if (this.offlineModal) {
+      // czysto informacyjny — dowolne stuknięcie zamyka, tak jak modal dźwięku
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
+        uiSound("buttons");
+        this.offlineModal = false;
+      }
+      return;
+    }
+    if (this.logoutModal) {
+      // decyzja — reaguje tylko na jeden z dwóch przycisków, przypadkowe
+      // stuknięcie obok nic nie robi (jak w modalu głosowania)
+      if (this.logoutYesRect && inRect(this.logoutYesRect, x, y)) {
+        uiSound("back");
+        this.logoutModal = false;
+        // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze
+        // i wrócą po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię.
+        clearSession();
+        this.hitIndex = 0;
+        this.gotoStart();
+      } else if (this.logoutNoRect && inRect(this.logoutNoRect, x, y)) {
+        uiSound("buttons");
+        this.logoutModal = false;
+      }
       return;
     }
     if (this.voteModal === "thanks") {
@@ -1519,6 +1557,16 @@ export class Game {
     if (this.offlineNotice) {
       uiSound("back");
       this.offlineNotice = false;
+      return true;
+    }
+    if (this.offlineModal) {
+      uiSound("back");
+      this.offlineModal = false;
+      return true;
+    }
+    if (this.logoutModal) {
+      uiSound("back");
+      this.logoutModal = false; // wstecz = anuluj, jak w reszcie modali
       return true;
     }
     if (this.preparing) {
@@ -1692,7 +1740,7 @@ export class Game {
 
   /** Nakładka z prawdziwymi <input> — tylko na ekranie logowania. */
   private syncFields() {
-    if (this.healthModal || this.soundModal || this.scene !== "auth") {
+    if (this.healthModal || this.soundModal || this.offlineModal || this.scene !== "auth") {
       this.fields.clear();
       return;
     }
@@ -1776,12 +1824,15 @@ export class Game {
     if (this.authBusy) return;
     this.fields.blur();
     this.authBusy = true;
-    const done = (r: { ok: boolean; error?: string }, fail: string) => {
+    const done = (r: { ok: boolean; error?: string; offline?: boolean }, fail: string) => {
       this.authBusy = false;
       if (r.ok) {
         this.clearAuthError();
         void this.syncSession(); // odtwórz postęp tego konta z serwera
         this.enterHitsFresh();
+      } else if (r.offline) {
+        // brak internetu — modal jak przy „włącz dźwięk", nie zwykły banerek błędu
+        this.offlineModal = true;
       } else {
         this.setAuthError(r.error ?? fail);
       }
@@ -2007,12 +2058,8 @@ export class Game {
       return;
     }
     if (inRect(SET_LOGOUT, x, y)) {
-      uiSound("back");
-      // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze i wrócą
-      // po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię na tym urządzeniu.
-      clearSession();
-      this.hitIndex = 0;
-      this.gotoStart();
+      uiSound("buttons");
+      this.logoutModal = true; // potwierdzenie — patrz onPress / drawLogoutModal
       return;
     }
     if (inRect(SET_DELETE, x, y)) {
@@ -3018,14 +3065,16 @@ export class Game {
   // ---- modal „włącz dźwięk" ----------------------------------
 
   /** Uniwersalny modal (ikona + tytuł + treść + przycisk ROZUMIEM). */
-  private drawModal(
+  /** Wspólna „karta" modalu (tło + ramka + ikona + tytuł + treść) — zostawia
+   *  `reservedBelow` pikseli miejsca pod treścią na przyciski, które dorysowuje
+   *  wywołujący (jeden w `drawModal`, dwa w `drawLogoutModal`). */
+  private drawModalPanel(
     ctx: CanvasRenderingContext2D,
     icon: string,
     title: string,
     body: string,
-    okKey = "rozumiem",
-    okFallback = "ROZUMIEM",
-  ) {
+    reservedBelow: number,
+  ): { px: number; py: number; pw: number; bodyEnd: number; gap: number } {
     this.fillViewport(ctx, "rgba(4,4,10,0.82)");
     const pw = VW - 120;
     const px = 60;
@@ -3033,9 +3082,8 @@ export class Game {
     const lineH = 34;
     const bodyStart = 210;
     const bodyEnd = bodyStart + (lines.length - 1) * lineH + 18;
-    const gap = 28; // oddech między tekstem a przyciskiem
-    const btnH = MODAL_OK.h;
-    const ph = bodyEnd + gap + btnH + 44;
+    const gap = 28; // oddech między tekstem a przyciskiem/przyciskami
+    const ph = bodyEnd + gap + reservedBelow + 44;
     const py = (VH - ph) / 2;
     ctx.fillStyle = "#15121c";
     roundRect(ctx, px, py, pw, ph, 26);
@@ -3056,6 +3104,19 @@ export class Game {
     lines.forEach((ln, i) =>
       text(ctx, ln, VW / 2, py + bodyStart + i * lineH, { size: 20, color: "#c9b7a6" }),
     );
+    return { px, py, pw, bodyEnd, gap };
+  }
+
+  private drawModal(
+    ctx: CanvasRenderingContext2D,
+    icon: string,
+    title: string,
+    body: string,
+    okKey = "rozumiem",
+    okFallback = "ROZUMIEM",
+  ) {
+    const btnH = MODAL_OK.h;
+    const { py, bodyEnd, gap } = this.drawModalPanel(ctx, icon, title, body, btnH);
     // przycisk — zapamiętany prostokąt, żeby trafienie zgadzało się z rysunkiem
     this.modalOkRect = {
       x: VW / 2 - MODAL_OK.w / 2,
@@ -3064,6 +3125,34 @@ export class Game {
       h: btnH,
     };
     this.uiButton(ctx, this.modalOkRect, okKey, { fallback: okFallback });
+  }
+
+  /** Potwierdzenie wylogowania — dwa przyciski (jak modal dźwięku wizualnie,
+   *  ale z wyborem zamiast samego „ROZUMIEM"). */
+  private drawLogoutModal(ctx: CanvasRenderingContext2D) {
+    const btnH = MODAL_OK.h;
+    const btnGap = 14;
+    const { py, bodyEnd, gap } = this.drawModalPanel(
+      ctx,
+      "🚪",
+      "WYLOGOWAĆ SIĘ?",
+      "Czy na pewno chcesz się wylogować? Wynik i postęp zostają na koncie — wrócą po ponownym zalogowaniu.",
+      btnH * 2 + btnGap,
+    );
+    this.logoutYesRect = {
+      x: VW / 2 - MODAL_OK.w / 2,
+      y: py + bodyEnd + gap,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.logoutNoRect = {
+      x: this.logoutYesRect.x,
+      y: this.logoutYesRect.y + btnH + btnGap,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.styledBtn(ctx, this.logoutYesRect, "WYLOGUJ SIĘ", "gold");
+    this.styledBtn(ctx, this.logoutNoRect, "ANULUJ", "dark-gold");
   }
 
   /** Modal głosowania „Do czego chcesz się pobawić na Poziomie 6?" —

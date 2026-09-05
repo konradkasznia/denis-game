@@ -18,6 +18,8 @@ import {
 export interface AuthResult {
   ok: boolean;
   error?: string;
+  /** brak łączności z serwerem (nie „złe hasło") — patrz `login()` niżej */
+  offline?: boolean;
 }
 
 const USERS_KEY = "denis.users";
@@ -123,7 +125,11 @@ export async function login(loginName: string, password: string): Promise<AuthRe
   const l = loginName.trim();
   if (!validLogin(l)) return { ok: false, error: "Podaj poprawny nick." };
 
-  if (backendReachable()) {
+  // `backendReachable()` mówi tylko, czy próbować (fetch istnieje, http(s)) —
+  // nie czy telefon ma akurat sieć. Prawdziwy brak łączności ujawnia się
+  // dopiero jako OfflineError z `api()` (fetch padł / 5xx / zła odpowiedź).
+  let offline = !backendReachable();
+  if (!offline) {
     try {
       const r = await api<{ token: string; login?: string }>("/api/auth/login", {
         method: "POST",
@@ -133,20 +139,25 @@ export async function login(loginName: string, password: string): Promise<AuthRe
       startSession(r.login || l);
       return { ok: true };
     } catch (err) {
-      try {
-        return toResult(err);
-      } catch {
-        /* OfflineError → atrapa poniżej */
-      }
+      if (err instanceof ApiError && err.status < 500) return { ok: false, error: err.message };
+      offline = true; // OfflineError (albo 5xx/zła odpowiedź) — nie dogadaliśmy się z serwerem
     }
   }
 
-  const u = users();
-  const row = u[l.toLowerCase()];
-  if (!row || row.pw !== mask(password))
-    return { ok: false, error: "Nieprawidłowy login lub hasło." };
-  startSession(row.login);
-  return { ok: true };
+  // Bez łączności: konto na prawdziwym serwerze i tak nie da się zweryfikować —
+  // pokazujemy to wprost, zamiast udawać „złe hasło". Lokalna atrapa (konto
+  // założone OFFLINE na tym urządzeniu) wciąż działa, żeby nie blokować kogoś,
+  // kto zarejestrował się bez sieci i wraca zalogować się też bez sieci.
+  const row = users()[l.toLowerCase()];
+  if (row && row.pw === mask(password)) {
+    startSession(row.login);
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error: "Brak połączenia z internetem. Sprawdź sieć i spróbuj ponownie.",
+    offline: true,
+  };
 }
 
 /** Czy login jest wolny. Bez backendu / offline zwraca true (nie blokuje). */
