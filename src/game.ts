@@ -2871,7 +2871,7 @@ export class Game {
       });
     }
     if (R.altLabel) {
-      text(ctx, reg ? "Masz już konto?" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 17, {
+      text(ctx, reg ? "Mam już konto" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 17, {
         size: 23,
         weight: "800",
         color: "#f0e2d0",
@@ -2880,6 +2880,7 @@ export class Game {
     if (R.alt1) {
       this.uiButton(ctx, R.alt1, reg ? "zaloguj-sie" : "stworz-konto", {
         fallback: reg ? "ZALOGUJ SIĘ" : "STWÓRZ KONTO",
+        style: "dark-gold",
       });
     }
 
@@ -3059,7 +3060,7 @@ export class Game {
       );
     }
 
-    this.uiButton(ctx, BOARD_BACK, "powrot", { fallback: "POWRÓT" });
+    this.uiButton(ctx, BOARD_BACK, "powrot", { fallback: "POWRÓT", style: "dark-gold" });
   }
 
   // ---- modal „włącz dźwięk" ----------------------------------
@@ -3461,8 +3462,8 @@ export class Game {
     this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
 
     // WYNIKI | NAGRODY
-    this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI" });
-    this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY" });
+    this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI", style: "dark-gold" });
+    this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
@@ -3564,7 +3565,7 @@ export class Game {
           shadows: HEAD_SHADOWS,
         }),
     );
-    this.uiButton(ctx, REW_HOME, "powrot", { fallback: "POWRÓT" });
+    this.uiButton(ctx, REW_HOME, "powrot", { fallback: "POWRÓT", style: "dark-gold" });
   }
 
   // ---- ekran: USTAWIENIA -----------------------------------
