@@ -1387,13 +1387,16 @@ async function persistSeed(cfg: SeedCfg) {
     try {
       const r = await fetch(`/api/chart?songId=${encodeURIComponent(cfg.id)}`);
       const j = (await r.json().catch(() => ({}))) as { ok?: boolean; chart?: RawChart };
-      if (r.ok && j.ok && j.chart) raw = j.chart;
+      // ignoruj przypadkowo pustą opublikowaną mapę (np. po „wyczyść wszystko" +
+      // „Wyślij do aplikacji") — wolimy pełny plik z repo jako bazę do edycji
+      if (r.ok && j.ok && j.chart && (j.chart.notes?.length ?? 0) >= 12) raw = j.chart;
     } catch {
       /* offline / brak API — spróbuj pliku statycznego */
     }
     if (!raw) {
       try {
-        raw = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
+        const rf = (await (await fetch(`charts/${cfg.id}.json`)).json()) as RawChart;
+        if (rf && Array.isArray(rf.notes) && rf.notes.length) raw = rf;
       } catch {
         /* brak chartu — zostają segmenty podglądowe */
       }

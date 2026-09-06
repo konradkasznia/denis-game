@@ -192,21 +192,40 @@ async function fetchPublishedChart(id: string): Promise<RawChart | null> {
   return null;
 }
 
+/** Poniżej tylu nut opublikowaną mapę uznajemy za „przypadkowo pustą" (np. ktoś
+ *  kliknął „Wyślij do aplikacji" po „wyczyść wszystko") i wolimy pełną mapę z repo. */
+const MIN_PUBLISHED_NOTES = 12;
+
 export async function loadTrack(id: string): Promise<SongDef> {
   // 1. beatmapa opublikowana z edytora (Turso)
   const published = await fetchPublishedChart(id);
-  if (published) return rawToSong(published);
 
-  // 2. prawdziwy utwór z pliku beatmapy w repo
+  // 2. plik beatmapy w repo — używany jako fallback ORAZ jako miara, czy
+  //    opublikowana mapa nie jest przypadkowo okrojona
+  let repo: RawChart | null = null;
   try {
     const res = await fetch(`charts/${id}.json`);
     if (res.ok) {
       const raw = (await res.json()) as RawChart;
-      if (raw && Array.isArray(raw.notes) && raw.notes.length) return rawToSong(raw);
+      if (raw && Array.isArray(raw.notes) && raw.notes.length) repo = raw;
     }
   } catch {
-    /* brak pliku albo to nie JSON — lecimy na podkład */
+    /* brak pliku albo to nie JSON — lecimy dalej */
   }
+
+  if (published) {
+    const thin = (published.notes?.length ?? 0) < MIN_PUBLISHED_NOTES;
+    const repoFull = !!repo && repo.notes.length >= MIN_PUBLISHED_NOTES;
+    if (thin && repoFull) {
+      console.warn(
+        `loadTrack(${id}): opublikowana mapa ma tylko ${published.notes?.length ?? 0} nut — używam pełnej z repo`,
+      );
+    } else {
+      return rawToSong(published);
+    }
+  }
+  if (repo) return rawToSong(repo);
+
   // 3. syntezowany podkład
   const cfg = SYNTH_TRACKS[id] ?? SYNTH_TRACKS.rozgrzewka;
   return buildSynthSong({ id: id === "placeholder-01" ? "rozgrzewka" : id, ...cfg });
