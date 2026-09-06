@@ -126,6 +126,32 @@ const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
 const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 
+// znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków
+const HIT_SIGN_R = 34;
+const HIT_SIGN_X = VW - 16 - HIT_SIGN_R;
+const HIT_SIGN_Y0 = 452; // środek pierwszego znaku
+const HIT_SIGN_DY = 90; // odstęp środków
+
+type ObstacleKind = "bomb" | "vodka" | "flashlight";
+// które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
+const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
+  pogrzebowka: ["bomb", "vodka", "flashlight"],
+};
+const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
+  bomb: {
+    title: "UWAŻAJ NA BOMBY",
+    body: "Każda bomba blokuje ekran i odejmuje punkty. Nie klikaj jej, przepuść ją, a zniknie sama.",
+  },
+  vodka: {
+    title: "UWAŻAJ NA WÓDKĘ",
+    body: "Ekran zaczyna wirować i się chwiać. Nuty lecą dalej, więc musisz grać na chwiejnym obrazie.",
+  },
+  flashlight: {
+    title: "UWAŻAJ NA CIEMNOŚĆ",
+    body: "Światło gaśnie i zostaje wąski snop nad linią trafienia. Resztę toru grasz z pamięci.",
+  },
+};
+
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 
@@ -625,6 +651,11 @@ export class Game {
   /** głosowanie „jaki poziom 6?" — null | wybór opcji | podziękowanie */
   private voteModal: null | "pick" | "thanks" = null;
   private voteRects: { r: Rect; id: string }[] = [];
+  /** modal ostrzegający o przeszkodzie (znaki na sliderze Pogrzebówki) */
+  private obstacleModal: ObstacleKind | null = null;
+  private obstacleModalAt = 0; // performance.now() otwarcia — zegar podglądu w pętli
+  private obstacleOkRect: Rect | null = null;
+  private hitSignRects: { kind: ObstacleKind; r: Rect }[] = [];
   /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
   private authLoginState = "";
   private authCheckSeq = 0;
@@ -1344,6 +1375,7 @@ export class Game {
       );
     }
     if (this.logoutModal) this.drawLogoutModal(ctx);
+    if (this.obstacleModal) this.drawObstacleModal(ctx);
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -1427,6 +1459,14 @@ export class Game {
       } else if (this.logoutNoRect && inRect(this.logoutNoRect, x, y)) {
         uiSound("buttons");
         this.logoutModal = false;
+      }
+      return;
+    }
+    if (this.obstacleModal) {
+      // czysto informacyjny — „ROZUMIEM" lub stuknięcie obok panelu zamyka
+      if (!this.obstacleOkRect || inRect(this.obstacleOkRect, x, y)) {
+        uiSound("buttons");
+        this.obstacleModal = null;
       }
       return;
     }
@@ -1577,6 +1617,11 @@ export class Game {
     if (this.logoutModal) {
       uiSound("back");
       this.logoutModal = false; // wstecz = anuluj, jak w reszcie modali
+      return true;
+    }
+    if (this.obstacleModal) {
+      uiSound("back");
+      this.obstacleModal = null;
       return true;
     }
     if (this.preparing) {
@@ -1978,6 +2023,16 @@ export class Game {
       return;
     }
 
+    // znaki ostrzegawcze o przeszkodach (Pogrzebówka)
+    for (const s of this.hitSignRects) {
+      if (inRect(s.r, x, y)) {
+        uiSound("buttons");
+        this.obstacleModal = s.kind;
+        this.obstacleModalAt = performance.now();
+        return;
+      }
+    }
+
     if (inRect(this.hb(HIT_REW), x, y)) {
       uiSound("buttons");
       this.scene = "rewards";
@@ -2376,6 +2431,7 @@ export class Game {
   highFps(): boolean {
     if (this.scene === "play") return true;
     if (this.scene === "results" && performance.now() - this.resultsAt < 2600) return true;
+    if (this.obstacleModal) return true; // płynny podgląd przeszkody w pętli
     return false;
   }
 
@@ -3258,6 +3314,349 @@ export class Game {
     );
   }
 
+  // ---- znaki ostrzegawcze o przeszkodach (slider Pogrzebówki) ----
+
+  /** Znak „drogowy": białe koło, czerwony obrys, ciemny piktogram (bomba / butelka / latarka). */
+  private drawWarnSign(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    r: number,
+    kind: ObstacleKind,
+  ) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#fbfbfb";
+    ctx.fill();
+    ctx.lineWidth = Math.max(3, r * 0.2);
+    ctx.strokeStyle = "#e5342f";
+    ctx.stroke();
+
+    ctx.translate(cx, cy);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    const dark = "#15121c";
+    const s = r * 0.52;
+
+    if (kind === "bomb") {
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.arc(-0.12 * s, 0.24 * s, 0.78 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-0.2 * s, -0.62 * s, 0.34 * s, 0.34 * s);
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.18 * s;
+      ctx.beginPath();
+      ctx.moveTo(0.06 * s, -0.56 * s);
+      ctx.quadraticCurveTo(0.82 * s, -0.78 * s, 0.66 * s, -1.18 * s);
+      ctx.stroke();
+      ctx.fillStyle = "#ff7a2f";
+      ctx.beginPath();
+      ctx.arc(0.66 * s, -1.2 * s, 0.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.beginPath();
+      ctx.arc(-0.42 * s, -0.06 * s, 0.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "vodka") {
+      // przechylona butelka wódki + kieliszek
+      ctx.save();
+      ctx.rotate(-0.42);
+      ctx.fillStyle = dark;
+      roundRect(ctx, -1.0 * s, -0.28 * s, 0.66 * s, 1.2 * s, 0.12 * s);
+      ctx.fill();
+      ctx.fillRect(-0.78 * s, -0.66 * s, 0.22 * s, 0.42 * s);
+      ctx.fillRect(-0.82 * s, -0.82 * s, 0.3 * s, 0.18 * s);
+      ctx.fillStyle = "#fbfbfb";
+      ctx.fillRect(-0.96 * s, 0.08 * s, 0.58 * s, 0.44 * s);
+      ctx.restore();
+      // strużka
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.12 * s;
+      ctx.beginPath();
+      ctx.moveTo(-0.2 * s, -0.1 * s);
+      ctx.lineTo(0.06 * s, 0.44 * s);
+      ctx.stroke();
+      // kieliszek
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.moveTo(-0.24 * s, 0.5 * s);
+      ctx.lineTo(0.4 * s, 0.5 * s);
+      ctx.lineTo(0.22 * s, 1.05 * s);
+      ctx.lineTo(-0.06 * s, 1.05 * s);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // latarka pod skosem + snop światła
+      ctx.save();
+      ctx.rotate(-0.5);
+      ctx.translate(0.15 * s, 0);
+      ctx.fillStyle = dark;
+      roundRect(ctx, -0.1 * s, -0.26 * s, 0.9 * s, 0.52 * s, 0.1 * s);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-0.1 * s, -0.4 * s);
+      ctx.lineTo(-0.1 * s, 0.4 * s);
+      ctx.lineTo(-0.44 * s, 0.26 * s);
+      ctx.lineTo(-0.44 * s, -0.26 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ffce3a";
+      ctx.beginPath();
+      ctx.moveTo(-0.44 * s, -0.24 * s);
+      ctx.lineTo(-1.15 * s, -0.62 * s);
+      ctx.lineTo(-1.15 * s, 0.62 * s);
+      ctx.lineTo(-0.44 * s, 0.24 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#ffce3a";
+      ctx.lineWidth = 0.11 * s;
+      [-0.42, 0, 0.42].forEach((o) => {
+        ctx.beginPath();
+        ctx.moveTo(-1.22 * s, o * s);
+        ctx.lineTo(-1.44 * s, o * s);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /** Modal ostrzegający o przeszkodzie: znak + tekst + podgląd efektu w pętli. */
+  private drawObstacleModal(ctx: CanvasRenderingContext2D) {
+    const kind = this.obstacleModal;
+    if (!kind) return;
+    const info = OBSTACLE_INFO[kind];
+    this.fillViewport(ctx, "rgba(4,4,10,0.82)");
+
+    const pw = VW - 96;
+    const px = 48;
+    const lines = wrapText(info.body, 30);
+    const prevW = pw - 64;
+    const prevH = 196;
+    const btnH = MODAL_OK.h;
+    const bodyTop = 168;
+    const prevGap = 14;
+    const ph = bodyTop + lines.length * 32 + prevGap + prevH + 24 + btnH + 40;
+    const py = Math.max(24, (VH - ph) / 2);
+
+    ctx.fillStyle = "#15121c";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,90,0.55)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+
+    this.drawWarnSign(ctx, VW / 2, py + 64, 42, kind);
+    text(ctx, info.title, VW / 2, py + 132, {
+      size: 30,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd24c",
+      shadows: HEAD_SHADOWS,
+    });
+    lines.forEach((ln, i) =>
+      text(ctx, ln, VW / 2, py + bodyTop + i * 32, { size: 19, color: "#d8cbbb" }),
+    );
+
+    const prevX = VW / 2 - prevW / 2;
+    const prevY = py + bodyTop + lines.length * 32 + prevGap;
+    ctx.save();
+    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+    ctx.clip();
+    const t = (performance.now() - this.obstacleModalAt) / 1000;
+    this.drawObstaclePreview(ctx, prevX, prevY, prevW, prevH, kind, t);
+    ctx.restore();
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+    ctx.stroke();
+    text(ctx, "PODGLĄD", prevX + 12, prevY + 15, {
+      size: 10,
+      weight: "900",
+      align: "left",
+      color: "rgba(255,255,255,0.4)",
+      letterSpacing: "2px",
+    });
+
+    this.obstacleOkRect = {
+      x: VW / 2 - MODAL_OK.w / 2,
+      y: prevY + prevH + 24,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.uiButton(ctx, this.obstacleOkRect, "rozumiem", { fallback: "ROZUMIEM" });
+  }
+
+  /** Zapętlony podgląd efektu przeszkody (rysowany w kodzie) w prostokącie `o*`. */
+  private drawObstaclePreview(
+    ctx: CanvasRenderingContext2D,
+    ox: number,
+    oy: number,
+    ow: number,
+    oh: number,
+    kind: ObstacleKind,
+    t: number,
+  ) {
+    const lanesX = [0.2, 0.4, 0.6, 0.8].map((k) => ox + ow * (0.14 + k * 0.72));
+    const vx = ox + ow / 2;
+    const vy = oy - oh * 0.4;
+    const hitY = oy + oh * 0.78;
+
+    const field = (
+      hideRings: boolean,
+      notes: { lane: number; off: number; bomb?: boolean }[],
+    ) => {
+      const g = ctx.createLinearGradient(0, oy, 0, oy + oh);
+      g.addColorStop(0, "#170b1c");
+      g.addColorStop(1, "#05040a");
+      ctx.fillStyle = g;
+      ctx.fillRect(ox - 60, oy - 60, ow + 120, oh + 120);
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.lineWidth = 1;
+      lanesX.forEach((bx) => {
+        ctx.beginPath();
+        ctx.moveTo(bx, hitY + 10);
+        ctx.lineTo(vx + (bx - vx) * 0.05, vy);
+        ctx.stroke();
+      });
+      if (!hideRings) {
+        lanesX.forEach((bx) => {
+          ctx.beginPath();
+          ctx.arc(bx, hitY, 11, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255,255,255,0.5)";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        });
+      }
+      notes.forEach((n) => {
+        const p = (((t * 0.5 + n.off) % 1) + 1) % 1;
+        const bx = lanesX[n.lane];
+        const x = vx + (bx - vx) * (0.05 + 0.95 * p);
+        const y = vy + (hitY - vy) * p;
+        const rr = 3 + 9 * p;
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        ctx.fillStyle = n.bomb ? "#141018" : "#ffd24c";
+        ctx.fill();
+        if (n.bomb) {
+          ctx.strokeStyle = "#ff7a2f";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      });
+    };
+
+    if (kind === "bomb") {
+      const c = t % 3.4;
+      const deton = c >= 1.15 && c < 1.95;
+      const stun = c >= 1.15 && c < 3.0;
+      field(stun, [
+        { lane: 0, off: 0.2 },
+        { lane: 3, off: 0.62 },
+      ]);
+      if (c < 1.35) {
+        const p = Math.min(c / 1.15, 1);
+        const bx = lanesX[1];
+        const x = vx + (bx - vx) * (0.05 + 0.95 * p);
+        const y = vy + (hitY - vy) * p;
+        const rr = 3 + 10 * p;
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        ctx.fillStyle = "#141018";
+        ctx.fill();
+        ctx.strokeStyle = "#ff7a2f";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      if (deton) {
+        const k = (c - 1.15) / 0.8;
+        const fr = 16 + k * 90;
+        const g = ctx.createRadialGradient(lanesX[1], hitY, 3, lanesX[1], hitY, fr);
+        g.addColorStop(0, `rgba(255,240,210,${0.9 * (1 - k)})`);
+        g.addColorStop(1, "rgba(255,240,210,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(ox, oy, ow, oh);
+        ctx.fillStyle = `rgba(255,90,60,${0.38 * (1 - k)})`;
+        ctx.fillRect(ox, oy, ow, oh);
+      }
+      if (stun) {
+        ctx.fillStyle = "rgba(3,2,8,0.62)";
+        ctx.fillRect(ox, oy, ow, oh);
+        text(ctx, "BOMBA!  -100", ox + ow / 2, oy + oh / 2 - 4, {
+          size: 18,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#ff5a3c",
+        });
+        text(ctx, "ekran zablokowany 3 s", ox + ow / 2, oy + oh / 2 + 18, {
+          size: 12,
+          weight: "700",
+          color: "#ffd7cc",
+        });
+      }
+      if (c >= 1.15 && c < 2.4) {
+        const k = (c - 1.15) / 1.25;
+        text(ctx, "-100", lanesX[1], hitY - 16 - k * 42, {
+          size: 17,
+          weight: "900",
+          font: HEAD_FONT,
+          color: `rgba(255,90,60,${1 - k})`,
+        });
+      }
+    } else if (kind === "vodka") {
+      const env = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(((t % 4) / 4) * Math.PI * 2));
+      ctx.save();
+      ctx.translate(ox + ow / 2, oy + oh / 2);
+      ctx.rotate(env * (Math.sin(t * 1.9) * 0.06 + Math.sin(t * 1.05) * 0.04));
+      ctx.scale(1 + env * Math.sin(t * 1.4) * 0.05, 1 + env * Math.sin(t * 1.4) * 0.05);
+      ctx.translate(
+        env * (Math.sin(t * 1.12) * 14 + Math.sin(t * 2.5) * 6),
+        env * Math.sin(t * 0.85) * 8,
+      );
+      ctx.translate(-(ox + ow / 2), -(oy + oh / 2));
+      field(false, [
+        { lane: 0, off: 0.1 },
+        { lane: 1, off: 0.5 },
+        { lane: 2, off: 0.82 },
+        { lane: 3, off: 0.34 },
+      ]);
+      ctx.restore();
+      text(ctx, "PIJANY EKRAN · 5 s", ox + ow / 2, oy + 16, {
+        size: 12,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "rgba(255,206,138,0.9)",
+      });
+    } else {
+      const cyc = 4.2;
+      const c = t % cyc;
+      const m = clamp(Math.min(c / 0.5, (cyc - 0.6 - c) / 0.5), 0, 1);
+      field(false, [
+        { lane: 1, off: 0.2 },
+        { lane: 2, off: 0.6 },
+        { lane: 0, off: 0.92 },
+      ]);
+      const cx = ox + ow / 2;
+      const cy = hitY - 6;
+      const rad = 54 + Math.sin(t * 3) * 4;
+      const g = ctx.createRadialGradient(cx, cy, 6, cx, cy, rad);
+      g.addColorStop(0, "rgba(2,2,6,0)");
+      g.addColorStop(0.55, `rgba(2,2,6,${0.12 * m})`);
+      g.addColorStop(1, `rgba(2,2,6,${0.97 * m})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(ox, oy, ow, oh);
+      text(ctx, "CIEMNOŚĆ · 6 s", ox + ow / 2, oy + 16, {
+        size: 12,
+        weight: "900",
+        font: HEAD_FONT,
+        color: `rgba(255,206,138,${0.5 + 0.5 * m})`,
+      });
+    }
+  }
+
   // ---- wspólne elementy UI ----------------------------------
 
   private uiImg(name: string): HTMLImageElement {
@@ -3359,6 +3758,7 @@ export class Game {
     // „wkrótce" (niedostępny utwór) pokazujemy w kolorze; zablokowany progresją — b&w
     const locked = meta.playable && !levelUnlocked(idx);
     const unlocked = !locked;
+    this.hitSignRects = []; // ustawiane niżej tylko dla utworów z przeszkodami
 
     // tło karuzeli: własne dla wybranych utworów, inaczej domyślne stage-bg
     const bgKey =
@@ -3491,6 +3891,27 @@ export class Game {
     // na postaci (zamiast napisu pod przyciskiem)
     if (!unlocked) {
       this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
+    }
+
+    // znaki ostrzegawcze o przeszkodach — prawa krawędź, tylko Pogrzebówka
+    const signs = unlocked ? SLIDER_OBSTACLES[meta.id] : undefined;
+    if (signs) {
+      signs.forEach((kind, i) => {
+        const cx = HIT_SIGN_X;
+        const cy = HIT_SIGN_Y0 + i * HIT_SIGN_DY;
+        ctx.save();
+        ctx.fillStyle = "rgba(8,6,12,0.5)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, HIT_SIGN_R + 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R, kind);
+        const pad = 8;
+        this.hitSignRects.push({
+          kind,
+          r: { x: cx - HIT_SIGN_R - pad, y: cy - HIT_SIGN_R - pad, w: (HIT_SIGN_R + pad) * 2, h: (HIT_SIGN_R + pad) * 2 },
+        });
+      });
     }
 
     // GRAJ!
