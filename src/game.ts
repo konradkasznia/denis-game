@@ -19,6 +19,7 @@ import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } fro
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
+  boardReady,
   mergeServerBest,
   myEntry,
   type Period,
@@ -75,6 +76,16 @@ interface Rect {
 }
 const inRect = (r: Rect, x: number, y: number) =>
   x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+
+// Utwory z własnym tłem karuzeli WYBIERZ HIT (`assets/ui/slider-bg/<id>.jpg`).
+// Tylko na sliderze — po starcie gry tło (drawStage) się nie zmienia.
+// panna-mloda celowo pominięta (zostaje domyślne stage-bg.png).
+const SLIDER_BG_SONGS = new Set([
+  "ksiaze-z-bajki",
+  "pogrzebowka",
+  "byleby-nie-byla-ciepla",
+  "pani-policjantko",
+]);
 
 // --- układ pola gry (perspektywa: tor zbiega do horyzontu) ---
 const MARGIN = 40;
@@ -648,11 +659,9 @@ export class Game {
       "stage-bg.png", "wybierz-hit.png", "gear.png",
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
-      "button-graj.png", "button-wyniki.png", "button-nagrody.png", "button-powrot.png", "button-rozumiem.png",
-      "button-otworz-w-spotify.png", "button-od-nowa.png", "button-wyjdz.png",
-      "button-tabela-wynikow.png", "button-kontynuuj.png",
-      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png", "button-powiadom-mnie.png",
+      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
+      ...[...SLIDER_BG_SONGS].map((id) => `slider-bg/${id}.jpg`),
     ]) {
       loadImg(`assets/ui/${n}`);
     }
@@ -732,7 +741,8 @@ export class Game {
     if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
       this.paused = false;
       this.resumeAt = 0;
-      void this.audio.resumePlayback();
+      // odbudowa źródła mp3 + keep-alive — iOS po powrocie z tła potrafi je ubić
+      void this.audio.resumeMp3();
     }
     if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       // zegar utworu = zegar audio przez CAŁY czas (odliczanie zwraca -3 → 0)
@@ -2980,7 +2990,7 @@ export class Game {
     tab(BOARD_TAB_M, "TEN MIESIĄC", this.boardPeriod === "month");
     tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
 
-    const rows = topN(this.boardSongId, this.boardPeriod, 10);
+    const ready = boardReady(this.boardSongId, this.boardPeriod);
     const rowH = 52;
     const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }, ry: number) => {
       if (r.me) {
@@ -3002,15 +3012,30 @@ export class Game {
     };
 
     let y = 226;
-    rows.forEach((r) => {
-      drawRow(r, y);
-      y += rowH;
-    });
+    if (!ready) {
+      // szkielet: prawdziwa lista pojawi się bez „doskakiwania" fikcyjnych wpisów
+      for (let i = 0; i < 10; i++) {
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        roundRect(ctx, MARGIN - 6, y - rowH / 2 + 3, VW - (MARGIN - 6) * 2, rowH - 6, 12);
+        ctx.fill();
+        y += rowH;
+      }
+      text(ctx, "Wczytywanie wyników…", VW / 2, 226 + 4.5 * rowH, {
+        size: 20,
+        weight: "800",
+        color: "#c9b7a6",
+      });
+    } else {
+      topN(this.boardSongId, this.boardPeriod, 10).forEach((r) => {
+        drawRow(r, y);
+        y += rowH;
+      });
+    }
 
     const me = myEntry(this.boardSongId, this.boardPeriod);
 
     // moja pozycja poza TOP 10 — pod cienką kreską
-    if (me && me.rank > 10) {
+    if (ready && me && me.rank > 10) {
       const ly = y + 6;
       ctx.strokeStyle = "rgba(255,255,255,0.18)";
       ctx.lineWidth = 1;
@@ -3220,9 +3245,9 @@ export class Game {
   private drawHealthModal(ctx: CanvasRenderingContext2D) {
     this.drawModal(
       ctx,
-      "⚠️",
-      "UWAGA NA ZDROWIE",
-      "Gra zawiera pulsujące światła i błyski. U osób ze światłoczułą padaczką mogą wywołać napad. Graj w oświetlonym pomieszczeniu, rób przerwy i przerwij grę, jeśli poczujesz zawroty głowy lub mdłości.",
+      "💡",
+      "ZANIM ZACZNIESZ",
+      "W grze migają światła w rytm muzyki. Jeśli jesteś na to wrażliwy, graj w jasnym pokoju i rób przerwy. Miłej zabawy!",
     );
   }
 
@@ -3234,11 +3259,12 @@ export class Game {
 
   /** Tło sceny: grafika `assets/ui/stage-bg.png` (cover) albo ciemny gradient.
    *  `gray` = wersja czarno-biała (dla zablokowanego poziomu). */
-  private drawUiBg(ctx: CanvasRenderingContext2D, gray = false) {
+  private drawUiBg(ctx: CanvasRenderingContext2D, gray = false, bgKey = "stage-bg.png") {
     const top = -this.vdy;
     const vh = this.sh();
     const midY = top + vh / 2;
-    const bg = this.uiImg("stage-bg.png");
+    let bg = this.uiImg(bgKey);
+    if (bgKey !== "stage-bg.png" && !imgReady(bg)) bg = this.uiImg("stage-bg.png");
     if (imgReady(bg)) {
       // „cover" na cały widoczny obszar (rozciągnięte tło na wyższych telefonach)
       const s = Math.max(VW / bg.naturalWidth, vh / bg.naturalHeight);
@@ -3327,7 +3353,10 @@ export class Game {
     const locked = meta.playable && !levelUnlocked(idx);
     const unlocked = !locked;
 
-    this.drawUiBg(ctx, locked);
+    // tło karuzeli: własne dla wybranych utworów, inaczej domyślne stage-bg
+    const bgKey =
+      meta && SLIDER_BG_SONGS.has(meta.id) ? `slider-bg/${meta.id}.jpg` : "stage-bg.png";
+    this.drawUiBg(ctx, locked, bgKey);
 
     // logo — wyśrodkowane, dolna krawędź tuż nad „POZIOM N"
     const logo = this.uiImg("wybierz-hit.png");
@@ -5266,84 +5295,56 @@ export class Game {
       this.drawStar(ctx, VW / 2 - 108 + i * 54, spY + 37, r, f);
     }
 
-    // --- licznik ---
-    const gp = { x: 88, y: 288, w: VW - 176, h: 468 };
+    // --- statystyki trafień (kafelki z naliczaniem — zastąpiły licznik) ---
     const cx = VW / 2;
-    const cy = gp.y + 232;
-    const R = 172;
-    const A0 = Math.PI * 0.75;
-    const SWEEP = Math.PI * 1.5;
-    const ang = (r: number) => A0 + clamp(r, 0, 1) * SWEEP;
+    const gp = { y: 300, h: 452 }; // obszar sięgający do nagłówka werdyktu (gp.y + gp.h)
 
-    ctx.save();
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
-    ctx.lineWidth = 22;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, A0, A0 + SWEEP);
-    ctx.stroke();
-    ctx.strokeStyle = shown >= PASS_RATING ? "#ffd24c" : "#ff7a3d";
-    ctx.shadowColor = ctx.strokeStyle;
-    ctx.shadowBlur = 18;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, A0, ang(shown));
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
-    ctx.lineWidth = 2;
-    for (let k = 0; k <= 10; k++) {
-      const a = ang(k / 10);
-      const r1 = R - 14;
-      const r2 = R + (k % 5 === 0 ? 14 : 8);
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
-      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+    const stats: { label: string; value: number; bad?: boolean }[] = [
+      { label: "PERFECT", value: this.counts.perfect },
+      { label: "SUPER", value: this.counts.great },
+      { label: "OK", value: this.counts.good },
+      { label: "PUDŁO", value: this.counts.miss, bad: true },
+      { label: "TRZYMANE", value: this.holdsDone },
+      { label: "ZERWANE", value: this.holdsBroken, bad: true },
+    ];
+    const gCols = 3;
+    const gColGap = 18;
+    const gRowGap = 20;
+    const gCellW = (VW - MARGIN * 2 - gColGap * (gCols - 1)) / gCols;
+    const gCellH = 138;
+    const gTop = 286;
+    for (let i = 0; i < stats.length; i++) {
+      const st = stats[i];
+      const bx = MARGIN + (i % gCols) * (gCellW + gColGap);
+      const by = gTop + Math.floor(i / gCols) * (gCellH + gRowGap);
+
+      ctx.save();
+      ctx.fillStyle = st.bad ? "rgba(255,110,110,0.09)" : "rgba(255,255,255,0.05)";
+      roundRect(ctx, bx, by, gCellW, gCellH, 18);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = st.bad ? "rgba(255,140,140,0.35)" : "rgba(255,255,255,0.14)";
+      roundRect(ctx, bx, by, gCellW, gCellH, 18);
       ctx.stroke();
+      ctx.restore();
+
+      const val = revealDone ? st.value : Math.round(st.value * eased);
+      text(ctx, `${val}`, bx + gCellW / 2, by + 58, {
+        size: 52,
+        weight: "900",
+        font: HEAD_FONT,
+        color: st.bad ? "#ff9a9a" : "#fff7ec",
+        glow: st.bad ? "#ff6b6b" : "#ffb457",
+        glowBlur: 12,
+      });
+      text(ctx, st.label, bx + gCellW / 2, by + gCellH - 30, {
+        size: 17,
+        weight: "900",
+        font: HEAD_FONT,
+        color: st.bad ? "#ffb0b0" : "#ffce8a",
+        letterSpacing: "2px",
+      });
     }
-    const pa = ang(PASS_RATING);
-    ctx.strokeStyle = "#ff5e5e";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(pa) * (R - 18), cy + Math.sin(pa) * (R - 18));
-    ctx.lineTo(cx + Math.cos(pa) * (R + 20), cy + Math.sin(pa) * (R + 20));
-    ctx.stroke();
-    text(ctx, "70%", cx + Math.cos(pa) * (R + 44), cy + Math.sin(pa) * (R + 44), {
-      size: 15,
-      weight: "800",
-      color: "#ff8a8a",
-    });
-    ctx.restore();
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(ang(shown));
-    ctx.fillStyle = "#fff7ec";
-    ctx.shadowColor = "#ffb457";
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-    ctx.moveTo(-12, 0);
-    ctx.lineTo(0, -9);
-    ctx.lineTo(R - 30, 0);
-    ctx.lineTo(0, 9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = "#1a0d12";
-    ctx.beginPath();
-    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#ffce8a";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    text(ctx, `${Math.round(shown * 100)}%`, cx, cy + 82, {
-      size: 58,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#fff7ec",
-      glow: "#ffb457",
-      glowBlur: 14,
-    });
 
     const hasNext = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length && SONGS[lvlIdx + 1].playable;
     const nextUnlocked = hasNext && levelUnlocked(lvlIdx + 1); // po recordStars() w finish()

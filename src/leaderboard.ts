@@ -100,17 +100,36 @@ interface RemoteBoard {
 const remote = new Map<string, RemoteBoard>();
 const rkey = (songId: string, period: Period) => `${period}::${songId}`;
 
+// Które zakładki mają już zakończone pierwsze pobranie (sukces LUB błąd) —
+// dopóki trwa, UI pokazuje „wczytywanie" zamiast samego wypełniacza (boty),
+// żeby prawdziwa lista nie „doskakiwała" po sekundzie.
+const loaded = new Set<string>();
+const inflight = new Set<string>();
+
+/** Czy tablica jest gotowa do pokazania (mamy dane z serwera, backend jest
+ *  nieosiągalny = od razu wypełniacz, albo pierwsze pobranie się zakończyło). */
+export function boardReady(songId: string, period: Period): boolean {
+  if (!backendReachable()) return true;
+  return loaded.has(rkey(songId, period));
+}
+
 /** Pobiera aktualną tablicę utworu (dla danej zakładki) z serwera do cache. */
 export async function refreshBoard(songId: string, period: Period = "all"): Promise<void> {
   if (!backendReachable()) return;
+  const k = rkey(songId, period);
+  if (inflight.has(k)) return;
+  inflight.add(k);
   try {
     const r = await api<RemoteBoard>(
       `/api/scores?songId=${encodeURIComponent(songId)}&period=${period}`,
       getToken() ? { auth: true } : {},
     );
-    remote.set(rkey(songId, period), { top: r.top || [], me: r.me ?? null, total: r.total || 0 });
+    remote.set(k, { top: r.top || [], me: r.me ?? null, total: r.total || 0 });
   } catch {
     /* zostaje ostatnia znana kopia / sam wypełniacz */
+  } finally {
+    inflight.delete(k);
+    loaded.add(k);
   }
 }
 

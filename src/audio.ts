@@ -29,6 +29,7 @@ export class AudioEngine {
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
+  private mp3Buf: AudioBuffer | null = null; // bufor aktualnie granego mp3 (do wznowienia po tle)
   private sfxGain: GainNode | null = null;
   private uiGain: GainNode | null = null; // dźwięki interfejsu (menu / przyciski)
   private uiBuffers = new Map<UiKind, AudioBuffer>();
@@ -489,6 +490,43 @@ export class AudioEngine {
     }
   }
 
+  /** Wznowienie po powrocie z tła (kliknięcie GRAJ w menu pauzy). iOS podczas
+   *  dłuższej przerwy potrafi ubić źródło mp3 i keep-alive — samo `resume()`
+   *  wtedy nie przywraca dźwięku. Odbudowujemy keep-alive oraz źródło mp3 od
+   *  właściwej sekundy utworu (przechował ją zegar ścienny). Dla podkładu
+   *  syntezowanego nie ma czego odbudować — znane ograniczenie. */
+  async resumeMp3() {
+    await this.resumePlayback();
+    if (!this.ctx || !this.master || !this._running) return;
+    // keep-alive mógł zostać zakończony przez iOS — daj świeży
+    try {
+      this.keepAlive?.stop();
+    } catch {
+      /* już zatrzymany */
+    }
+    this.keepAlive = null;
+    this.startKeepAlive();
+    if (!this.mp3Buf) return; // synth — nic tu nie odtworzymy
+    try {
+      this.srcNode?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.srcNode = null;
+    const dur = this.mp3Buf.duration;
+    const pos = Math.max(0, this.wallElapsed() - this.leadIn);
+    if (pos >= dur - 0.1) return; // utwór i tak dobiega końca — gra zaraz zejdzie do wyników
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.mp3Buf;
+      src.connect(this.master);
+      src.start(0, Math.min(pos, dur - 0.05));
+      this.srcNode = src;
+    } catch {
+      /* ignore */
+    }
+  }
+
   get paused() {
     const s = this.ctx?.state as string | undefined;
     return this._running && (s === "suspended" || s === "interrupted");
@@ -499,6 +537,7 @@ export class AudioEngine {
     this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
     this.pausedTotalMs = 0;
     this.lastSongT = -Infinity;
+    this.mp3Buf = null;
     try {
       this.srcNode?.stop();
     } catch {
@@ -545,6 +584,7 @@ export class AudioEngine {
     if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
       const src = ctx.createBufferSource();
       src.buffer = this.trackBuffers.get(song.audioUrl)!;
+      this.mp3Buf = src.buffer;
       src.connect(this.master);
       const t0 = ctx.currentTime + this.leadIn;
       this.startTime = t0;
@@ -578,6 +618,7 @@ export class AudioEngine {
     }
 
     // --- syntezowany podkład ---
+    this.mp3Buf = null;
     const beat = 60 / song.bpm;
     const step = beat / 4;
     const t0 = ctx.currentTime + this.leadIn;

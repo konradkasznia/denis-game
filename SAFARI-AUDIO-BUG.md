@@ -39,6 +39,20 @@ został odbudowany (`ctx.close()` + `new AudioContext()`) POZA gestem. Wcześnie
 3. **`decodeAudioData` odłącza (detach) ArrayBuffer** — `this.decode(arr.slice(0))`,
    żeby po nieudanym dekodowaniu oryginał w `trackRaw` nadał się do retry.
 
+## Powrót z tła (2026-09-06)
+
+Osobny objaw: minimalizacja Safari podczas gry → powrót → GRAJ w menu pauzy →
+**muzyka nie wraca**. iOS podczas dłuższej przerwy ubija źródło mp3 i keep-alive;
+samo `ctx.resume()` (stare `resumePlayback()`) nie odtwarza dźwięku, a
+`clockAlive()` nie odróżnia tego od zwykłej krótkiej pauzy (oba zamrażają
+`ctx.currentTime` i oba są wyłączone z `wallElapsed()` przez `pausedTotalMs`).
+
+**Naprawa:** `audio.resumeMp3()` — po `resumePlayback()` bezwarunkowo odbudowuje
+keep-alive i odtwarza świeże źródło mp3 od `wallElapsed() - leadIn` (pozycję
+przechował zegar ścienny). Wołane z `game.ts` `update()` przy końcu odliczania
+3-2-1 z pauzy. `mp3Buf` trzyma bufor bieżącego utworu; podkład syntezowany =
+`null` (patrz TODO.md — synth po tle wciąż może zamilknąć).
+
 ## Jeśli regresja
 
 - Diagnostyka w błędzie: `[state=... t=... clock=ok|MARTWY  run=... resume×N ...]`.
