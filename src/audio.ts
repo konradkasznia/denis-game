@@ -29,7 +29,10 @@ export class AudioEngine {
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
-  private mp3Buf: AudioBuffer | null = null; // bufor aktualnie granego mp3 (do wznowienia po tle)
+  private mp3Buf: AudioBuffer | null = null; // bufor aktualnie granego podkładu (mp3 LUB pre-render syntezy) — do wznowienia po tle
+  private synthBuf: AudioBuffer | null = null; // pre-renderowany podkład syntezowany (cache per utwór)
+  private synthBufId = "";
+  private curSong: SongDef | null = null; // aktualnie grany utwór (do ewentualnego re-schedule syntezy)
   private sfxGain: GainNode | null = null;
   private uiGain: GainNode | null = null; // dźwięki interfejsu (menu / przyciski)
   private uiBuffers = new Map<UiKind, AudioBuffer>();
@@ -491,11 +494,12 @@ export class AudioEngine {
   }
 
   /** Wznowienie po powrocie z tła (kliknięcie GRAJ w menu pauzy). iOS podczas
-   *  dłuższej przerwy potrafi ubić źródło mp3 i keep-alive — samo `resume()`
-   *  wtedy nie przywraca dźwięku. Odbudowujemy keep-alive oraz źródło mp3 od
-   *  właściwej sekundy utworu (przechował ją zegar ścienny). Dla podkładu
-   *  syntezowanego nie ma czego odbudować — znane ograniczenie. */
-  async resumeMp3() {
+   *  dłuższej przerwy potrafi ubić źródło podkładu i keep-alive — samo `resume()`
+   *  wtedy nie przywraca dźwięku. Odbudowujemy keep-alive oraz źródło od właściwej
+   *  sekundy utworu (przechował ją zegar ścienny). Dotyczy i mp3, i pre-renderu
+   *  syntezy (oba w `mp3Buf`); dla syntezy „na żywo" (fallback bez OfflineAudioContext)
+   *  przekładamy aranż od bieżącej sekundy. */
+  async resumeFromBackground() {
     await this.resumePlayback();
     if (!this.ctx || !this.master || !this._running) return;
     // keep-alive mógł zostać zakończony przez iOS — daj świeży
@@ -506,24 +510,41 @@ export class AudioEngine {
     }
     this.keepAlive = null;
     this.startKeepAlive();
-    if (!this.mp3Buf) return; // synth — nic tu nie odtworzymy
+
     try {
       this.srcNode?.stop();
     } catch {
       /* ignore */
     }
     this.srcNode = null;
-    const dur = this.mp3Buf.duration;
     const pos = Math.max(0, this.wallElapsed() - this.leadIn);
-    if (pos >= dur - 0.1) return; // utwór i tak dobiega końca — gra zaraz zejdzie do wyników
-    try {
-      const src = this.ctx.createBufferSource();
-      src.buffer = this.mp3Buf;
-      src.connect(this.master);
-      src.start(0, Math.min(pos, dur - 0.05));
-      this.srcNode = src;
-    } catch {
-      /* ignore */
+
+    if (this.mp3Buf) {
+      const dur = this.mp3Buf.duration;
+      if (pos >= dur - 0.1) return; // utwór i tak dobiega końca — gra zaraz zejdzie do wyników
+      try {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.mp3Buf;
+        src.connect(this.master);
+        src.start(0, Math.min(pos, dur - 0.05));
+        this.srcNode = src;
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    // synteza „na żywo" — przełóż aranż tak, by pozycja 0 utworu wypadła `pos` s temu
+    if (this.curSong) {
+      this.killScheduled();
+      this.renderArrangement(
+        this.ctx,
+        this.master,
+        this.noiseBuffer ?? this.makeNoise(this.ctx),
+        this.curSong,
+        this.ctx.currentTime - pos,
+        (n) => this.track(n),
+      );
     }
   }
 
@@ -538,6 +559,7 @@ export class AudioEngine {
     this.pausedTotalMs = 0;
     this.lastSongT = -Infinity;
     this.mp3Buf = null;
+    this.curSong = null;
     try {
       this.srcNode?.stop();
     } catch {
@@ -555,10 +577,9 @@ export class AudioEngine {
     }
   }
 
-  /** Uruchamia zegar utworu: prawdziwy plik audio albo syntezowany podkład.
-   *  `leadInSec` = ile sekund od TERAZ zacznie grać dźwięk. Wołane na początku
-   *  odliczania z `leadInSec = 3` → `getSongTime()` sam zwraca -3 → 0 (jest
-   *  odliczaniem), a ciężkie kolejkowanie syntezy dzieje się gdy stoi „3". */
+  /** Uruchamia zegar utworu. Priorytet: 1) plik audio, 2) pre-render syntezy
+   *  (gra się jak plik — wznowienie po tle działa), 3) synteza na żywo (fallback).
+   *  `leadInSec` = ile sekund od TERAZ zacznie grać dźwięk (3 na czas odliczania). */
   start(song: SongDef, leadInSec = 0.25) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
@@ -579,90 +600,103 @@ export class AudioEngine {
     this.pausedTotalMs = 0;
     this.pauseStartMs = 0;
     this.lastSongT = -Infinity; // nowy przebieg — zegar może wrócić do ~0
-
-    // --- prawdziwy plik audio ---
-    if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
-      const src = ctx.createBufferSource();
-      src.buffer = this.trackBuffers.get(song.audioUrl)!;
-      this.mp3Buf = src.buffer;
-      src.connect(this.master);
-      const t0 = ctx.currentTime + this.leadIn;
-      this.startTime = t0;
-      this._running = true;
-      // jeśli zegar ctx nie ruszy w ~0.4 s (błąd iOS), wystartuj źródło „od razu"
-      // (bez czasu docelowego), żeby dźwięk w ogóle poszedł
-      src.start(t0);
-      this.srcNode = src;
-      setTimeout(() => {
-        if (this._running && this.srcNode === src && !this.clockAlive()) {
-          try {
-            src.stop();
-          } catch {
-            /* ignore */
-          }
-          try {
-            const s2 = ctx.createBufferSource();
-            s2.buffer = src.buffer;
-            s2.connect(this.master!);
-            // wznów od WŁAŚCIWEJ pozycji utworu (zegar ścienny), nie od zera —
-            // inaczej po „martwym" zegarze muzyka leciała od początku
-            const pos = Math.max(0, this.wallElapsed() - this.leadIn);
-            s2.start(0, Math.min(pos, (s2.buffer?.duration ?? pos) - 0.05));
-            this.srcNode = s2;
-          } catch {
-            /* ignore */
-          }
-        }
-      }, 450);
-      return;
-    }
-
-    // --- syntezowany podkład ---
-    this.mp3Buf = null;
-    const beat = 60 / song.bpm;
-    const step = beat / 4;
+    this.curSong = song;
     const t0 = ctx.currentTime + this.leadIn;
     this.startTime = t0;
     this._running = true;
 
-    // Progresja basu: Am – F – C – G (po jednym akordzie na 2 takty)
-    const roots = [55.0, 43.65, 65.41, 49.0]; // A1, F1, C2, G1
-    const arpSemis = [0, 7, 12, 7];
+    // 1) prawdziwy plik audio
+    if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
+      this.playBuffer(this.trackBuffers.get(song.audioUrl)!, t0);
+      return;
+    }
+    // 2) pre-renderowany podkład syntezowany — jeden węzeł, jak plik
+    if (this.synthBuf && this.synthBufId === song.id) {
+      this.playBuffer(this.synthBuf, t0);
+      return;
+    }
+    // 3) fallback: kolejkowanie syntezy na żywo. Po dłuższym zejściu w tło iOS
+    //    potrafi ubić te głosy — resumeFromBackground() przekłada aranż.
+    this.mp3Buf = null;
+    this.renderArrangement(ctx, this.master, this.noiseBuffer ?? this.makeNoise(ctx), song, t0, (n) =>
+      this.track(n),
+    );
+  }
 
-    // twardy limit taktów: ~66 węzłów/takt, więc beatmapa z edytora z długim
-    // `duration` (np. 157 s = ~980 taktów) zbudowałaby ~65 tys. węzłów naraz
-    // i zamroziła wątek. 48 taktów ≈ 76 s podkładu — grywalne, bezpieczne.
+  /** Gra bufor podkładu (plik mp3 albo pre-render syntezy) od pozycji 0 utworu,
+   *  startując o `t0`. Zabezpieczenie iOS: gdy zegar ctx nie ruszy w ~0.45 s,
+   *  restart źródła od właściwej sekundy (zegar ścienny). */
+  private playBuffer(buf: AudioBuffer, t0: number) {
+    const ctx = this.ctx!;
+    this.mp3Buf = buf;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.master!);
+    src.start(t0);
+    this.srcNode = src;
+    setTimeout(() => {
+      if (this._running && this.srcNode === src && !this.clockAlive()) {
+        try {
+          src.stop();
+        } catch {
+          /* ignore */
+        }
+        try {
+          const s2 = ctx.createBufferSource();
+          s2.buffer = buf;
+          s2.connect(this.master!);
+          const pos = Math.max(0, this.wallElapsed() - this.leadIn);
+          s2.start(0, Math.min(pos, (buf.duration ?? pos) - 0.05));
+          this.srcNode = s2;
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 450);
+  }
+
+  /** Pre-renderuje syntezowany podkład do jednego bufora (OfflineAudioContext).
+   *  Dzięki temu `start()` gra go jak plik mp3: jeden węzeł, wznowienie od dowolnej
+   *  sekundy po powrocie z tła, zero setek kolejkowanych oscylatorów które iOS ubija.
+   *  Wołane w `prepareSong` przed odliczaniem. Cache per utwór (bpm/bars różnią render). */
+  async renderSynth(song: SongDef): Promise<void> {
+    if (this.synthBuf && this.synthBufId === song.id) return;
+    const OAC: typeof OfflineAudioContext | undefined =
+      (window as { OfflineAudioContext?: typeof OfflineAudioContext; webkitOfflineAudioContext?: typeof OfflineAudioContext })
+        .OfflineAudioContext ||
+      (window as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    if (!OAC) return; // brak → start() użyje ścieżki „na żywo"
+    const step = 60 / (song.bpm || 120) / 4;
     const barCount = Math.min(song.bars, 48);
-    for (let bar = 0; bar < barCount; bar++) {
-      const barStart = t0 + bar * 16 * step;
-      const root = roots[Math.floor(bar / 2) % roots.length];
-      const playBeat = bar >= song.startBar;
-
-      // stopa
-      [0, 4, 8, 12].forEach((s) => this.kick(barStart + s * step));
-      // werbel
-      [4, 12].forEach((s) => this.snare(barStart + s * step));
-      // hi-hat na ósemkach
-      for (let s = 0; s < 16; s += 2) this.hat(barStart + s * step, s % 4 === 0 ? 0.14 : 0.09);
-      // bas — pulsujące ósemki, oktawowy bounce
-      for (let s = 0; s < 16; s += 2) {
-        const oct = s % 4 === 0 ? 1 : 2;
-        this.bass(barStart + s * step, root * oct, step * 1.6);
-      }
-      // delikatne arpeggio w gęstszych taktach
-      const busy = playBeat && ((bar >= 8 && bar < 14) || (bar >= 18 && bar < 24));
-      if (busy) {
-        [2, 6, 10, 14].forEach((s, i) => {
-          const semi = arpSemis[i % arpSemis.length];
-          this.pluck(barStart + s * step, root * 4 * Math.pow(2, semi / 12));
-        });
-      }
+    const sr = 44100;
+    const lenSec = barCount * 16 * step + 0.6;
+    let oac: OfflineAudioContext;
+    try {
+      oac = new OAC(1, Math.max(1, Math.ceil(lenSec * sr)), sr);
+    } catch {
+      return;
+    }
+    const master = oac.createGain();
+    master.gain.value = 0.9;
+    const comp = oac.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.ratio.value = 4;
+    master.connect(comp).connect(oac.destination);
+    // pozycja 0 bufora = pozycja 0 utworu (bez ciszy lead-in — dobiera ją start()/resume)
+    this.renderArrangement(oac, master, this.makeNoise(oac), song, 0);
+    try {
+      const buf = await oac.startRendering();
+      this.synthBuf = buf;
+      this.synthBufId = song.id;
+    } catch {
+      this.synthBuf = null;
+      this.synthBufId = "";
     }
   }
 
   // ---- głosy syntezy ----------------------------------------------------
 
-  private makeNoise(ctx: AudioContext): AudioBuffer {
+  private makeNoise(ctx: BaseAudioContext): AudioBuffer {
     const len = ctx.sampleRate * 1.0;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -670,8 +704,52 @@ export class AudioEngine {
     return buf;
   }
 
-  private kick(t: number) {
-    const ctx = this.ctx!;
+  /** Kolejkuje cały aranż podkładu (perkusja + bas + arp) do podanego kontekstu.
+   *  Używane i na żywo (`ctx` = AudioContext, `sink` śledzi głosy do `killScheduled`),
+   *  i offline (`ctx` = OfflineAudioContext, bez śledzenia) — patrz `renderSynth`. */
+  private renderArrangement(
+    ctx: BaseAudioContext,
+    dest: AudioNode,
+    noise: AudioBuffer,
+    song: SongDef,
+    t0: number,
+    sink?: (n: AudioScheduledSourceNode) => void,
+  ) {
+    const keep = sink ?? (() => {});
+    const beat = 60 / song.bpm;
+    const step = beat / 4;
+
+    const roots = [55.0, 43.65, 65.41, 49.0]; // A1, F1, C2, G1
+    const arpSemis = [0, 7, 12, 7];
+
+    // twardy limit taktów: ~66 węzłów/takt — 48 taktów jest bezpieczne dla
+    // ścieżki „na żywo" (offline i tak radzi sobie z więcej, ale trzymamy spójnie).
+    const barCount = Math.min(song.bars, 48);
+    for (let bar = 0; bar < barCount; bar++) {
+      const barStart = t0 + bar * 16 * step;
+      const root = roots[Math.floor(bar / 2) % roots.length];
+      const playBeat = bar >= song.startBar;
+
+      [0, 4, 8, 12].forEach((s) => this.kick(ctx, dest, barStart + s * step, keep));
+      [4, 12].forEach((s) => this.snare(ctx, dest, noise, barStart + s * step, keep));
+      for (let s = 0; s < 16; s += 2)
+        this.hat(ctx, dest, noise, barStart + s * step, s % 4 === 0 ? 0.14 : 0.09, keep);
+      for (let s = 0; s < 16; s += 2) {
+        const oct = s % 4 === 0 ? 1 : 2;
+        this.bass(ctx, dest, barStart + s * step, root * oct, step * 1.6, keep);
+      }
+      const busy = playBeat && ((bar >= 8 && bar < 14) || (bar >= 18 && bar < 24));
+      if (busy) {
+        [2, 6, 10, 14].forEach((s, i) => {
+          const semi = arpSemis[i % arpSemis.length];
+          this.pluck(ctx, dest, barStart + s * step, root * 4 * Math.pow(2, semi / 12), keep);
+        });
+      }
+    }
+  }
+
+  private kick(ctx: BaseAudioContext, dest: AudioNode, t: number, keep: (n: AudioScheduledSourceNode) => void) {
+    if (t < ctx.currentTime) return; // głos w przeszłości (re-schedule po tle) — pomiń
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = "sine";
@@ -680,15 +758,22 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.95, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
-    o.connect(g).connect(this.master!);
-    this.track(o).start(t);
+    o.connect(g).connect(dest);
+    o.start(t);
     o.stop(t + 0.3);
+    keep(o);
   }
 
-  private snare(t: number) {
-    const ctx = this.ctx!;
+  private snare(
+    ctx: BaseAudioContext,
+    dest: AudioNode,
+    noise: AudioBuffer,
+    t: number,
+    keep: (n: AudioScheduledSourceNode) => void,
+  ) {
+    if (t < ctx.currentTime) return;
     const n = ctx.createBufferSource();
-    n.buffer = this.noiseBuffer;
+    n.buffer = noise;
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.value = 1900;
@@ -696,9 +781,10 @@ export class AudioEngine {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.5, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-    n.connect(bp).connect(g).connect(this.master!);
-    this.track(n).start(t);
+    n.connect(bp).connect(g).connect(dest);
+    n.start(t);
     n.stop(t + 0.2);
+    keep(n);
 
     const o = ctx.createOscillator();
     const og = ctx.createGain();
@@ -706,28 +792,44 @@ export class AudioEngine {
     o.frequency.setValueAtTime(180, t);
     og.gain.setValueAtTime(0.25, t);
     og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    o.connect(og).connect(this.master!);
-    this.track(o).start(t);
+    o.connect(og).connect(dest);
+    o.start(t);
     o.stop(t + 0.13);
+    keep(o);
   }
 
-  private hat(t: number, gain: number) {
-    const ctx = this.ctx!;
+  private hat(
+    ctx: BaseAudioContext,
+    dest: AudioNode,
+    noise: AudioBuffer,
+    t: number,
+    gain: number,
+    keep: (n: AudioScheduledSourceNode) => void,
+  ) {
+    if (t < ctx.currentTime) return;
     const n = ctx.createBufferSource();
-    n.buffer = this.noiseBuffer;
+    n.buffer = noise;
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 7200;
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-    n.connect(hp).connect(g).connect(this.master!);
-    this.track(n).start(t);
+    n.connect(hp).connect(g).connect(dest);
+    n.start(t);
     n.stop(t + 0.06);
+    keep(n);
   }
 
-  private bass(t: number, freq: number, dur: number) {
-    const ctx = this.ctx!;
+  private bass(
+    ctx: BaseAudioContext,
+    dest: AudioNode,
+    t: number,
+    freq: number,
+    dur: number,
+    keep: (n: AudioScheduledSourceNode) => void,
+  ) {
+    if (t < ctx.currentTime) return;
     const o = ctx.createOscillator();
     const lp = ctx.createBiquadFilter();
     const g = ctx.createGain();
@@ -738,13 +840,20 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(lp).connect(g).connect(this.master!);
-    this.track(o).start(t);
+    o.connect(lp).connect(g).connect(dest);
+    o.start(t);
     o.stop(t + dur + 0.05);
+    keep(o);
   }
 
-  private pluck(t: number, freq: number) {
-    const ctx = this.ctx!;
+  private pluck(
+    ctx: BaseAudioContext,
+    dest: AudioNode,
+    t: number,
+    freq: number,
+    keep: (n: AudioScheduledSourceNode) => void,
+  ) {
+    if (t < ctx.currentTime) return;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = "triangle";
@@ -752,8 +861,9 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-    o.connect(g).connect(this.master!);
-    this.track(o).start(t);
+    o.connect(g).connect(dest);
+    o.start(t);
     o.stop(t + 0.25);
+    keep(o);
   }
 }

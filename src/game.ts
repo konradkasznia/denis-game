@@ -741,8 +741,8 @@ export class Game {
     if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
       this.paused = false;
       this.resumeAt = 0;
-      // odbudowa źródła mp3 + keep-alive — iOS po powrocie z tła potrafi je ubić
-      void this.audio.resumeMp3();
+      // odbudowa źródła podkładu + keep-alive — iOS po powrocie z tła potrafi je ubić
+      void this.audio.resumeFromBackground();
     }
     if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       // zegar utworu = zegar audio przez CAŁY czas (odliczanie zwraca -3 → 0)
@@ -2167,6 +2167,13 @@ export class Game {
         }
       }
       if (!guard()) return;
+      // brak grywalnego mp3 → pre-renderuj podkład syntezowany do bufora, żeby
+      // grał się jak plik (wznowienie po powrocie z tła działa tak samo jak dla mp3)
+      if (!song.audioUrl || !this.audio.isTrackLoaded(song.audioUrl)) {
+        this.prepStep = "przygotowanie podkładu";
+        await this.audio.renderSynth(song);
+        if (!guard()) return;
+      }
       this.song = song;
     } catch (e) {
       if (guard()) {
