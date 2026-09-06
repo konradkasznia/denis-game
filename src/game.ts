@@ -126,11 +126,12 @@ const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
 const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 
-// znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków
+// znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
+// Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
+// wyśrodkowana względem grafiki postaci (charRect) — patrz drawHits.
 const HIT_SIGN_R = 34;
-const HIT_SIGN_X = VW - 16 - HIT_SIGN_R;
-const HIT_SIGN_Y0 = 452; // środek pierwszego znaku
-const HIT_SIGN_DY = 90; // odstęp środków
+const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
+const HIT_SIGN_DY = 88; // odstęp środków w kolumnie
 
 type ObstacleKind = "bomb" | "vodka" | "flashlight";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
@@ -143,7 +144,7 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
     body: "Każda bomba blokuje ekran i odejmuje punkty. Nie klikaj jej, przepuść ją, a zniknie sama.",
   },
   vodka: {
-    title: "UWAŻAJ NA WÓDKĘ",
+    title: "PIJANA TRASA",
     body: "Ekran zaczyna wirować i się chwiać. Nuty lecą dalej, więc musisz grać na chwiejnym obrazie.",
   },
   flashlight: {
@@ -3430,16 +3431,17 @@ export class Game {
     const info = OBSTACLE_INFO[kind];
     this.fillViewport(ctx, "rgba(4,4,10,0.82)");
 
-    const pw = VW - 96;
-    const px = 48;
-    const lines = wrapText(info.body, 30);
-    const prevW = pw - 64;
-    const prevH = 196;
+    const pw = VW - 48;
+    const px = 24;
+    const lineH = 36;
+    const lines = wrapText(info.body, 40);
+    const prevW = pw - 56;
+    const prevH = 210;
     const btnH = MODAL_OK.h;
-    const bodyTop = 168;
-    const prevGap = 14;
-    const ph = bodyTop + lines.length * 32 + prevGap + prevH + 24 + btnH + 40;
-    const py = Math.max(24, (VH - ph) / 2);
+    const bodyTop = 182;
+    const prevGap = 18;
+    const ph = bodyTop + lines.length * lineH + prevGap + prevH + 26 + btnH + 40;
+    const py = Math.max(20, (VH - ph) / 2);
 
     ctx.fillStyle = "#15121c";
     roundRect(ctx, px, py, pw, ph, 26);
@@ -3449,20 +3451,20 @@ export class Game {
     roundRect(ctx, px, py, pw, ph, 26);
     ctx.stroke();
 
-    this.drawWarnSign(ctx, VW / 2, py + 64, 42, kind);
-    text(ctx, info.title, VW / 2, py + 132, {
-      size: 30,
+    this.drawWarnSign(ctx, VW / 2, py + 66, 44, kind);
+    text(ctx, info.title, VW / 2, py + 140, {
+      size: 34,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffd24c",
       shadows: HEAD_SHADOWS,
     });
     lines.forEach((ln, i) =>
-      text(ctx, ln, VW / 2, py + bodyTop + i * 32, { size: 19, color: "#d8cbbb" }),
+      text(ctx, ln, VW / 2, py + bodyTop + i * lineH, { size: 23, color: "#e2d7c7" }),
     );
 
     const prevX = VW / 2 - prevW / 2;
-    const prevY = py + bodyTop + lines.length * 32 + prevGap;
+    const prevY = py + bodyTop + lines.length * lineH + prevGap;
     ctx.save();
     roundRect(ctx, prevX, prevY, prevW, prevH, 14);
     ctx.clip();
@@ -3483,7 +3485,7 @@ export class Game {
 
     this.obstacleOkRect = {
       x: VW / 2 - MODAL_OK.w / 2,
-      y: prevY + prevH + 24,
+      y: prevY + prevH + 26,
       w: MODAL_OK.w,
       h: btnH,
     };
@@ -3553,23 +3555,45 @@ export class Game {
       const c = t % 3.4;
       const deton = c >= 1.15 && c < 1.95;
       const stun = c >= 1.15 && c < 3.0;
-      field(stun, [
-        { lane: 0, off: 0.2 },
-        { lane: 3, off: 0.62 },
-      ]);
-      if (c < 1.35) {
+      // bez lecących nut — ma być jasne, że jedzie BOMBA, nie zwykła nuta
+      field(stun, []);
+      if (c < 1.32) {
         const p = Math.min(c / 1.15, 1);
         const bx = lanesX[1];
         const x = vx + (bx - vx) * (0.05 + 0.95 * p);
         const y = vy + (hitY - vy) * p;
-        const rr = 3 + 10 * p;
-        ctx.beginPath();
-        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        const br = 8 + 16 * p; // wyraźnie większa niż nuta, rośnie w drodze
+        ctx.save();
+        ctx.translate(x, y);
+        // korpus
         ctx.fillStyle = "#141018";
+        ctx.beginPath();
+        ctx.arc(0, 0, br, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#ff7a2f";
-        ctx.lineWidth = 2;
+        // szyjka
+        ctx.fillRect(-br * 0.28, -br * 1.25, br * 0.56, br * 0.5);
+        // lont + iskra
+        ctx.strokeStyle = "#c98a4a";
+        ctx.lineWidth = Math.max(2, br * 0.16);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(br * 0.05, -br * 1.15);
+        ctx.quadraticCurveTo(br * 1.1, -br * 1.35, br * 0.85, -br * 1.9);
         ctx.stroke();
+        const spark = 0.6 + 0.4 * Math.sin(t * 30);
+        ctx.fillStyle = `rgba(255,${170 + 60 * spark},${60})`;
+        ctx.shadowColor = "#ff9a3c";
+        ctx.shadowBlur = 10 * spark;
+        ctx.beginPath();
+        ctx.arc(br * 0.85, -br * 1.95, br * (0.28 + 0.12 * spark), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // refleks
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        ctx.beginPath();
+        ctx.arc(-br * 0.34, -br * 0.34, br * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
       }
       if (deton) {
         const k = (c - 1.15) / 0.8;
@@ -3583,27 +3607,18 @@ export class Game {
         ctx.fillRect(ox, oy, ow, oh);
       }
       if (stun) {
-        ctx.fillStyle = "rgba(3,2,8,0.62)";
+        ctx.fillStyle = "rgba(3,2,8,0.64)";
         ctx.fillRect(ox, oy, ow, oh);
-        text(ctx, "BOMBA!  -100", ox + ow / 2, oy + oh / 2 - 4, {
-          size: 18,
+        text(ctx, "BOMBA!  -100", ox + ow / 2, oy + oh / 2 - 8, {
+          size: 24,
           weight: "900",
           font: HEAD_FONT,
           color: "#ff5a3c",
         });
-        text(ctx, "ekran zablokowany 3 s", ox + ow / 2, oy + oh / 2 + 18, {
-          size: 12,
+        text(ctx, "ekran zablokowany 3 s", ox + ow / 2, oy + oh / 2 + 22, {
+          size: 15,
           weight: "700",
           color: "#ffd7cc",
-        });
-      }
-      if (c >= 1.15 && c < 2.4) {
-        const k = (c - 1.15) / 1.25;
-        text(ctx, "-100", lanesX[1], hitY - 16 - k * 42, {
-          size: 17,
-          weight: "900",
-          font: HEAD_FONT,
-          color: `rgba(255,90,60,${1 - k})`,
         });
       }
     } else if (kind === "vodka") {
@@ -3624,8 +3639,8 @@ export class Game {
         { lane: 3, off: 0.34 },
       ]);
       ctx.restore();
-      text(ctx, "PIJANY EKRAN · 5 s", ox + ow / 2, oy + 16, {
-        size: 12,
+      text(ctx, "PIJANA TRASA · 5 s", ox + ow / 2, oy + 17, {
+        size: 13,
         weight: "900",
         font: HEAD_FONT,
         color: "rgba(255,206,138,0.9)",
@@ -3648,8 +3663,8 @@ export class Game {
       g.addColorStop(1, `rgba(2,2,6,${0.97 * m})`);
       ctx.fillStyle = g;
       ctx.fillRect(ox, oy, ow, oh);
-      text(ctx, "CIEMNOŚĆ · 6 s", ox + ow / 2, oy + 16, {
-        size: 12,
+      text(ctx, "CIEMNOŚĆ · 6 s", ox + ow / 2, oy + 17, {
+        size: 13,
         weight: "900",
         font: HEAD_FONT,
         color: `rgba(255,206,138,${0.5 + 0.5 * m})`,
@@ -3893,12 +3908,20 @@ export class Game {
       this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
     }
 
-    // znaki ostrzegawcze o przeszkodach — prawa krawędź, tylko Pogrzebówka
+    // znaki ostrzegawcze o przeszkodach — prawa krawędź, tylko Pogrzebówka.
+    // Kolumna wyśrodkowana w pionie względem grafiki postaci (charRect).
     const signs = unlocked ? SLIDER_OBSTACLES[meta.id] : undefined;
-    if (signs) {
+    if (signs && signs.length) {
+      const span = (signs.length - 1) * HIT_SIGN_DY;
+      const charMid = this.charRect.y + this.charRect.h / 2;
+      const top = clamp(
+        charMid - span / 2,
+        HIT_TITLE_Y + 46 + HIT_SIGN_R + 8,
+        this.hb(HIT_GRAJ).y - 20 - HIT_SIGN_R - span,
+      );
       signs.forEach((kind, i) => {
         const cx = HIT_SIGN_X;
-        const cy = HIT_SIGN_Y0 + i * HIT_SIGN_DY;
+        const cy = top + i * HIT_SIGN_DY;
         ctx.save();
         ctx.fillStyle = "rgba(8,6,12,0.5)";
         ctx.beginPath();
