@@ -63,6 +63,23 @@ live (fallback, gdy brak `OfflineAudioContext`) i offline. Guard
 `t < ctx.currentTime` w każdym głosie chroni re-schedule po tle przed
 wysypaniem przeszłych głosów naraz.
 
+## Głębokie tło — RESZTKOWY problem (2026-09-06, web Safari)
+
+Zgłoszenie Konrada: minimalizacja gry + **wygaszenie ekranu** + powrót po dłuższej
+chwili → nie wraca ANI muzyka, ANI dźwięki klawiszy; pomaga tylko reload strony.
+To scenariusz cięższy niż zwykłe „przełącz apkę": WebKit ubija cały wątek renderu
+audio i sam `resume()` (nawet z keep-alive) go nie wskrzesza. `resumeFromBackground()`
+tego nie ratuje — jedyny pewny fix na WebKicie to `ctx.close()` + `new AudioContext()`
+w świeżym geście (historycznie psuł inne rzeczy, więc tylko za wyraźnym „stuknij, aby
+wznowić dźwięk").
+
+**Decyzja: NIE naprawiamy tego dla web-Safari.** Apka jest docelowo natywna (Capacitor),
+a mobilny Safari to najgorsze możliwe środowisko dla WebAudio (kategoria `ambient`,
+agresywne dławienie w tle). W APK mamy `AVAudioSession` (kategoria `playback`) i lepszy
+lifecycle. **Do zrobienia przed premierą:** ustawić kategorię audio w APK i przetestować
+ten sam scenariusz na urządzeniu; jeśli w APK też pada — dołożyć watchdog + „stuknij, aby
+wznowić dźwięk" z twardym rebuildem kontekstu. Zapis w `TODO.md`.
+
 ## Jeśli regresja
 
 - Diagnostyka w błędzie: `[state=... t=... clock=ok|MARTWY  run=... resume×N ...]`.
