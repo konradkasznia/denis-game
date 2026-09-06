@@ -47,11 +47,21 @@ samo `ctx.resume()` (stare `resumePlayback()`) nie odtwarza dźwięku, a
 `clockAlive()` nie odróżnia tego od zwykłej krótkiej pauzy (oba zamrażają
 `ctx.currentTime` i oba są wyłączone z `wallElapsed()` przez `pausedTotalMs`).
 
-**Naprawa:** `audio.resumeMp3()` — po `resumePlayback()` bezwarunkowo odbudowuje
-keep-alive i odtwarza świeże źródło mp3 od `wallElapsed() - leadIn` (pozycję
-przechował zegar ścienny). Wołane z `game.ts` `update()` przy końcu odliczania
-3-2-1 z pauzy. `mp3Buf` trzyma bufor bieżącego utworu; podkład syntezowany =
-`null` (patrz TODO.md — synth po tle wciąż może zamilknąć).
+**Naprawa:** `audio.resumeFromBackground()` (dawniej `resumeMp3`) — po
+`resumePlayback()` bezwarunkowo odbudowuje keep-alive i odtwarza świeże źródło
+podkładu od `wallElapsed() - leadIn` (pozycję przechował zegar ścienny). Wołane
+z `game.ts` `update()` przy końcu odliczania 3-2-1 z pauzy.
+
+**Podkład syntezowany (2026-09-06):** żeby synth też był odporny na tło,
+`audio.renderSynth(song)` renderuje cały aranż raz do jednego `AudioBuffer`
+przez `OfflineAudioContext` (w `prepareSong`, przed odliczaniem). `start()` gra
+go przez `playBuffer()` — tę samą ścieżkę co mp3 — więc `mp3Buf` jest ustawiony
+i `resumeFromBackground()` wznawia synth identycznie jak plik. Zniknęły „setki
+kolejkowanych oscylatorów", które iOS ubijał. Głosy (`kick`/`snare`/`hat`/
+`bass`/`pluck`) + aranż = `renderArrangement(ctx, dest, …)`, wspólne dla ścieżki
+live (fallback, gdy brak `OfflineAudioContext`) i offline. Guard
+`t < ctx.currentTime` w każdym głosie chroni re-schedule po tle przed
+wysypaniem przeszłych głosów naraz.
 
 ## Jeśli regresja
 
@@ -75,6 +85,7 @@ Robić dopiero jeśli keep-alive okaże się niestabilny między wersjami iOS.
 ## Pliki
 
 - `src/audio.ts` — `_unlock()`, `startKeepAlive()`, `buildCtx()`, `getSongTime()`,
-  `clockAlive()`, `wallElapsed()`, `pause()`/`resumePlayback()`, `start()`, `diag()`.
+  `clockAlive()`, `wallElapsed()`, `pause()`/`resumePlayback()`, `start()`, `diag()`,
+  `renderSynth()`, `playBuffer()`, `renderArrangement()`, `resumeFromBackground()`.
 - `src/game.ts` — watchdog w `update()` (~L456), GRAJ w `handleHitsTap` (~L1443),
   `preloadHitAudio` (~L1378, woła `prefetch`), modal (~L956, woła `unlock`).

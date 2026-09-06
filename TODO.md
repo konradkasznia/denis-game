@@ -15,8 +15,11 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
 
 ## Audio (iOS)
 
-- [ ] **Podkład syntezowany po powrocie z tła** — `resumeMp3()` odbudowuje tylko
-      źródło mp3. Dla utworów bez mp3 (`ksiaze-z-bajki`) po dłuższym zejściu w tło
-      synth może zamilknąć (iOS ubija zakolejkowane oscylatory). Do zrobienia:
-      seek-aware restart podkładu syntezowanego od bieżącej sekundy. Patrz
-      `SAFARI-AUDIO-BUG.md`.
+- [x] ~~Podkład syntezowany po powrocie z tła~~ — ZROBIONE (2026-09-06):
+      `audio.renderSynth()` pre-renderuje aranż do jednego `AudioBuffer`
+      (OfflineAudioContext), `start()` gra go jak mp3, `resumeFromBackground()`
+      wznawia od właściwej sekundy. Fallback (brak OfflineAudioContext):
+      przełożenie live-aranżu. Patrz `SAFARI-AUDIO-BUG.md`.
+- [ ] **Docelowo: prawdziwe mp3 pod rundy 2–3** — synth to placeholder.
+      Gdy będą pliki, `public/charts/<id>.json` z `audioUrl` + realny chart;
+      pre-render syntezy przestanie być używany dla tych utworów.
