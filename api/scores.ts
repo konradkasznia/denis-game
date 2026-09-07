@@ -39,7 +39,9 @@ async function songMeta(c: Client, songId: string): Promise<{ notes: number; sec
   } catch {
     /* brak tabeli / uszkodzone dane — lecimy na wartości znane / domyślne */
   }
-  return { notes, seconds };
+  // klamra na wypadek literówki w opublikowanym charcie (np. duration 6000) —
+  // bramka anty-farm nie może przez błąd danych zablokować uczciwego gracza
+  return { notes, seconds: Math.max(60, Math.min(seconds, 420)) };
 }
 
 const maxScoreFor = (notes: number) => Math.round(notes * 3800 + 150000);
@@ -151,10 +153,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // --- anty-farm monet ---
     // Monety za dany utwór przyznajemy najwyżej raz na 0,85 × długość utworu.
-    // Uczciwy gracz i tak spędza całą długość utworu grając (plus ekran wyników
-    // i odliczanie między przebiegami), więc nigdy w tę bramkę nie wpadnie —
-    // a skrypt POST-ujący wynik co kilka sekund dostaje 0 monet aż do upływu
-    // czasu, w którym REALNIE dałoby się utwór zagrać jeszcze raz.
+    // Mierzymy WYŁĄCZNIE czas serwera między dwiema wypłatami monet (`coin_at`
+    // przy poprzednim przyznaniu vs `Date.now()` teraz). Klient nie przysyła
+    // żadnego czasu — tylko songId + score + stars.
+    //   • Uczciwy gracz i tak spędza całą długość utworu grając (plus ekran
+    //     wyników i odliczanie), więc nigdy w tę bramkę nie wpada.
+    //   • PAUZA nie pomaga farmić: wydłuża realny czas przebiegu, czyli tylko
+    //     ZWIĘKSZA odstęp `Date.now() - prevCoinMs`. Nie da się nią skrócić
+    //     drogi do kolejnej wypłaty ani zwiększyć liczby monet (te = floor(
+    //     score/10000), a score nie rośnie w pauzie).
+    //   • Skrypt POST-ujący wynik co kilka sekund dostaje 0 monet aż do upływu
+    //     czasu, w którym REALNIE dałoby się utwór zagrać jeszcze raz.
     const prevCoinMs = Date.parse(String(prev.rows[0]?.coin_at ?? "")) || 0;
     const gateMs = meta.seconds * 1000 * 0.85;
     const coinEligible = Date.now() - prevCoinMs >= gateMs;
