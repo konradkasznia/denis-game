@@ -1329,7 +1329,27 @@ $<HTMLButtonElement>("pullchart").addEventListener("click", async () => {
       return;
     }
     applyChart(j.chart);
-    setPub(`wczytano z serwera ✓  ${j.chart.notes?.length ?? 0} nut`);
+    const n = j.chart.notes?.length ?? 0;
+
+    // MUZYKA: jeśli lokalnie brak / cichy podkład — dociągnij mp3 z serwera
+    // (repo albo to wgrane wcześniej przez „Wyślij do aplikacji").
+    if (isRealAudioBlob(await audioGet(id))) {
+      setPub(`wczytano z serwera ✓  ${n} nut (muzyka już jest)`);
+      return;
+    }
+    setPub(`mapa ${n} nut ✓ — pobieram muzykę…`);
+    const mp3 = await fetchSongAudio(id);
+    if (!mp3) {
+      setPub(`wczytano ${n} nut ✓ — brak mp3 na serwerze, przeciągnij plik ręcznie`, true);
+      return;
+    }
+    await audioPut(id, mp3);
+    try {
+      await decodeInto(mp3, true);
+      setPub(`wczytano z serwera ✓  ${n} nut + muzyka (${(mp3.size / 1048576).toFixed(1)} MB)`);
+    } catch {
+      setPub(`wczytano ${n} nut ✓, ale mp3 się nie zdekodowało — spróbuj wgrać ręcznie`, true);
+    }
   } catch {
     setPub("brak połączenia z serwerem", true);
   }
