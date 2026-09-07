@@ -4135,31 +4135,9 @@ export class Game {
     this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
   }
 
-  /** Przycisk „🪙 ODBLOKUJ / za X monet" (styl jak GRAJ, dwuwierszowy z monetami). */
+  /** Przycisk odblokowania poziomu za monety — jeden wiersz, font jak GRAJ. */
   private drawUnlockButton(ctx: CanvasRenderingContext2D, r: Rect, price: number) {
-    this.styledBtn(ctx, r, "", "gold");
-    const faceH = r.h - Math.round(r.h * 0.14);
-    // stos monet po lewej
-    this.drawCoinStack(ctx, r.x + 46, r.y + faceH / 2, 20);
-    // dwa wiersze tekstu, przesunięte w prawo od monet
-    const tx = r.x + 44 + (r.w - 44) / 2;
-    text(ctx, "ODBLOKUJ", tx, r.y + faceH / 2 - 15, {
-      size: 30,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#fff",
-      stroke: "#70380b",
-      strokeWidth: 5,
-      shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.4)" }],
-    });
-    text(ctx, `za ${fmtCoinsFull(price)} monet`, tx, r.y + faceH / 2 + 17, {
-      size: 20,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#fff",
-      stroke: "#70380b",
-      strokeWidth: 4,
-    });
+    this.styledBtn(ctx, r, `ODBLOKUJ ZA ${fmtCoinsFull(price)} MONET!`, "gold");
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
@@ -6361,8 +6339,17 @@ export class Game {
       ctx.restore();
     }
 
+    let fsize = label.length > 12 ? 32 : 36;
+    ctx.save();
+    ctx.font = `900 ${fsize}px ${HEAD_FONT}`;
+    const mw = ctx.measureText(label)?.width;
+    ctx.restore();
+    const avail = r.w - 44;
+    if (typeof mw === "number" && mw > 0 && mw > avail) {
+      fsize = Math.max(18, Math.floor((fsize * avail) / mw));
+    }
     text(ctx, label, r.x + r.w / 2, r.y + faceH / 2 + 1, {
-      size: label.length > 12 ? 32 : 36,
+      size: fsize,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff",
