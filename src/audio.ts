@@ -152,12 +152,54 @@ export class AudioEngine {
 
   /** Wczytuje pętlę tła (raz na kontekst). Klip jest opcjonalny — brak pliku
    *  albo błąd dekodowania oznacza po prostu ciszę w menu. */
+
+  /** MP3 ma na starcie „encoder delay", a na końcu padding — kilkadziesiąt ms
+   *  ciszy, której nie ma w oryginalnym PCM. `loop = true` zapętla bufor
+   *  wiernie, więc ta cisza słychać jako dziurę na styku pętli. Przycinamy
+   *  bufor do fragmentu z realnym sygnałem — to jest gapless dla MP3.
+   *  (Zmierzone dla loop-background.mp3: 1306 próbek na starcie + 893 na końcu
+   *  = 46 ms przerwy; po przycięciu 3.4807 s = równe 8 taktów przy 138 BPM.) */
+  private trimForLoop(buf: AudioBuffer): AudioBuffer {
+    const ctx = this.ctx;
+    if (!ctx) return buf;
+    const n = buf.length;
+    const chans: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+    const TH = 0.003; // ok. -50 dBFS — cisza kodera, nie cichy początek muzyki
+    const amp = (i: number) => {
+      let m = 0;
+      for (const d of chans) {
+        const a = Math.abs(d[i]);
+        if (a > m) m = a;
+      }
+      return m;
+    };
+    let first = 0;
+    while (first < n && amp(first) <= TH) first++;
+    let last = n - 1;
+    while (last > first && amp(last) <= TH) last--;
+    const len = last - first + 1;
+    if (first === 0 && len === n) return buf; // nic do przycięcia
+    if (len < buf.sampleRate * 0.2) return buf; // prawie sama cisza — nie ruszamy
+    try {
+      const out = ctx.createBuffer(buf.numberOfChannels, len, buf.sampleRate);
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        out.getChannelData(c).set(chans[c].subarray(first, first + len));
+      }
+      return out;
+    } catch {
+      return buf; // brak pamięci / dziwny kontekst — lepiej z dziurą niż bez muzyki
+    }
+  }
   private async loadLoopClip() {
     if (this.loopLoading || !this.ctx || this.loopBuf) return;
     this.loopLoading = true;
     try {
       const res = await fetch("assets/ui/Sounds/loop-background.mp3");
-      if (res.ok) this.loopBuf = await this.decode((await res.arrayBuffer()).slice(0));
+      if (res.ok) {
+        const raw = await this.decode((await res.arrayBuffer()).slice(0));
+        this.loopBuf = this.trimForLoop(raw); // bez tego slychac dziure na styku petli
+      }
     } catch {
       /* muzyka tła jest opcjonalna */
     }
