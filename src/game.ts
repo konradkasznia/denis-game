@@ -143,7 +143,7 @@ const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
 // wyśrodkowana względem grafiki postaci (charRect) — patrz drawHits.
-const HIT_SIGN_R = 38; // znaki na karuzeli (Konrad 2026-09-07)
+const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
