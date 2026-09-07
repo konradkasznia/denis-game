@@ -4038,8 +4038,9 @@ export class Game {
     }
 
     // znaki ostrzegawcze o przeszkodach — prawa krawędź, tylko Pogrzebówka.
+    // Pokazujemy je też przed odblokowaniem (podpowiedź, na co się piszesz).
     // Kolumna wyśrodkowana w pionie względem grafiki postaci (charRect).
-    const signs = unlocked ? SLIDER_OBSTACLES[meta.id] : undefined;
+    const signs = meta.playable ? SLIDER_OBSTACLES[meta.id] : undefined;
     if (signs && signs.length) {
       const span = (signs.length - 1) * HIT_SIGN_DY;
       const charMid = this.charRect.y + this.charRect.h / 2;
