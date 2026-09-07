@@ -10,7 +10,7 @@ import type { SongDef } from "./chart.ts";
 
 /** Dźwięki interfejsu — grane przez TEN SAM AudioContext co muzyka (jedna
  *  sesja audio). HTMLAudioElement na iOS potrafił przerwać WebAudio → cisza. */
-export type UiKind = "play" | "back" | "buttons" | "pauza";
+export type UiKind = "play" | "back" | "buttons" | "pauza" | "321";
 
 export class AudioEngine {
   ctx: AudioContext | null = null;
@@ -132,7 +132,7 @@ export class AudioEngine {
   private async loadUiClips() {
     if (this.uiLoading || !this.ctx) return;
     this.uiLoading = true;
-    const kinds: UiKind[] = ["play", "back", "buttons", "pauza"];
+    const kinds: UiKind[] = ["play", "back", "buttons", "pauza", "321"];
     await Promise.all(
       kinds.map(async (k) => {
         if (this.uiBuffers.has(k)) return;
@@ -265,6 +265,28 @@ export class AudioEngine {
   }
   setUiEnabled(on: boolean) {
     this._uiOn = on;
+  }
+
+  /** Odliczanie „3-2-1 + winyl" (`assets/ui/Sounds/321.mp3`) — na starcie rundy
+   *  ORAZ przy wznowieniu z pauzy. W przeciwieństwie do `uiSfx()` NIE respektuje
+   *  blokady dźwięków w pauzie (to jest właśnie sygnał, że pauza się kończy) i w
+   *  razie potrzeby wznawia kontekst, żeby pierwsze „pik" było słyszalne. */
+  countdownCue() {
+    if (!this._uiOn || !this.ctx || !this.uiGain) return;
+    const buf = this.uiBuffers.get("321");
+    if (!buf) {
+      void this.loadUiClips();
+      return;
+    }
+    if ((this.ctx.state as string) !== "running") void this.ctx.resume().catch(() => {});
+    try {
+      const s = this.ctx.createBufferSource();
+      s.buffer = buf;
+      s.connect(this.uiGain);
+      s.start();
+    } catch {
+      /* ignore */
+    }
   }
 
   /** Testy: „przewiń" lead-in do zwykłego 0.25 s (jak poza odliczaniem). */

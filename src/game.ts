@@ -693,6 +693,7 @@ export class Game {
   private coinsEarned = 0;
   private coinFly: { bx: number; by: number; tx: number; ty: number; born: number; delay: number }[] = [];
   private coinFlySpawned = false;
+  private coinCountAt = 0; // performance.now() startu „naliczania" na pigułce monet (ekran wyniku)
   // odblokowanie poziomu za monety
   private coinLackModal = 0; // cena poziomu, gdy pokazujemy „za mało monet" (0 = zamknięty)
   private unlockError = false; // odblokowanie nie przeszło (offline / błąd serwera)
@@ -2443,6 +2444,7 @@ export class Game {
     this.coinsEarned = 0;
     this.coinFly = [];
     this.coinFlySpawned = false;
+    this.coinCountAt = 0;
     this.paused = false;
     this.resumeAt = 0;
     this.resultsSavedBest = false;
@@ -2492,7 +2494,7 @@ export class Game {
   private handlePauseTap(x: number, y: number) {
     y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
-      uiSound("play");
+      this.audio.countdownCue(); // „3-2-1 + winyl" jak na starcie rundy
       this.resumeAt = performance.now() + 3050; // pełne odliczanie 3-2-1
       return;
     }
@@ -2557,6 +2559,7 @@ export class Game {
     } catch {
       /* ignore */
     }
+    this.audio.countdownCue(); // „3-2-1 + winyl" zsynchronizowane z cichym odliczaniem
     this.audio.start(this.song, Game.ROLL_MS / 1000);
     this.songStartedAt = 0; // watchdog rusza dopiero po odliczaniu
     this.songTime = this.audio.getSongTime(); // ≈ -3
@@ -2616,8 +2619,11 @@ export class Game {
   highFps(): boolean {
     if (this.scene === "play") return true;
     if (this.scene === "results") {
-      const win = this.coinsEarned > 0 ? 4000 : 2600; // + animacja lotu monet
-      if (performance.now() - this.resultsAt < win) return true;
+      if (this.coinsEarned > 0) {
+        // lot monet do rogu + „naliczanie" na pigułce
+        const end = this.coinCountAt ? this.coinCountAt + 1000 : this.resultsAt + 4200;
+        if (performance.now() < end) return true;
+      } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal) return true; // płynny podgląd przeszkody w pętli
     return false;
@@ -6131,11 +6137,13 @@ export class Game {
       });
     }
 
-    // --- monety za wynik: „Zdobyłeś X monet" + animacja w lewy górny róg ---
+    // --- monety: pigułka w lewym górnym rogu + „Zdobyłeś X monet" + lot monet ---
     // Nawet słaba runda (dużo bomb, wynik przy zerze) NIE odejmuje monet —
     // `coinsEarned` jest liczone z wyniku po `Math.max(0, ...)`, więc minimum to 0.
     {
       const earned = Math.max(0, this.coinsEarned);
+      const total = coins(); // `finish()` już dopisał `earned` do salda
+      const before = Math.max(0, total - earned);
       const cy = 786;
       const label = `Zdobyłeś ${earned} ${monetyWord(earned)}`;
       ctx.save();
@@ -6168,7 +6176,25 @@ export class Game {
             delay: i * 55,
           });
         }
+        // licznik zaczyna „bić", gdy pierwsze monety dolatują do rogu
+        this.coinCountAt = now + n * 55 + 480;
       }
+
+      // pigułka z liczbą monet — bezwzględny lewy górny róg (kompensujemy `vdy`)
+      const pillR: Rect = { ...HIT_COINS, y: HIT_COINS.y - this.vdy };
+      let shownCoins = total;
+      let pulse = 0;
+      if (earned > 0) {
+        if (!this.coinCountAt || now < this.coinCountAt) {
+          shownCoins = before; // monety jeszcze lecą — pokazujemy stan sprzed rundy
+        } else {
+          const cp = clamp((now - this.coinCountAt) / 850, 0, 1);
+          const e = 1 - Math.pow(1 - cp, 3);
+          shownCoins = Math.round(before + (total - before) * e);
+          pulse = cp < 1 ? Math.sin(cp * Math.PI) * 0.05 : 0;
+        }
+      }
+      this.drawCoinPill(ctx, pillR, shownCoins, pulse);
     }
     this.drawCoinFly(ctx, now);
 
@@ -6194,8 +6220,18 @@ export class Game {
 
   // ---- monety ----------------------------------------------------
 
-  /** Pigułka „stos monet + liczba" w lewym górnym rogu (karuzela / nagrody). */
-  private drawCoinPill(ctx: CanvasRenderingContext2D, r: Rect, count: number) {
+  /** Pigułka „stos monet + liczba" w lewym górnym rogu (karuzela / nagrody /
+   *  ekran wyniku). `pulse` (0..~0,1) delikatnie „oddycha" przy naliczaniu. */
+  private drawCoinPill(ctx: CanvasRenderingContext2D, r: Rect, count: number, pulse = 0) {
+    const pillDone = pulse === 0;
+    if (!pillDone) {
+      const cx = r.x + r.w / 2;
+      const cyc = r.y + r.h / 2;
+      ctx.save();
+      ctx.translate(cx, cyc);
+      ctx.scale(1 + pulse, 1 + pulse);
+      ctx.translate(-cx, -cyc);
+    }
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.4)";
     ctx.shadowBlur = 12;
@@ -6229,6 +6265,7 @@ export class Game {
       stroke: "rgba(0,0,0,0.5)",
       strokeWidth: 4,
     });
+    if (!pillDone) ctx.restore();
   }
 
   /** Stos 3 złotych monet wyśrodkowany na (cx,cy). */
