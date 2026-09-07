@@ -120,8 +120,8 @@ function build(o: SynthOpts): SongDef {
   const beat = 60 / bpm;
   const step = beat / 4; // 16-tka
   const bars = o.bars;
-  // nuty i podkład ruszają od razu — właściwy lead-in to ciche odliczanie 3-2-1
-  // w grze (Game.ROLL_MS), więc tutaj żadnego pustego wstępu
+  // nuty i podkład ruszają od razu — właściwy lead-in to odliczanie 3-2-1
+  // w grze (klip 321.mp3), więc tutaj żadnego pustego wstępu
   const startBar = 0;
   const barLen = 16 * step;
   // przesunięcie wzorca torów zależne od id — każdy utwór gra się inaczej

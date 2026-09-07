@@ -267,6 +267,14 @@ export class AudioEngine {
     this._uiOn = on;
   }
 
+  /** Długość klipu odliczania (`321.mp3`) w sekundach. Faza „3-2-1" (start rundy
+   *  i wznowienie) trwa DOKŁADNIE tyle — utwór rusza gdy klip się kończy, żeby
+   *  winyl na końcu klipu wpadał równo ze startem muzyki (bez przeskoku nut). */
+  countdownSeconds(): number {
+    const d = this.uiBuffers.get("321")?.duration;
+    return typeof d === "number" && d > 0.5 && d < 8 ? d : 3;
+  }
+
   /** Odliczanie „3-2-1 + winyl" (`assets/ui/Sounds/321.mp3`) — na starcie rundy
    *  ORAZ przy wznowieniu z pauzy. W przeciwieństwie do `uiSfx()` NIE respektuje
    *  blokady dźwięków w pauzie (to jest właśnie sygnał, że pauza się kończy) i w
@@ -747,6 +755,19 @@ export class AudioEngine {
     }
     this.srcNode = null;
     const pos = Math.max(0, this.wallElapsed() - this.leadIn);
+
+    // Zakotwicz zegar utworu DOKŁADNIE na `pos`. Bez tego `getSongTime()`
+    // (ścieżka `ctx.currentTime - startTime`) oddaje wartość zawyżoną o czas,
+    // przez który `AudioContext` chodził w tle albo w trakcie odliczania 3-2-1
+    // (`countdownCue()` wznawia ctx wcześniej, żeby zagrać „pik") → nuty
+    // „przeskakują" do przodu po wznowieniu. Po zakotwiczeniu obie ścieżki
+    // `getSongTime()` zwracają `pos` i idą dalej równo z buforem audio.
+    this.ctxAtStart = this.ctx.currentTime - (pos + this.leadIn);
+    this.startTime = this.ctx.currentTime - pos;
+    this.wallStartMs = performance.now() - (pos + this.leadIn) * 1000;
+    this.pausedTotalMs = 0;
+    this.pauseStartMs = 0;
+    this.lastSongT = pos;
 
     if (this.mp3Buf) {
       const dur = this.mp3Buf.duration;

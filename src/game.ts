@@ -593,9 +593,9 @@ export class Game {
   private resumeCheckAt = 0; // performance.now() kontroli „czy dźwięk faktycznie wrócił po tle"
   private resumeCheckT = 0; // songTime w chwili wznowienia (do porównania, czy zegar ruszył)
   private loopOn = false; // czy muzyka tła menu jest teraz włączona
-  /** ciche odliczanie 3-2-1 PRZED startem utworu — audio rusza dopiero po „1" */
+  /** odliczanie 3-2-1 PRZED startem utworu (klip 321.mp3) — audio rusza po „1" */
   private rolling = false;
-  private static readonly ROLL_MS = 3000;
+  private rollSec = 3; // długość ostatniego lead-inu = długość klipu 321.mp3
 
   private score = 0;
   private displayScore = 0;
@@ -2495,7 +2495,10 @@ export class Game {
     y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
       this.audio.countdownCue(); // „3-2-1 + winyl" jak na starcie rundy
-      this.resumeAt = performance.now() + 3050; // pełne odliczanie 3-2-1
+      // odliczanie trwa DOKŁADNIE tyle co klip 321.mp3 → muzyka wraca gdy winyl
+      // się kończy, bez przeskoku nut do przodu
+      this.rollSec = this.audio.countdownSeconds();
+      this.resumeAt = performance.now() + this.rollSec * 1000;
       return;
     }
     if (inRect(PZ_RESTART, x, y)) {
@@ -2559,10 +2562,12 @@ export class Game {
     } catch {
       /* ignore */
     }
-    this.audio.countdownCue(); // „3-2-1 + winyl" zsynchronizowane z cichym odliczaniem
-    this.audio.start(this.song, Game.ROLL_MS / 1000);
+    this.audio.countdownCue(); // „3-2-1 + winyl"
+    // lead-in = długość klipu 321.mp3 → utwór rusza gdy winyl się kończy
+    this.rollSec = this.audio.countdownSeconds();
+    this.audio.start(this.song, this.rollSec);
     this.songStartedAt = 0; // watchdog rusza dopiero po odliczaniu
-    this.songTime = this.audio.getSongTime(); // ≈ -3
+    this.songTime = this.audio.getSongTime(); // ≈ -rollSec
   }
 
   /** Testy: pomija ciche odliczanie 3-2-1, startuje utwór natychmiast. */
@@ -4583,8 +4588,9 @@ export class Game {
       // odliczanie 3-2-1 po wznowieniu: NIE zasłaniamy pola gry — gracz musi
       // widzieć zamrożone nuty i przygotować się. Tylko lekki scrim + liczba.
       this.fillViewport(ctx, "rgba(4,4,10,0.30)");
-      const left = Math.ceil((this.resumeAt - performance.now()) / 1000);
-      if (left >= 1) {
+      // klip 321.mp3 bywa > 3 s — liczbę pokazujemy tylko przez ostatnie 3 s
+      const left = Math.min(3, Math.ceil((this.resumeAt - performance.now()) / 1000));
+      if (left >= 1 && this.resumeAt - performance.now() <= 3050) {
         const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
         text(ctx, String(left), VW / 2, this.sh() / 2 - this.vdy, {
           size: 200 - frac * 40,
@@ -5748,11 +5754,13 @@ export class Game {
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
-    // ciche odliczanie 3-2-1 PRZED startem utworu — songTime leci -3 → 0
+    // odliczanie 3-2-1 PRZED startem utworu — songTime leci -rollSec → 0.
+    // Klip 321.mp3 bywa dłuższy niż 3 s (intro przed „pikaniem") — liczby
+    // pokazujemy tylko przez ostatnie 3 s, resztę zasłania sam dźwięk.
     if (!this.rolling || this.paused) return;
     const rel = Math.max(0, -this.songTime);
-    if (rel <= 0.05 || rel > 3.2) return;
-    const n = Math.ceil(rel);
+    if (rel <= 0.05 || rel > 3.05) return;
+    const n = Math.min(3, Math.ceil(rel));
     const f = n - rel;
     ctx.save();
     ctx.globalAlpha = clamp(1 - f, 0.15, 1);
