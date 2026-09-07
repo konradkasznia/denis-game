@@ -30,10 +30,10 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
       (OfflineAudioContext), `start()` gra go jak mp3, `resumeFromBackground()`
       wznawia od właściwej sekundy. Fallback (brak OfflineAudioContext):
       przełożenie live-aranżu. Patrz `SAFARI-AUDIO-BUG.md`.
-- [ ] **Docelowo: prawdziwe mp3 pod rundę 2 (Książę z bajki)** — synth to placeholder.
-      Gdy będzie plik, `public/charts/ksiaze-z-bajki.json` z `audioUrl` + realny chart;
-      pre-render syntezy przestanie być używany dla tego utworu.
-      (Rundy 1 i 3 mają już mp3.)
+- [x] ~~mp3 pod rundę 2 (Książę z bajki)~~ — ZROBIONE (2026-09-07). Konrad wgrał mp3
+      z edytora; ściągnięte do repo: `public/assets/songs/ksiaze-z-bajki.mp3` (2,7 MB)
+      + `public/charts/ksiaze-z-bajki.json` (80 nut). Wpis w `SYNTH_TRACKS` usunięty.
+      **Wszystkie 3 grywalne rundy mają teraz prawdziwe mp3.**
 
 ## Charty / edytor
 
