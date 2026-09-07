@@ -76,9 +76,22 @@ wznowić dźwięk").
 **Decyzja: NIE naprawiamy tego dla web-Safari.** Apka jest docelowo natywna (Capacitor),
 a mobilny Safari to najgorsze możliwe środowisko dla WebAudio (kategoria `ambient`,
 agresywne dławienie w tle). W APK mamy `AVAudioSession` (kategoria `playback`) i lepszy
-lifecycle. **Do zrobienia przed premierą:** ustawić kategorię audio w APK i przetestować
-ten sam scenariusz na urządzeniu; jeśli w APK też pada — dołożyć watchdog + „stuknij, aby
-wznowić dźwięk" z twardym rebuildem kontekstu. Zapis w `TODO.md`.
+lifecycle.
+
+**Twardy rebuild kontekstu — ZROBIONE (2026-09-07):** `AudioEngine.hardReset()`
+zamyka martwy `AudioContext` i buduje nowy (czyści bufory — były dekodowane starym
+ctx; `loadTrack`/`renderSynth` odtworzą je). Wołane TYLKO w geście:
+- `_unlock()` na starcie sprawdza `state==="running"` + `currentTime` nieruchomy
+  przez 55 ms i gdy tak (a nie gramy właśnie utworu) → `hardReset()` w tym geście.
+  Leczy „wejdź w GRAJ / OD NOWA po powrocie z tła" (wcześniej pomagał tylko reload).
+- Menu pauzy „wznów": jeśli po `resumeFromBackground()` zegar utworu nie drgnął
+  przez 2,6 s (`game.ts` `resumeCheckAt`/`resumeCheckT`), runda kończy się
+  komunikatem „Zagraj rundę jeszcze raz — dźwięk wróci" → ponowne GRAJ leczy przez
+  `_unlock()`.
+
+**Do zrobienia przed premierą (część natywna):** w projekcie iOS (jeszcze nie
+wygenerowany) ustawić `AVAudioSession` kategoria `playback` i przetestować scenariusz
+na urządzeniu. Zapis w `TODO.md`.
 
 ## Jeśli regresja
 
@@ -101,8 +114,10 @@ Robić dopiero jeśli keep-alive okaże się niestabilny między wersjami iOS.
 
 ## Pliki
 
-- `src/audio.ts` — `_unlock()`, `startKeepAlive()`, `buildCtx()`, `getSongTime()`,
-  `clockAlive()`, `wallElapsed()`, `pause()`/`resumePlayback()`, `start()`, `diag()`,
-  `renderSynth()`, `playBuffer()`, `renderArrangement()`, `resumeFromBackground()`.
-- `src/game.ts` — watchdog w `update()` (~L456), GRAJ w `handleHitsTap` (~L1443),
-  `preloadHitAudio` (~L1378, woła `prefetch`), modal (~L956, woła `unlock`).
+- `src/audio.ts` — `_unlock()`, `hardReset()`, `startKeepAlive()`, `buildCtx()`,
+  `getSongTime()`, `clockAlive()`, `wallElapsed()`, `pause()`/`resumePlayback()`,
+  `start()`, `diag()`, `renderSynth()`, `playBuffer()`, `renderArrangement()`,
+  `resumeFromBackground()`.
+- `src/game.ts` — watchdog startu + kontrola po wznowieniu (`resumeCheckAt`) w
+  `update()`, GRAJ w `handleHitsTap`, `preloadHitAudio` (woła `prefetch`),
+  modal dźwięku (woła `unlock`).

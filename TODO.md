@@ -4,55 +4,44 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
 
 ## Przed premierą
 
-- [ ] **Przetestować powiadomienia (OneSignal / push)** — pełny obieg: zgoda systemowa,
-      dostarczenie, deep-link do właściwego ekranu, iOS + Android. Krytyczne przed premierą.
-- [ ] **APK iOS: audio po głębokim tle** — na mobilnym Safari po zminimalizowaniu +
-      wygaszeniu ekranu + powrocie NIE wraca dźwięk (muzyka ani klawisze), pomaga tylko
-      reload strony. Mobilny Safari używa kategorii `ambient` i dławi WebAudio najmocniej.
-      W APK (Capacitor/WKWebView) mamy kontrolę nad `AVAudioSession` — ustawić kategorię
-      `playback` (np. `capacitor-plugin-native-audio` / własny bridge) i PRZETESTOWAĆ NA
-      URZĄDZENIU ten sam scenariusz. Jeśli w APK też pada: watchdog wykrywa martwy zegar
-      po powrocie z tła i pokazuje „stuknij, aby wznowić dźwięk" → twardy rebuild
-      AudioContextu w tym geście (jedyny pewny fix na WebKicie). Web-Safari zostaje jak
-      jest (użytkownik OK z tym, że apka to docelowo natywka). Patrz `SAFARI-AUDIO-BUG.md`.
+- [ ] **APK / iOS: audio po głębokim tle** — po zminimalizowaniu + wygaszeniu ekranu
+      + powrocie iOS potrafi ubić wątek renderu WebAudio (`state="running"`, ale
+      `AudioContext.currentTime` STOI). Zrobione po stronie JS (2026-09-07):
+      `audio.hardReset()` buduje świeży `AudioContext` w geście GRAJ/OD NOWA;
+      `_unlock()` wykrywa martwy zegar i sam go odbudowuje; po nieudanym „wznów"
+      z menu pauzy runda kończy się komunikatem „Zagraj rundę jeszcze raz".
+      **Zostaje część natywna:** w projekcie iOS (jeszcze nie wygenerowany —
+      brak katalogu `ios/`) ustawić `AVAudioSession` na kategorię `playback`
+      (własny mostek Capacitora albo `capacitor-plugin-native-audio`) i
+      przetestować scenariusz na urządzeniu. Patrz `SAFARI-AUDIO-BUG.md`.
 
-## Rozgrywka
+## Anty-farm monet
 
-- Samouczki przed rundami — **ODRZUCONE** (Konrad, 2026-09-07). Zostają same znaki
-  ostrzegawcze na sliderze + info po kliknięciu.
-- Spotify „zapisz do biblioteki" przez OAuth — **ODRZUCONE**. Deep-link do utworu
-  („OTWÓRZ W SPOTIFY") zostaje jak jest.
+- [x] ~~Bramka czasowa per utwór~~ — ZROBIONE (2026-09-07). `/api/scores` POST
+      przyznaje monety za dany utwór najwyżej raz na `0,85 × długość utworu`
+      (`scores.coin_at`, długość z chartu / `SONG_SECONDS`). Uczciwy gracz nigdy
+      w to nie wpadnie (całą długość utworu i tak gra), a skrypt POST-ujący co
+      kilka sekund dostaje 0 monet. Wynik do rankingu zapisuje się zawsze.
+      Smoke test pokrywa 3 przypadki.
+- [ ] **Walidacja przebiegu po stronie serwera** — nadal ufamy wynikowi klienta
+      (po capie anty-cheat `notes × 3800 + 150000`). Zmodyfikowany klient może
+      raz na długość utworu wysłać wynik bliski capa. Docelowo: podpisany „nonce"
+      wydawany na starcie rundy + weryfikacja liczby/rozłożenia trafień, albo
+      przynajmniej zacieśnienie capa do realistycznego maksimum „par score".
 
-## Audio (iOS)
+## Powiadomienia push
 
-- [x] ~~Podkład syntezowany po powrocie z tła~~ — ZROBIONE (2026-09-06):
-      `audio.renderSynth()` pre-renderuje aranż do jednego `AudioBuffer`
-      (OfflineAudioContext), `start()` gra go jak mp3, `resumeFromBackground()`
-      wznawia od właściwej sekundy. Fallback (brak OfflineAudioContext):
-      przełożenie live-aranżu. Patrz `SAFARI-AUDIO-BUG.md`.
-- [x] ~~mp3 pod rundę 2 (Książę z bajki)~~ — ZROBIONE (2026-09-07). Konrad wgrał mp3
-      z edytora; ściągnięte do repo: `public/assets/songs/ksiaze-z-bajki.mp3` (2,7 MB)
-      + `public/charts/ksiaze-z-bajki.json` (80 nut). Wpis w `SYNTH_TRACKS` usunięty.
-      **Wszystkie 3 grywalne rundy mają teraz prawdziwe mp3.**
-
-## Monety
-
-- [x] ~~Sync monet z kontem~~ — ZROBIONE (2026-09-07). `users.coins` + `users.unlocked`
-      w bazie; `/api/scores` POST dopisuje monety za przebieg i zwraca saldo;
-      `/api/auth/me` zwraca `coins` + `unlocked`; `/api/account {action:"unlock"}`
-      atomowo odejmuje i odblokowuje. Klient: serwer autorytatywny, localStorage = cache.
-- [ ] **Anti-farm monet** — `/api/scores` ufa wynikowi klienta (po capie anty-cheat)
-      i dopisuje `floor(score/10000)` za KAŻDY POST. Rate limit 40/10 min ogranicza,
-      ale zmodyfikowany klient może spamować. Rozważyć: podpisany „nonce" rundy /
-      minimalny czas między postami dla tego samego utworu.
+- [x] ~~Podstawowy obieg OneSignal~~ — DZIAŁA (potwierdził Konrad 2026-09-07):
+      zgoda systemowa, dostarczenie, deep-link.
+- [ ] **Segmenty** — w przyszłości budować segmenty odbiorców (np. „nie grał
+      od 7 dni", „odblokował Pogrzebówkę") i wysyłać pod nie kampanie.
 
 ## Charty / edytor
 
-- [ ] **Panna Młoda: odbudować i opublikować mapę na czysto** — na serwerze siedzi
-      wersja z 1 nutą (po publikacji z pustej siatki). Gra działa, bo cofa się do
-      `public/charts/panna-mloda.json` (310 nut), ale porządek by się przydał.
-- [x] ~~Pogrzebówka: wyeksportować chart do repo jako zapas~~ — ZROBIONE
-      (2026-09-07): `public/charts/pogrzebowka.json` (464 nuty, 46 bomb, 8 przeszkód).
-- [ ] **Sprawdzić BPM Pogrzebówki** — opublikowany chart ma `bpm 66` (może miało być
-      132?). Przy prawdziwym mp3 bpm prawie nie wpływa na grę (nuty są czasowe), ale
-      warto potwierdzić.
+- [x] ~~BPM Pogrzebówki / Księcia~~ — poprawione (Konrad, 2026-09-07):
+      Pogrzebówka 130, Panna Młoda i Książę z bajki 155. Zapasowe charty w repo
+      zsynchronizowane.
+- [ ] **Panna Młoda: odbudować i opublikować mapę na czysto** — na serwerze
+      siedzi wersja z 1 nutą (po publikacji z pustej siatki). Gra działa, bo
+      cofa się do `public/charts/panna-mloda.json` (310 nut), ale porządek by
+      się przydał.

@@ -318,11 +318,63 @@ export class AudioEngine {
     }
   }
 
+  /** Twardy restart sesji audio: zamyka kontekst i buduje nowy. Wołać TYLKO
+   *  w geście użytkownika. Po głębokim zejściu w tło iOS potrafi ubić wątek
+   *  renderu audio — `state` zostaje `"running"`, ale `currentTime` STOI i samo
+   *  `resume()` już nie pomaga; jedyne pewne wyjście to świeży `AudioContext`. */
+  async hardReset(): Promise<void> {
+    const old = this.ctx;
+    this.ctx = null;
+    this.master = null;
+    this._running = false;
+    this.srcNode = null;
+    this.keepAlive = null;
+    this.loopSrc = null;
+    this.loopGain = null;
+    this.loopBuf = null;
+    this.scheduled = [];
+    this.mp3Buf = null;
+    this.synthBuf = null;
+    this.synthBufId = "";
+    this.curSong = null;
+    this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
+    this.uiBuffers.clear();
+    this.uiLoading = false;
+    this.loopLoading = false;
+    this.wallStartMs = 0;
+    this.lastSongT = -Infinity;
+    try {
+      await old?.close();
+    } catch {
+      /* ignore */
+    }
+    this.buildCtx();
+    if (this.ctx && (this.ctx as AudioContext).state !== "running") {
+      try {
+        await (this.ctx as AudioContext).resume();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   private async _unlock() {
     // KLUCZOWE dla iOS: kontekst i „kopnięcie" muszą powstać synchronicznie
     // w geście. Żadnego await PRZED tym. Nie zamykamy/nie odbudowujemy ctx
     // poza gestem — to daje `state:running` z martwym zegarem (`currentTime`
     // stoi na 0), czyli dokładnie objaw który gonimy.
+    //
+    // Wyjątek: kontekst JUŻ jest martwy (state="running", currentTime stoi) po
+    // powrocie z głębokiego tła i nie gramy właśnie utworu — wtedy w tym geście
+    // budujemy świeży (bez tego pomaga tylko przeładowanie strony).
+    if (this.ctx && this.ctx.state === "running" && !this._running) {
+      const t0 = this.ctx.currentTime;
+      await new Promise((r) => setTimeout(r, 55));
+      if (this.ctx && this.ctx.currentTime === t0) {
+        await this.hardReset();
+        return;
+      }
+    }
     if (!this.ctx) this.buildCtx();
     const ctx = this.ctx!;
 

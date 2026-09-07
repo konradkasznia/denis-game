@@ -590,6 +590,8 @@ export class Game {
   private awaitingStart = false;
   private paused = false;
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
+  private resumeCheckAt = 0; // performance.now() kontroli „czy dźwięk faktycznie wrócił po tle"
+  private resumeCheckT = 0; // songTime w chwili wznowienia (do porównania, czy zegar ruszył)
   private loopOn = false; // czy muzyka tła menu jest teraz włączona
   /** ciche odliczanie 3-2-1 PRZED startem utworu — audio rusza dopiero po „1" */
   private rolling = false;
@@ -816,6 +818,10 @@ export class Game {
       this.resumeAt = 0;
       // odbudowa źródła podkładu + keep-alive — iOS po powrocie z tła potrafi je ubić
       void this.audio.resumeFromBackground();
+      // ...a gdy iOS ubił CAŁY wątek renderu (zegar stoi mimo state="running"),
+      // resume nic nie da — uzbrój kontrolę, która za chwilę to wykryje.
+      this.resumeCheckAt = performance.now() + 2600;
+      this.resumeCheckT = this.songTime;
     }
     if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       // zegar utworu = zegar audio przez CAŁY czas (odliczanie zwraca -3 → 0)
@@ -843,6 +849,19 @@ export class Game {
         }
       } else if (this.songTime >= 0.1) {
         this.songStartedAt = 0; // wystartowało OK — watchdog wyłączony
+      }
+      // kontrola po wznowieniu z tła: zegar utworu ani drgnął → wątek renderu
+      // audio jest martwy (iOS po głębokim tle), resume nic nie da. Kończymy
+      // rundę czytelnym komunikatem; ponowne wejście w GRAJ odbuduje kontekst.
+      if (this.resumeCheckAt && performance.now() >= this.resumeCheckAt) {
+        const advanced = this.songTime - this.resumeCheckT;
+        this.resumeCheckAt = 0;
+        if (advanced < 0.3) {
+          this.loadError =
+            "Dźwięk zaciął się po powrocie z tła. Zagraj rundę jeszcze raz — dźwięk wróci.";
+          this.audio.stop();
+          this.scene = "hits";
+        }
       }
       // zdarzenia na osi czasu (przeszkody z edytora) — nuty lecą dalej (kara)
       const evs = this.song.events;
@@ -2458,6 +2477,7 @@ export class Game {
   private pauseGame() {
     this.paused = true;
     this.resumeAt = 0;
+    this.resumeCheckAt = 0;
     for (let l = 0; l < LANES; l++) {
       const h = this.held[l];
       if (h) {
@@ -2495,6 +2515,7 @@ export class Game {
 
   private beginSong() {
     this.awaitingStart = false;
+    this.resumeCheckAt = 0;
     this.iceActive = false;
     this.iceTapsLeft = 0;
     this.iceCracks = [];
@@ -4142,13 +4163,25 @@ export class Game {
         HIT_TITLE_Y + 46 + HIT_SIGN_R + 8,
         this.hb(HIT_GRAJ).y - 20 - HIT_SIGN_R - span,
       );
-      // bardzo delikatny „oddech" znaków: ±3%, pełny cykl ~2,4 s
-      const signT = performance.now() / 1000;
+      // Delikatny sygnał „na to uważaj": zamiast skalować znak (PNG drżał przy
+      // resamplowaniu, a kolumna pulsowała falą bo każdy znak miał inną fazę),
+      // rysujemy pod znakami wspólną, miękką czerwoną poświatę — jedno tempo,
+      // wszystkie w tej samej fazie, ledwo widoczna. Sam znak stoi nieruchomo.
+      const glow = 0.5 + 0.5 * Math.sin(performance.now() * 0.0019); // 0..1, cykl ~3,3 s
       signs.forEach((kind, i) => {
         const cx = HIT_SIGN_X;
         const cy = top + i * HIT_SIGN_DY;
-        const signPulse = 1 + Math.sin(signT * 2.6 + i * 0.7) * 0.03;
-        this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R * signPulse, kind);
+        const gr = HIT_SIGN_R * 1.95;
+        const halo = ctx.createRadialGradient(cx, cy, HIT_SIGN_R * 0.75, cx, cy, gr);
+        halo.addColorStop(0, `rgba(229,52,47,${(0.05 + 0.16 * glow).toFixed(3)})`);
+        halo.addColorStop(1, "rgba(229,52,47,0)");
+        ctx.save();
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, gr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R, kind);
         const pad = 8;
         this.hitSignRects.push({
           kind,

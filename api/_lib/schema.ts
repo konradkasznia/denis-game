@@ -30,6 +30,7 @@ export const SCHEMA_SQL: string[] = [
     score INTEGER NOT NULL DEFAULT 0,
     stars INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
+    coin_at TEXT,
     PRIMARY KEY (user_id, song_id)
   )`,
   `CREATE INDEX IF NOT EXISTS scores_song_idx ON scores (song_id, score DESC)`,

@@ -199,6 +199,68 @@ const again = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu,
 ok(again.rows.length === 0, "odblokowanie: drugie kliknięcie nie pobiera ponownie");
 await c.execute({ sql: "DELETE FROM users WHERE id = ?", args: [cu] });
 
+// --- anty-farm monet: bramka czasowa per utwór (jak w api/scores.ts POST) ---
+const SCORE_UPSERT = `INSERT INTO scores (user_id, song_id, score, stars, updated_at, coin_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(user_id, song_id) DO UPDATE SET
+    score = MAX(scores.score, excluded.score),
+    stars = MAX(scores.stars, excluded.stars),
+    updated_at = excluded.updated_at,
+    coin_at = COALESCE(excluded.coin_at, scores.coin_at)`;
+const GATE_MS = 178 * 1000 * 0.85; // ksiaze-z-bajki: 0,85 × długość utworu
+const af = Number(
+  (await c.execute({ sql: "INSERT INTO users (login, pw_hash, created_at) VALUES ('Farmer','x',?)", args: [now] }))
+    .lastInsertRowid,
+);
+const iso = (ms) => new Date(ms).toISOString();
+async function farmPost(score) {
+  const row = (
+    await c.execute({
+      sql: "SELECT coin_at FROM scores WHERE user_id = ? AND song_id = 'ksiaze-z-bajki'",
+      args: [af],
+    })
+  ).rows[0];
+  const prevMs = Date.parse(String(row?.coin_at ?? "")) || 0;
+  const eligible = Date.now() - prevMs >= GATE_MS;
+  const gained = eligible ? Math.floor(score / 10_000) : 0;
+  await c.execute({
+    sql: SCORE_UPSERT,
+    args: [af, "ksiaze-z-bajki", score, 3, now, gained > 0 ? iso(Date.now()) : null],
+  });
+  if (gained > 0) await c.execute({ sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [gained, af] });
+  return gained;
+}
+ok((await farmPost(85_000)) === 8, "anty-farm: pierwszy przebieg → 8 monet naliczone");
+ok((await farmPost(90_000)) === 0, "anty-farm: ponowny POST przed czasem → 0 monet");
+ok(
+  Number((await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [af] })).rows[0].coins) === 8,
+  "anty-farm: saldo bez zmian po zablokowanym POST",
+);
+ok(
+  Number(
+    (await c.execute({ sql: "SELECT score FROM scores WHERE user_id = ? AND song_id = 'ksiaze-z-bajki'", args: [af] }))
+      .rows[0].score,
+  ) === 90_000,
+  "anty-farm: wynik do rankingu zapisany mimo braku monet",
+);
+// symuluj upływ czasu = cofnij coin_at o pełną bramkę
+await c.execute({
+  sql: "UPDATE scores SET coin_at = ? WHERE user_id = ? AND song_id = 'ksiaze-z-bajki'",
+  args: [iso(Date.now() - GATE_MS - 5000), af],
+});
+ok((await farmPost(120_000)) === 12, "anty-farm: po upływie długości utworu monety znów naliczane");
+ok(
+  Number((await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [af] })).rows[0].coins) === 20,
+  "anty-farm: saldo 8 + 12 = 20",
+);
+await c.batch(
+  [
+    { sql: "DELETE FROM scores WHERE user_id = ?", args: [af] },
+    { sql: "DELETE FROM users WHERE id = ?", args: [af] },
+  ],
+  "write",
+);
+
 // --- kaskada usunięcia konta ---
 await c.batch(
   [

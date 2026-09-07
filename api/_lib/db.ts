@@ -43,6 +43,16 @@ export function ensureSchema(): Promise<void> {
     } catch {
       /* users jeszcze nie istnieje — CREATE TABLE poniżej */
     }
+    // anty-farm monet: znacznik ostatniego przyznania monet za ten utwór
+    try {
+      const si = await c.execute("PRAGMA table_info(scores)");
+      const scols = si.rows.map((r) => String(r.name));
+      if (scols.length && !scols.includes("coin_at")) {
+        await c.execute("ALTER TABLE scores ADD COLUMN coin_at TEXT");
+      }
+    } catch {
+      /* scores jeszcze nie istnieje — CREATE TABLE poniżej */
+    }
     for (const sql of MIGRATIONS_SQL) await c.execute(sql);
     await c.batch(SCHEMA_SQL, "write");
   })().catch((e) => {

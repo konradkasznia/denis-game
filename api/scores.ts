@@ -15,16 +15,31 @@ const ym = () => new Date().toISOString().slice(0, 7); // "2026-09"
 // przebiegu" to ~2200 pkt/nutę (300 × mnożnik x5 × kick), plus przytrzymania —
 // limit ~1,7× tego, żeby nie odrzucać uczciwych wyników, ale blokować absurdy.
 const KNOWN_NOTES: Record<string, number> = { "panna-mloda": 310 };
+// Długość utworu w sekundach (fallback, gdy chart nie ma pola `duration`).
+// Używane przez bramkę anty-farm: monety za dany utwór można dostać najwyżej
+// raz na ~pełną długość utworu (bo tyle realnie trwa jego zagranie).
+const SONG_SECONDS: Record<string, number> = {
+  "panna-mloda": 186,
+  "ksiaze-z-bajki": 178,
+  pogrzebowka: 188,
+};
+const DEFAULT_SONG_SECONDS = 150;
 
-async function songNoteCount(c: Client, songId: string): Promise<number> {
+async function songMeta(c: Client, songId: string): Promise<{ notes: number; seconds: number }> {
+  let notes = KNOWN_NOTES[songId] ?? 600;
+  let seconds = SONG_SECONDS[songId] ?? DEFAULT_SONG_SECONDS;
   try {
     const r = await c.execute({ sql: "SELECT data FROM charts WHERE song_id = ?", args: [songId] });
-    const n = r.rows[0] ? JSON.parse(String(r.rows[0].data))?.notes : null;
-    if (Array.isArray(n) && n.length) return n.length;
+    if (r.rows[0]) {
+      const d = JSON.parse(String(r.rows[0].data));
+      if (Array.isArray(d?.notes) && d.notes.length) notes = d.notes.length;
+      const dur = Number(d?.duration);
+      if (Number.isFinite(dur) && dur > 20) seconds = dur;
+    }
   } catch {
-    /* brak tabeli / uszkodzone dane — lecimy na wartość znaną / domyślną */
+    /* brak tabeli / uszkodzone dane — lecimy na wartości znane / domyślne */
   }
-  return KNOWN_NOTES[songId] ?? 600;
+  return { notes, seconds };
 }
 
 const maxScoreFor = (notes: number) => Math.round(notes * 3800 + 150000);
@@ -118,33 +133,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!songId) return json(res, 400, { error: "Brak songId." });
 
     // anti-cheat: wynik poza rozsądnym zakresem dla tego utworu → odrzuć
-    const cap = maxScoreFor(await songNoteCount(c, songId));
+    const meta = await songMeta(c, songId);
+    const cap = maxScoreFor(meta.notes);
     if (score > cap) {
       console.warn(`scores: odrzucony wynik ${score} (cap ${cap}) user ${u.id} song ${songId}`);
       return json(res, 422, { error: "Wynik poza dopuszczalnym zakresem." });
     }
 
     const prev = await c.execute({
-      sql: "SELECT score, stars FROM scores WHERE song_id = ? AND user_id = ?",
+      sql: "SELECT score, stars, coin_at FROM scores WHERE song_id = ? AND user_id = ?",
       args: [songId, u.id],
     });
     const best = Math.max(Number(prev.rows[0]?.score ?? 0), score);
     const bestStars = Math.max(Number(prev.rows[0]?.stars ?? 0), stars);
     const now = nowIso();
     const m = ym();
-    // monety: 1 za każde pełne 10 000 pkt TEGO przebiegu (nie „najlepszego") —
-    // liczone z wyniku po capie anty-cheat, więc z górną granicą
-    const coinsGained = Math.floor(score / 10_000);
+
+    // --- anty-farm monet ---
+    // Monety za dany utwór przyznajemy najwyżej raz na 0,85 × długość utworu.
+    // Uczciwy gracz i tak spędza całą długość utworu grając (plus ekran wyników
+    // i odliczanie między przebiegami), więc nigdy w tę bramkę nie wpadnie —
+    // a skrypt POST-ujący wynik co kilka sekund dostaje 0 monet aż do upływu
+    // czasu, w którym REALNIE dałoby się utwór zagrać jeszcze raz.
+    const prevCoinMs = Date.parse(String(prev.rows[0]?.coin_at ?? "")) || 0;
+    const gateMs = meta.seconds * 1000 * 0.85;
+    const coinEligible = Date.now() - prevCoinMs >= gateMs;
+    // 1 moneta za każde pełne 10 000 pkt TEGO przebiegu (wynik po capie anty-cheat)
+    const coinsGained = coinEligible ? Math.floor(score / 10_000) : 0;
     await c.batch(
       [
         {
-          sql: `INSERT INTO scores (user_id, song_id, score, stars, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+          sql: `INSERT INTO scores (user_id, song_id, score, stars, updated_at, coin_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, song_id) DO UPDATE SET
                   score = MAX(scores.score, excluded.score),
                   stars = MAX(scores.stars, excluded.stars),
-                  updated_at = excluded.updated_at`,
-          args: [u.id, songId, score, stars, now],
+                  updated_at = excluded.updated_at,
+                  coin_at = COALESCE(excluded.coin_at, scores.coin_at)`,
+          args: [u.id, songId, score, stars, now, coinsGained > 0 ? now : null],
         },
         {
           sql: `INSERT INTO scores_monthly (user_id, song_id, ym, score, stars, updated_at)
