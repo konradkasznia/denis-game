@@ -170,6 +170,36 @@ const LAST_KEY = "editor.lastProject";
 const pKey = (id: string) => `editor.project.${id}`;
 let currentId = "panna-mloda";
 let dirtyTimer: ReturnType<typeof setTimeout> | null = null;
+const triedServerAudio = new Set<string>(); // utwory, dla których raz już próbowano dociągnąć mp3 z serwera
+
+/** mp3 utworu do edytora: 1) plik w repo (`assets/songs/<id>.mp3`),
+ *  2) wgrany z edytora „Wyślij do aplikacji" (`/api/song-audio`). Zwraca Blob
+ *  mp3 albo null (wtedy wołający daje cichy podkład). */
+async function fetchSongAudio(id: string): Promise<Blob | null> {
+  for (const url of [
+    `assets/songs/${encodeURIComponent(id)}.mp3`,
+    `/api/song-audio?id=${encodeURIComponent(id)}`,
+  ]) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const b = await r.blob();
+      if (b.size < 2000) continue; // 404-owa stronka / pusta odpowiedź
+      const sig = new Uint8Array(await b.slice(0, 3).arrayBuffer());
+      const isMp3 =
+        (sig[0] === 0x49 && sig[1] === 0x44 && sig[2] === 0x33) || // "ID3"
+        (sig[0] === 0xff && (sig[1] & 0xe0) === 0xe0); // ramka MPEG
+      if (isMp3 || /audio|mpeg/i.test(b.type)) return b;
+    } catch {
+      /* następne źródło */
+    }
+  }
+  return null;
+}
+
+/** Czy zapisane audio to prawdziwy podkład (nie cichy WAV z `silentWavBlob`). */
+const isRealAudioBlob = (b: Blob | null | undefined) =>
+  !!b && b.size > 4000 && !/wav/i.test(b.type || "");
 
 interface StoredProject {
   id: string;
@@ -297,7 +327,17 @@ async function openProject(id: string) {
   view.top = 0;
   syncCharacter();
   localStorage.setItem(LAST_KEY, id);
-  const blob = await audioGet(id);
+  let blob = await audioGet(id);
+  // cichy WAV albo brak → raz na sesję spróbuj dociągnąć prawdziwe mp3
+  // (repo albo wgrane wcześniej z edytora „Wyślij do aplikacji")
+  if (!isRealAudioBlob(blob) && !triedServerAudio.has(id)) {
+    triedServerAudio.add(id);
+    const real = await fetchSongAudio(id);
+    if (real) {
+      blob = real;
+      void audioPut(id, real);
+    }
+  }
   if (blob) {
     try {
       await decodeInto(blob, true);
@@ -1356,7 +1396,18 @@ function seedSegs(ujecia: number[]): Seg[] {
  *  odświeża same segmenty, żeby nadążał za nowymi animacjami. */
 async function persistSeed(cfg: SeedCfg) {
   if (projectIds().includes(cfg.id)) {
-    if (!cfg.realAudio) {
+    if (cfg.realAudio) {
+      // projekt już jest, ale audio bywa cichym WAV-em (stary seed / inne
+      // urządzenie / localStorage wyczyszczony) — dociągnij prawdziwe mp3
+      try {
+        if (!isRealAudioBlob(await audioGet(cfg.id))) {
+          const real = await fetchSongAudio(cfg.id);
+          if (real) await audioPut(cfg.id, real);
+        }
+      } catch {
+        /* ignore */
+      }
+    } else {
       try {
         const cur = JSON.parse(localStorage.getItem(pKey(cfg.id)) || "{}") as StoredProject;
         const untouched = (cur?.notes?.length ?? 0) === 0;
@@ -1416,12 +1467,8 @@ async function persistSeed(cfg: SeedCfg) {
       p.bpm = raw.bpm || cfg.bpm;
       p.offsetMs = Math.round((raw.gridOffset ?? 0) * 1000);
     }
-    try {
-      const blob = await (await fetch(`assets/songs/${cfg.id}.mp3`)).blob();
-      await audioPut(cfg.id, blob);
-    } catch {
-      await audioPut(cfg.id, silentWavBlob(46, p.bpm)); // brak mp3 → cichy podkład
-    }
+    const blob = await fetchSongAudio(cfg.id);
+    await audioPut(cfg.id, blob ?? silentWavBlob(46, p.bpm)); // brak mp3 → cichy podkład
   } else {
     await audioPut(cfg.id, silentWavBlob(46, cfg.bpm));
   }
@@ -1433,7 +1480,13 @@ async function persistSeed(cfg: SeedCfg) {
 async function startup() {
   // 3 projekty na starcie — po jednym na utwór z grą, z załadowanymi ujęciami
   await persistSeed({ id: "panna-mloda", title: "Panna Młoda", bpm: 155, ujecia: [1, 2, 3, 4], realAudio: true });
-  await persistSeed({ id: "ksiaze-z-bajki", title: "Książę z bajki", bpm: 112, ujecia: [1, 2, 3] });
+  await persistSeed({
+    id: "ksiaze-z-bajki",
+    title: "Książę z bajki",
+    bpm: 112,
+    ujecia: [1, 2, 3],
+    realAudio: true, // mp3 wgrane z edytora → dociągane z /api/song-audio
+  });
   await persistSeed({
     id: "pogrzebowka",
     title: "Pogrzebówka",
