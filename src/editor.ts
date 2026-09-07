@@ -759,11 +759,12 @@ function frame() {
 function noteAt(x: number, y: number): Note | null {
   if (x < GUTTER()) return null;
   const lane = laneAtX(x);
+  const pad = touchChk.checked ? 14 : 9; // większy cel pod palec
   for (const n of notes) {
     if (n.lane !== lane) continue;
     const hy = yOf(n.time);
     const ty = hy + n.dur * view.pps;
-    if (y >= hy - 9 && y <= Math.max(hy + 9, ty + 4)) return n;
+    if (y >= hy - pad && y <= Math.max(hy + pad, ty + 4)) return n;
   }
   return null;
 }
@@ -827,6 +828,12 @@ cv.addEventListener("pointerdown", (e) => {
   const hit = noteAt(x, y);
   if (hit) {
     pushHistory();
+    if (touchChk.checked) {
+      // telefon: tap w istniejący kafelek = usuń go (bez przeciągania —
+      // na telefonie edytor służy tylko do stawiania/kasowania nut)
+      notes = notes.filter((n) => n !== hit);
+      return;
+    }
     // blisko dolnej krawędzi przytrzymania → rozciąganie ogona
     if (hit.dur > 0 && Math.abs(y - (yOf(hit.time) + hit.dur * view.pps)) <= 10) {
       drag = { mode: "resize", note: hit };
