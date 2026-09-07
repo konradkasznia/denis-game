@@ -51,7 +51,7 @@ const NICKS = [
  *  mniej wpisów i niższe wyniki niż „wszystkie". */
 function fakeBoard(songId: string, period: Period): { nick: string; score: number }[] {
   const rng = mulberry32(hashStr(`board:${period}:${songId}`));
-  const n = period === "month" ? 70 : 180;
+  const n = period === "month" ? 150 : 220;
   const cap = period === "month" ? 620000 : 920000;
   const base = period === "month" ? 30000 : 45000;
   const rows: { nick: string; score: number }[] = [];

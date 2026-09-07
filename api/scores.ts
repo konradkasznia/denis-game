@@ -8,7 +8,7 @@ import { ensureSchema, db } from "./_lib/db.js";
 import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
 
-const TOP_N = 50;
+const TOP_N = 100;
 const ym = () => new Date().toISOString().slice(0, 7); // "2026-09"
 
 // Anti-cheat (wstępne): górny limit wyniku per utwór. Realny maks. „perfekcyjnego

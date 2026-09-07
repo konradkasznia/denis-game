@@ -11,6 +11,12 @@ export interface InputHandlers {
   laneAt: (x: number) => number;
   /** przesunięcie palcem w bok: dir = +1 (w lewo → następny), -1 (w prawo → poprzedni) */
   onSwipe?: (dir: 1 | -1) => void;
+  /** przeciąganie w pionie (px od ostatniej klatki) — do przewijania list */
+  onDrag?: (dy: number) => void;
+  /** koniec przeciągania (podniesienie palca / kółko myszy) */
+  onDragEnd?: () => void;
+  /** kółko myszy (deltaY) — przewijanie na desktopie */
+  onWheel?: (dy: number) => void;
 }
 
 const LANE_KEYS: Record<string, number> = {
@@ -28,7 +34,7 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
   const pointerLane = new Map<number, number>();
   const keyLane = new Map<string, number>();
   // śledzenie „przeciągnięcia palcem" (swipe) — pierwszy aktywny wskaźnik
-  let swipe: { id: number; x0: number; y0: number; t0: number } | null = null;
+  let swipe: { id: number; x0: number; y0: number; t0: number; lastY: number } | null = null;
 
   canvas.addEventListener(
     "pointerdown",
@@ -37,8 +43,28 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
       const p = toGame(ev.clientX, ev.clientY, canvas);
       const lane = h.laneAt(p.x);
       pointerLane.set(ev.pointerId, lane);
-      if (swipe === null) swipe = { id: ev.pointerId, x0: p.x, y0: p.y, t0: performance.now() };
+      if (swipe === null)
+        swipe = { id: ev.pointerId, x0: p.x, y0: p.y, t0: performance.now(), lastY: p.y };
       h.onPress(lane, p.x, p.y);
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener("pointermove", (ev) => {
+    if (!swipe || swipe.id !== ev.pointerId) return;
+    const p = toGame(ev.clientX, ev.clientY, canvas);
+    const dy = p.y - swipe.lastY;
+    swipe.lastY = p.y;
+    if (dy) h.onDrag?.(dy);
+  });
+
+  canvas.addEventListener(
+    "wheel",
+    (ev) => {
+      if (h.onWheel) {
+        ev.preventDefault();
+        h.onWheel(ev.deltaY);
+      }
     },
     { passive: false },
   );
@@ -50,6 +76,7 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
       const dy = p.y - swipe.y0;
       const dt = performance.now() - swipe.t0;
       swipe = null;
+      h.onDragEnd?.();
       if (dt < 700 && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.3) {
         h.onSwipe?.(dx < 0 ? 1 : -1);
       }

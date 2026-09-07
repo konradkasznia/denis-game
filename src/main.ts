@@ -98,6 +98,9 @@ initInput(canvas, {
   onPress: (lane, x, y) => game.onPress(lane, x, y),
   onRelease: (lane) => game.onRelease(lane),
   onSwipe: (dir) => game.onSwipe(dir),
+  onDrag: (dy) => game.onDrag(dy),
+  onDragEnd: () => game.onDragEnd(),
+  onWheel: (dy) => game.onWheel(dy),
 });
 
 if (import.meta.env.DEV) (window as any).__game = game;

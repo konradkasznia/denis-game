@@ -155,7 +155,7 @@ const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
     title: "UWAŻAJ NA BOMBY",
-    body: "Każda bomba blokuje ekran i odejmuje punkty. Nie klikaj jej, przepuść ją, a zniknie sama.",
+    body: "Każda bomba blokuje ekran i odejmuje 10 000 punktów. Nie klikaj jej, przepuść ją, a zniknie sama.",
   },
   vodka: {
     title: "PIJANA TRASA",
@@ -182,6 +182,9 @@ const SET_MAIL: Rect = { x: MARGIN, y: 952, w: SET_W, h: 120 };
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
 const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
 const BOARD_TAB_A: Rect = { x: VW / 2 + 4, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
+const BOARD_LIST_TOP = 210; // przewijana lista TOP 100
+const BOARD_LIST_BOT = 838;
+const BOARD_ROW_H = 50;
 const BOARD_BEST: Rect = { x: MARGIN, y: 856, w: VW - MARGIN * 2, h: 138 };
 const BOARD_BACK: Rect = { x: MARGIN, y: 1026, w: VW - MARGIN * 2, h: 100 };
 
@@ -676,6 +679,9 @@ export class Game {
   private fields: FieldOverlay;
   private boardSongId = DEFAULT_TRACK;
   private boardPeriod: Period = "month";
+  private boardScroll = 0; // przewinięcie listy TOP 100 (px)
+  private boardScrollMax = 0;
+  private boardScrollInit = false; // po wejściu/zmianie zakładki: ustaw scroll (na gracza)
   /** dokąd wraca „POWRÓT" z tablicy wyników (zależnie od tego, skąd weszliśmy) */
   private boardFrom: "hits" | "results" = "hits";
   private resultRank = 0;
@@ -2106,7 +2112,7 @@ export class Game {
       this.boardSongId = meta.id;
       this.boardFrom = "hits";
       this.scene = "board";
-      void refreshBoard(this.boardSongId, this.boardPeriod);
+      this.enterBoard();
       return;
     }
     // przycisk „ODBLOKUJ za X monet" (Pogrzebówka po bramce gwiazdkowej)
@@ -2185,6 +2191,25 @@ export class Game {
     }
   }
 
+  /** Przeciąganie w pionie — przewija listę TOP 100 na tablicy wyników. */
+  onDrag(dy: number) {
+    if (this.scene !== "board" || this.boardScrollMax <= 0) return;
+    this.boardScroll = clamp(this.boardScroll - dy, 0, this.boardScrollMax);
+  }
+  onDragEnd() {
+    /* nic — scroll zostaje tam, gdzie jest */
+  }
+  onWheel(dy: number) {
+    if (this.scene !== "board" || this.boardScrollMax <= 0) return;
+    this.boardScroll = clamp(this.boardScroll + dy * 0.6, 0, this.boardScrollMax);
+  }
+
+  private enterBoard() {
+    this.boardScroll = 0;
+    this.boardScrollInit = true;
+    void refreshBoard(this.boardSongId, this.boardPeriod);
+  }
+
   private handleBoardTap(x: number, y: number) {
     if (x < 0 || inRect(BOARD_BACK, x, y)) {
       uiSound("back");
@@ -2194,13 +2219,13 @@ export class Game {
     if (inRect(BOARD_TAB_M, x, y) && this.boardPeriod !== "month") {
       uiSound("buttons");
       this.boardPeriod = "month";
-      void refreshBoard(this.boardSongId, "month");
+      this.enterBoard();
       return;
     }
     if (inRect(BOARD_TAB_A, x, y) && this.boardPeriod !== "all") {
       uiSound("buttons");
       this.boardPeriod = "all";
-      void refreshBoard(this.boardSongId, "all");
+      this.enterBoard();
     }
   }
 
@@ -2287,7 +2312,7 @@ export class Game {
       this.boardSongId = this.trackId;
       this.boardFrom = "results";
       this.scene = "board";
-      void refreshBoard(this.boardSongId, this.boardPeriod);
+      this.enterBoard();
     }
   }
 
@@ -2609,6 +2634,7 @@ export class Game {
   }
 
   /** Tapnięcie w bombę: kara -100 pkt, zbite combo, wybuch i 3 s ogłuszenia. */
+  private static readonly BOMB_PENALTY = 10_000;
   private triggerBomb(note: Note, lane: number) {
     note.judged = true;
     note.hit = false;
@@ -2616,7 +2642,7 @@ export class Game {
     note.judgedAt = this.songTime;
     this.bombLockMs = performance.now() + 3000; // blokada tapów + animacja (zegar ścienny)
     this.bombLane = lane;
-    this.score = Math.max(0, this.score - 100);
+    this.score = Math.max(0, this.score - Game.BOMB_PENALTY);
     this.combo = 0;
     this.flow = 0;
     this.flowTier = 0;
@@ -2625,7 +2651,7 @@ export class Game {
     this.shake = Math.max(this.shake, 18);
     this.audio.sfx("miss");
     haptic("miss");
-    this.pushPopup("-100", "#ff5a3c", lane);
+    this.pushPopup(`-${Game.BOMB_PENALTY.toLocaleString("pl-PL")}`, "#ff5a3c", lane);
     this.pushBanner("BOMBA!");
   }
 
@@ -3177,59 +3203,88 @@ export class Game {
     tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
 
     const ready = boardReady(this.boardSongId, this.boardPeriod);
-    const rowH = 52;
+    const rowH = BOARD_ROW_H;
+    const viewH = BOARD_LIST_BOT - BOARD_LIST_TOP;
     const drawRow = (r: { rank: number; nick: string; score: number; me?: boolean }, ry: number) => {
       if (r.me) {
-        ctx.fillStyle = "rgba(255,159,67,0.18)";
+        ctx.fillStyle = "rgba(255,159,67,0.2)";
         roundRect(ctx, MARGIN - 6, ry - rowH / 2 + 3, VW - (MARGIN - 6) * 2, rowH - 6, 12);
         ctx.fill();
       }
       const col = r.me ? "#ffce8a" : "#fff";
       const medal =
         r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
-      text(ctx, `${r.rank}`, MARGIN + 12, ry, { size: 22, align: "left", weight: "800", color: medal });
-      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 72, ry, { size: 21, align: "left", color: col });
+      text(ctx, `${r.rank}`, MARGIN + 8, ry, { size: 20, align: "left", weight: "800", color: medal });
+      text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 78, ry, { size: 20, align: "left", color: col });
       text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, ry, {
-        size: 21,
+        size: 20,
         align: "right",
         weight: "700",
         color: col,
       });
     };
 
-    let y = 226;
+    const me = myEntry(this.boardSongId, this.boardPeriod);
+
     if (!ready) {
-      // szkielet: prawdziwa lista pojawi się bez „doskakiwania" fikcyjnych wpisów
-      for (let i = 0; i < 10; i++) {
+      let y = BOARD_LIST_TOP + rowH / 2;
+      for (let i = 0; i < 11; i++) {
         ctx.fillStyle = "rgba(255,255,255,0.05)";
         roundRect(ctx, MARGIN - 6, y - rowH / 2 + 3, VW - (MARGIN - 6) * 2, rowH - 6, 12);
         ctx.fill();
         y += rowH;
       }
-      text(ctx, "Wczytywanie wyników…", VW / 2, 226 + 4.5 * rowH, {
+      text(ctx, "Wczytywanie wyników…", VW / 2, BOARD_LIST_TOP + viewH / 2, {
         size: 20,
         weight: "800",
         color: "#c9b7a6",
       });
+      this.boardScrollMax = 0;
     } else {
-      topN(this.boardSongId, this.boardPeriod, 10).forEach((r) => {
-        drawRow(r, y);
-        y += rowH;
-      });
-    }
+      const rows = topN(this.boardSongId, this.boardPeriod, 100);
+      const contentH = rows.length * rowH;
+      this.boardScrollMax = Math.max(0, contentH - viewH);
 
-    const me = myEntry(this.boardSongId, this.boardPeriod);
+      // po wejściu / zmianie zakładki — pokaż wiersz gracza (jeśli w TOP 100)
+      if (this.boardScrollInit) {
+        this.boardScrollInit = false;
+        const mr = me?.rank ?? 0;
+        this.boardScroll =
+          mr > 6 && mr <= rows.length ? clamp((mr - 4) * rowH, 0, this.boardScrollMax) : 0;
+      }
+      this.boardScroll = clamp(this.boardScroll, 0, this.boardScrollMax);
 
-    // moja pozycja poza TOP 10 — pod cienką kreską
-    if (ready && me && me.rank > 10) {
-      const ly = y + 6;
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.lineWidth = 1;
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo(MARGIN + 8, ly);
-      ctx.lineTo(VW - MARGIN - 8, ly);
-      ctx.stroke();
-      drawRow({ rank: me.rank, nick: me.nick, score: me.score, me: true }, ly + 6 + rowH / 2);
+      ctx.rect(0, BOARD_LIST_TOP - 2, VW, viewH + 4);
+      ctx.clip();
+      const first = Math.max(0, Math.floor((this.boardScroll - rowH) / rowH));
+      const last = Math.min(rows.length, Math.ceil((this.boardScroll + viewH + rowH) / rowH));
+      for (let i = first; i < last; i++) {
+        drawRow(rows[i], BOARD_LIST_TOP + i * rowH + rowH / 2 - this.boardScroll);
+      }
+      ctx.restore();
+
+      // zanikanie przy krawędziach listy (żeby wiersze „wjeżdżały" w tło)
+      const fade = (yTop: number, dir: 1 | -1) => {
+        const g = ctx.createLinearGradient(0, yTop, 0, yTop + dir * 20);
+        g.addColorStop(0, "rgba(7,7,13,0.85)");
+        g.addColorStop(1, "rgba(7,7,13,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, dir > 0 ? yTop : yTop - 20, VW, 20);
+      };
+      if (this.boardScroll > 2) fade(BOARD_LIST_TOP, 1);
+      if (this.boardScroll < this.boardScrollMax - 2) fade(BOARD_LIST_BOT, -1);
+
+      // pasek przewijania
+      if (this.boardScrollMax > 0) {
+        const thumbH = Math.max(36, (viewH / contentH) * viewH);
+        const thumbY =
+          BOARD_LIST_TOP + (this.boardScroll / this.boardScrollMax) * (viewH - thumbH);
+        ctx.fillStyle = "rgba(255,255,255,0.22)";
+        roundRect(ctx, VW - 9, thumbY, 4, thumbH, 2);
+        ctx.fill();
+      }
     }
 
     // TWÓJ NAJLEPSZY WYNIK
@@ -3731,8 +3786,8 @@ export class Game {
       if (stun) {
         ctx.fillStyle = "rgba(3,2,8,0.64)";
         ctx.fillRect(ox, oy, ow, oh);
-        text(ctx, "BOMBA!  -100", ox + ow / 2, oy + oh / 2 - 8, {
-          size: 24,
+        text(ctx, "BOMBA!  -10 000", ox + ow / 2, oy + oh / 2 - 8, {
+          size: 23,
           weight: "900",
           font: HEAD_FONT,
           color: "#ff5a3c",
