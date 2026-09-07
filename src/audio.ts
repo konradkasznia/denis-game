@@ -10,7 +10,7 @@ import type { SongDef } from "./chart.ts";
 
 /** Dźwięki interfejsu — grane przez TEN SAM AudioContext co muzyka (jedna
  *  sesja audio). HTMLAudioElement na iOS potrafił przerwać WebAudio → cisza. */
-export type UiKind = "play" | "back" | "buttons";
+export type UiKind = "play" | "back" | "buttons" | "pauza";
 
 export class AudioEngine {
   ctx: AudioContext | null = null;
@@ -26,6 +26,7 @@ export class AudioEngine {
   private ctxAtStart = 0;
   private pausedTotalMs = 0; // suma czasu spędzonego w pauzie (zegar ścienny)
   private pauseStartMs = 0; // != 0 => właśnie trwa pauza
+  private pauseSeq = 0; // numer pauzy — chroni opóźniony suspend przed nowym przebiegiem
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
   private srcNode: AudioBufferSourceNode | null = null;
@@ -41,6 +42,13 @@ export class AudioEngine {
   // wątek renderu audio żywy na iOS (inaczej `currentTime` zamiera na 0)
   private _sfxOn = true;
   private _uiOn = true;
+  // --- muzyka tła menu (loop-background.mp3) — wszędzie poza rozgrywką ---
+  private loopBuf: AudioBuffer | null = null;
+  private loopSrc: AudioBufferSourceNode | null = null;
+  private loopGain: GainNode | null = null;
+  private loopWanted = false; // chcemy, żeby grała (może czekać na kontekst)
+  private loopLoading = false;
+  private static readonly LOOP_VOL = 0.32;
   // wszystkie zaplanowane głosy syntezy (całe bary są kolejkowane z góry) —
   // trzymamy referencje, żeby `stop()` NAPRAWDĘ je uciszył (inaczej po pauzie +
   // „OD NOWA" stary podkład wznawia się razem z nowym → podwójny dźwięk).
@@ -109,6 +117,14 @@ export class AudioEngine {
     this.trackBuffers.clear(); // bufory były dekodowane starym kontekstem
     this.uiBuffers.clear();
     void this.loadUiClips();
+    // muzyka tła menu — własne wzmocnienie prosto do wyjścia, żeby rampa `master`
+    // (stop() zjeżdża do zera) ani pauza utworu jej nie dotykały
+    this.loopGain = this.ctx.createGain();
+    this.loopGain.gain.value = 0.0001;
+    this.loopGain.connect(this.ctx.destination);
+    this.loopSrc = null; // źródło ze starego kontekstu jest martwe
+    this.loopBuf = null; // bufor był dekodowany starym kontekstem
+    void this.loadLoopClip();
     this.startKeepAlive();
   }
 
@@ -116,7 +132,7 @@ export class AudioEngine {
   private async loadUiClips() {
     if (this.uiLoading || !this.ctx) return;
     this.uiLoading = true;
-    const kinds: UiKind[] = ["play", "back", "buttons"];
+    const kinds: UiKind[] = ["play", "back", "buttons", "pauza"];
     await Promise.all(
       kinds.map(async (k) => {
         if (this.uiBuffers.has(k)) return;
@@ -133,6 +149,78 @@ export class AudioEngine {
     this.uiLoading = false;
   }
 
+
+  /** Wczytuje pętlę tła (raz na kontekst). Klip jest opcjonalny — brak pliku
+   *  albo błąd dekodowania oznacza po prostu ciszę w menu. */
+  private async loadLoopClip() {
+    if (this.loopLoading || !this.ctx || this.loopBuf) return;
+    this.loopLoading = true;
+    try {
+      const res = await fetch("assets/ui/Sounds/loop-background.mp3");
+      if (res.ok) this.loopBuf = await this.decode((await res.arrayBuffer()).slice(0));
+    } catch {
+      /* muzyka tła jest opcjonalna */
+    }
+    this.loopLoading = false;
+    if (this.loopWanted) this.startLoop(); // scena zdążyła poprosić, zanim był bufor
+  }
+
+  /** Włącza muzykę tła menu (poza rozgrywką). Można wołać wielokrotnie.
+   *  Przed odblokowaniem audio zapamiętuje tylko chęć — ruszy po `unlock()`. */
+  startLoop() {
+    this.loopWanted = true;
+    if (!this.ctx || !this.loopGain) return; // kontekstu jeszcze nie ma
+    if (!this.loopBuf) {
+      void this.loadLoopClip();
+      return;
+    }
+    if (this.loopSrc) return; // już gra
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.loopBuf;
+      src.loop = true;
+      src.connect(this.loopGain);
+      src.start();
+      this.loopSrc = src;
+      const g = this.loopGain.gain;
+      const t = this.ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(Math.max(0.0001, g.value), t);
+      g.linearRampToValueAtTime(AudioEngine.LOOP_VOL, t + 0.6); // łagodne wejście
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Wycisza i zatrzymuje pętlę tła (wejście do rozgrywki, zejście w tło). */
+  stopLoop(fadeSec = 0.35) {
+    this.loopWanted = false;
+    const src = this.loopSrc;
+    this.loopSrc = null;
+    if (!this.ctx || !this.loopGain || !src) return;
+    const g = this.loopGain.gain;
+    const t = this.ctx.currentTime;
+    try {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(Math.max(0.0001, g.value), t);
+      g.linearRampToValueAtTime(0.0001, t + fadeSec);
+    } catch {
+      /* ignore */
+    }
+    try {
+      src.stop(t + fadeSec + 0.05);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Pauza rozgrywki Z dźwiękiem: najpierw gra klip „pauza", a kontekst
+   *  zawieszamy dopiero gdy wybrzmi (suspend zamroziłby go w pół sekundy). */
+  pauseWithSting() {
+    const d = this._uiOn ? (this.uiBuffers.get("pauza")?.duration ?? 0) : 0;
+    if (d > 0) this.uiSfx("pauza"); // MUSI polecieć przed pause() (patrz guard w uiSfx)
+    this.pause(Math.min(d, 2));
+  }
   setUiEnabled(on: boolean) {
     this._uiOn = on;
   }
@@ -470,9 +558,34 @@ export class AudioEngine {
 
   /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime).
    *  Zapisujemy moment pauzy, żeby awaryjny zegar ścienny odjął ten czas. */
-  pause() {
-    if (this.ctx && this.ctx.state === "running") void this.ctx.suspend();
+  pause(stingSec = 0) {
     if (this._running && !this.pauseStartMs) this.pauseStartMs = performance.now();
+    const seq = ++this.pauseSeq;
+    // Podkład milknie NATYCHMIAST, niezależnie od tego, kiedy zawiesimy kontekst.
+    // Przy wznowieniu `resumeFromBackground()` i tak odtwarza źródło od właściwej
+    // sekundy utworu (zegar ścienny), więc zatrzymanie źródła nic nie psuje.
+    try {
+      this.srcNode?.stop();
+    } catch {
+      /* już zatrzymane */
+    }
+    this.srcNode = null;
+    this.killScheduled(); // synteza „na żywo" też musi umilknąć
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (stingSec > 0) {
+      // Kontekst musi jeszcze chwilę chodzić, żeby wybrzmiał dźwięk pauzy —
+      // suspend zamroziłby go w pół dźwięku. O tyle, o ile `currentTime`
+      // pobiegnie, przesuwamy `startTime`, żeby zegar utworu stał w miejscu.
+      const at = ctx.currentTime;
+      setTimeout(() => {
+        if (seq !== this.pauseSeq || !this.pauseStartMs) return; // wznowiono / nowy przebieg
+        this.startTime += ctx.currentTime - at;
+        if ((ctx.state as string) === "running") void ctx.suspend();
+      }, stingSec * 1000);
+      return;
+    }
+    if ((ctx.state as string) === "running") void ctx.suspend();
   }
 
   /** Wznawia po pauzie (wołać z gestu użytkownika). */

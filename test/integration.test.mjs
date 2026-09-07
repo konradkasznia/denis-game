@@ -269,7 +269,7 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   ok(gp.scene === "hits" && gp.hitIndex === 1, "KONTYNUUJ po zaliczeniu -> wybór, następny poziom");
 }
 {
-  // KONTYNUUJ po porażce -> ekran wyboru, ten sam poziom
+  // SPRÓBUJ PONOWNIE po porażce -> ta sama runda od nowa (bez powrotu do karuzeli)
   const gf = new Game();
   gf.trackId = "ksiaze-z-bajki";
   await new Promise((r) => setTimeout(r, 5));
@@ -279,8 +279,12 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   gf.finish();
   gf.resultsAt = performance.now() - 5000;
   gf.onPress(-1, 360, 1200);
-  await new Promise((r) => setTimeout(r, 10));
-  ok(gf.scene === "hits" && gf.hitIndex === 1, "KONTYNUUJ po porażce -> wybór, ten sam poziom");
+  // startPlay() leci w tle (wczytanie mapy + audio) — poczekaj aż scena się przełączy
+  for (let i = 0; i < 200 && gf.scene !== "play"; i++) await new Promise((r) => setTimeout(r, 10));
+  ok(
+    gf.scene === "play" && gf.trackId === "ksiaze-z-bajki",
+    "SPRÓBUJ PONOWNIE po porażce -> ta sama runda od nowa",
+  );
 }
 {
   // zaliczone ale <4 gwiazdek -> KONTYNUUJ zostawia na tym samym poziomie

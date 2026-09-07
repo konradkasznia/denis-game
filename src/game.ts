@@ -590,6 +590,7 @@ export class Game {
   private awaitingStart = false;
   private paused = false;
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
+  private loopOn = false; // czy muzyka tła menu jest teraz włączona
   /** ciche odliczanie 3-2-1 PRZED startem utworu — audio rusza dopiero po „1" */
   private rolling = false;
   private static readonly ROLL_MS = 3000;
@@ -802,6 +803,14 @@ export class Game {
 
   update(dt: number, _nowMs: number) {
     this.syncFields();
+    // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
+    // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
+    const wantLoop = this.scene !== "play";
+    if (wantLoop !== this.loopOn) {
+      this.loopOn = wantLoop;
+      if (wantLoop) this.audio.startLoop();
+      else this.audio.stopLoop();
+    }
     if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
       this.paused = false;
       this.resumeAt = 0;
@@ -1726,6 +1735,10 @@ export class Game {
 
   /** Apka zeszła w tło — wstrzymaj rozgrywkę i dźwięk (nic się nie „przewija"). */
   onAppBackground() {
+    // muzyka tła menu nie ma grać, gdy apka jest w tle; wróci sama po powrocie
+    // (pętla update() zobaczy, że `loopOn` jest false, a scena to nie „play")
+    this.audio.stopLoop(0.1);
+    this.loopOn = false;
     if (this.scene === "play") {
       this.resumeAt = 0; // anuluj ewentualne odliczanie 3-2-1
       if (!this.paused) this.pauseGame();
@@ -2297,6 +2310,11 @@ export class Game {
     // inaczej ten sam (do poprawy wyniku / ponownej próby)
     if (x < 0 || inRect(RES_PRIMARY, x, y)) {
       uiSound("buttons");
+      // runda niezaliczona → przycisk jest „SPRÓBUJ PONOWNIE": ta sama runda od nowa
+      if (!passed) {
+        void this.startPlay();
+        return;
+      }
       const canAdvance = passed && idx >= 0 && levelUnlocked(idx + 1);
       this.hitIndex = clamp(canAdvance ? idx + 1 : Math.max(0, idx), 0, this.maxHitIndex());
       this.enterHits();
@@ -2448,7 +2466,7 @@ export class Game {
         this.held[l] = null;
       }
     }
-    this.audio.pause();
+    this.audio.pauseWithSting(); // klip „pauza" zdąży wybrzmieć przed suspendem
   }
 
   private handlePauseTap(x: number, y: number) {
@@ -6132,7 +6150,11 @@ export class Game {
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
-    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
+    // niezaliczona runda → od razu druga szansa zamiast powrotu do karuzeli
+    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", {
+      fallback: passed ? "KONTYNUUJ" : "SPRÓBUJ PONOWNIE",
+      style: "gold",
+    });
 
     ctx.restore();
   }

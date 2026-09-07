@@ -12,6 +12,9 @@ import { join, extname } from "node:path";
 
 const DIST = "dist";
 const CHAR_DIR = join(DIST, "assets", "char");
+// pod `assets/ui/Sounds` runtime używa TYLKO płaskich .mp3 — podkatalogi to
+// materiały robocze (np. „DZWIEKI DO GRY GAME"), które nie mają jechać do APK
+const SOUNDS_DIR = join(DIST, "assets", "ui", "Sounds");
 
 // w dist/assets/char zostawiamy wyłącznie to, czego używa silnik w runtime
 const CHAR_KEEP = new Set(["dance.png", "anim.json"]);
@@ -33,6 +36,11 @@ function walk(dir, inChar) {
   for (const e of entries) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
+      if (dir === SOUNDS_DIR) {
+        rmSync(p, { recursive: true, force: true }); // cały podkatalog roboczy
+        removed++;
+        continue;
+      }
       walk(p, inChar || p.startsWith(CHAR_DIR));
       // sprzątnij pusty katalog
       try {

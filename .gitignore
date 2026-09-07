@@ -39,3 +39,6 @@ art/pan-mlody-kit-v2.png
 
 # lokalny \u015Bmietnik \u2014 pliki nieu\u017Cywane przez apk/build, trzymane tylko na dysku
 /Robocze/
+
+# materiały robocze dźwięków — runtime bierze tylko płaskie .mp3 z Sounds/
+public/assets/ui/Sounds/*/
