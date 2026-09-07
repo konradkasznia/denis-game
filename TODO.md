@@ -18,9 +18,10 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
 
 ## Rozgrywka
 
-- [ ] **Samouczki przed zaawansowanymi rundami** — krótkie wprowadzenie do nowych
-      mechanik (bomby, lód, płonące nutki, pijany ekran) tuż przed rundą, w której
-      się pojawiają. Jeszcze nie teraz.
+- Samouczki przed rundami — **ODRZUCONE** (Konrad, 2026-09-07). Zostają same znaki
+  ostrzegawcze na sliderze + info po kliknięciu.
+- Spotify „zapisz do biblioteki" przez OAuth — **ODRZUCONE**. Deep-link do utworu
+  („OTWÓRZ W SPOTIFY") zostaje jak jest.
 
 ## Audio (iOS)
 
@@ -29,6 +30,18 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
       (OfflineAudioContext), `start()` gra go jak mp3, `resumeFromBackground()`
       wznawia od właściwej sekundy. Fallback (brak OfflineAudioContext):
       przełożenie live-aranżu. Patrz `SAFARI-AUDIO-BUG.md`.
-- [ ] **Docelowo: prawdziwe mp3 pod rundy 2–3** — synth to placeholder.
-      Gdy będą pliki, `public/charts/<id>.json` z `audioUrl` + realny chart;
-      pre-render syntezy przestanie być używany dla tych utworów.
+- [ ] **Docelowo: prawdziwe mp3 pod rundę 2 (Książę z bajki)** — synth to placeholder.
+      Gdy będzie plik, `public/charts/ksiaze-z-bajki.json` z `audioUrl` + realny chart;
+      pre-render syntezy przestanie być używany dla tego utworu.
+      (Rundy 1 i 3 mają już mp3.)
+
+## Charty / edytor
+
+- [ ] **Panna Młoda: odbudować i opublikować mapę na czysto** — na serwerze siedzi
+      wersja z 1 nutą (po publikacji z pustej siatki). Gra działa, bo cofa się do
+      `public/charts/panna-mloda.json` (310 nut), ale porządek by się przydał.
+- [x] ~~Pogrzebówka: wyeksportować chart do repo jako zapas~~ — ZROBIONE
+      (2026-09-07): `public/charts/pogrzebowka.json` (464 nuty, 46 bomb, 8 przeszkód).
+- [ ] **Sprawdzić BPM Pogrzebówki** — opublikowany chart ma `bpm 66` (może miało być
+      132?). Przy prawdziwym mp3 bpm prawie nie wpływa na grę (nuty są czasowe), ale
+      warto potwierdzić.
