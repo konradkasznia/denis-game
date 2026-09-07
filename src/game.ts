@@ -11,6 +11,7 @@ import {
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
+import { addCoins, coins, coinsFromScore, fmtCoins, monetyWord } from "./coins.ts";
 import { isNative } from "./native.ts";
 import { apiBase } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
@@ -125,6 +126,9 @@ const HIT_ARROW_R: Rect = { x: VW - 106, y: HIT_TITLE_Y - 46, w: 92, h: 92 };
 const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
 const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
+
+// pigułka z monetami — lewy górny róg karuzeli (klik → NAGRODY)
+const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
 
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
@@ -666,6 +670,10 @@ export class Game {
   private boardFrom: "hits" | "results" = "hits";
   private resultRank = 0;
   private resultsSavedBest = false;
+  // monety zdobyte w tej rundzie + animacja „lecą w lewy górny róg"
+  private coinsEarned = 0;
+  private coinFly: { bx: number; by: number; tx: number; ty: number; born: number; delay: number }[] = [];
+  private coinFlySpawned = false;
 
   constructor(canvas?: HTMLCanvasElement | null) {
     this.fields = new FieldOverlay(canvas);
@@ -1979,6 +1987,11 @@ export class Game {
 
   private handleHitsTap(x: number, y: number) {
     if (x < 0) return;
+    if (inRect(HIT_COINS, x, y)) {
+      uiSound("buttons");
+      this.scene = "rewards";
+      return;
+    }
     if (inRect(HIT_GEAR, x, y)) {
       uiSound("buttons");
       this.scene = "profile";
@@ -2263,6 +2276,9 @@ export class Game {
     this.flowUpAt = -10;
     this.lastHoldTick = 0;
     this.resultStarSeen = 0;
+    this.coinsEarned = 0;
+    this.coinFly = [];
+    this.coinFlySpawned = false;
     this.paused = false;
     this.resumeAt = 0;
     this.resultsSavedBest = false;
@@ -2414,6 +2430,9 @@ export class Game {
       const gained = Math.floor(this.starFill());
       this.resultRank = submitScore(this.trackId, this.score, gained);
       recordStars(this.trackId, gained);
+      // monety za wynik — 1 za każde pełne 10 000 pkt
+      this.coinsEarned = coinsFromScore(this.score);
+      if (this.coinsEarned > 0) addCoins(this.coinsEarned);
       // submitScore -> postScore odświeża obie zakładki po zapisie
       // brak internetu → wynik nie trafił do bazy (info na podsumowaniu)
       let online = true;
@@ -2430,7 +2449,10 @@ export class Game {
   /** Sceny wymagające pełnych ~60 kl./s (rozgrywka + animacja licznika wyniku). */
   highFps(): boolean {
     if (this.scene === "play") return true;
-    if (this.scene === "results" && performance.now() - this.resultsAt < 2600) return true;
+    if (this.scene === "results") {
+      const win = this.coinsEarned > 0 ? 4000 : 2600; // + animacja lotu monet
+      if (performance.now() - this.resultsAt < win) return true;
+    }
     if (this.obstacleModal) return true; // płynny podgląd przeszkody w pętli
     return false;
   }
@@ -3807,6 +3829,9 @@ export class Game {
     if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
     else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
 
+    // monety — lewy górny róg (klik → NAGRODY)
+    this.drawCoinPill(ctx, HIT_COINS, coins());
+
     // POZIOM N
     text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
       size: 24,
@@ -4019,6 +4044,7 @@ export class Game {
 
   private drawRewards(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
+    this.drawCoinPill(ctx, HIT_COINS, coins());
     // bez przycisku „‹ WRÓĆ" w rogu — zostaje systemowy powrót + „POWRÓT" na dole
     text(ctx, "NAGRODY", VW / 2, 130, {
       size: 48,
@@ -5867,6 +5893,44 @@ export class Game {
       });
     }
 
+    // --- monety za wynik: „Zdobyłeś X monet" + animacja w lewy górny róg ---
+    if (this.coinsEarned > 0) {
+      const cy = 786;
+      const label = `Zdobyłeś ${this.coinsEarned} ${monetyWord(this.coinsEarned)}`;
+      ctx.save();
+      ctx.font = `900 24px ${HEAD_FONT}`;
+      const mw = ctx.measureText(label)?.width;
+      const tw = typeof mw === "number" && mw > 0 ? mw : 240;
+      ctx.restore();
+      const startX = VW / 2 - tw / 2 - 20;
+      this.drawCoinIcon(ctx, startX, cy, 13, now / 90);
+      text(ctx, label, VW / 2 + 14, cy + 1, {
+        size: 24,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffd867",
+        shadows: HEAD_SHADOWS,
+      });
+
+      if (!this.coinFlySpawned && now - this.resultsAt > 2000) {
+        this.coinFlySpawned = true;
+        const n = clamp(this.coinsEarned, 6, 14);
+        const tx = HIT_COINS.x + HIT_COINS.h * 0.62;
+        const ty = HIT_COINS.y + HIT_COINS.h / 2 - this.vdy;
+        for (let i = 0; i < n; i++) {
+          this.coinFly.push({
+            bx: VW / 2 + (Math.random() - 0.5) * (tw + 60),
+            by: cy + (Math.random() - 0.5) * 20,
+            tx: tx + (Math.random() - 0.5) * 14,
+            ty: ty + (Math.random() - 0.5) * 10,
+            born: now,
+            delay: i * 55,
+          });
+        }
+      }
+    }
+    this.drawCoinFly(ctx, now);
+
     // --- przyciski (po animacji licznika) ---
     if (!revealDone) {
       text(ctx, "stuknij, aby pominąć", VW / 2, VH - 34, { size: 15, color: "#6b6055" });
@@ -5881,6 +5945,126 @@ export class Game {
     this.uiButton(ctx, RES_PRIMARY, "kontynuuj", { fallback: "KONTYNUUJ", style: "gold" });
 
     ctx.restore();
+  }
+
+  // ---- monety ----------------------------------------------------
+
+  /** Pigułka „stos monet + liczba" w lewym górnym rogu (karuzela / nagrody). */
+  private drawCoinPill(ctx: CanvasRenderingContext2D, r: Rect, count: number) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = "#000";
+    roundRect(ctx, r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fill();
+    ctx.restore();
+
+    const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+    g.addColorStop(0, "#251b11");
+    g.addColorStop(1, "#130c06");
+    ctx.fillStyle = g;
+    roundRect(ctx, r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = "#e6a92e";
+    roundRect(ctx, r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.stroke();
+
+    const iconCx = r.x + r.h * 0.6;
+    const iconCy = r.y + r.h / 2;
+    this.drawCoinStack(ctx, iconCx, iconCy, r.h * 0.32);
+
+    const numX0 = r.x + r.h * 1.02;
+    text(ctx, fmtCoins(count), numX0 + (r.x + r.w - numX0 - 14) / 2, iconCy + 1, {
+      size: 30,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff7ec",
+      stroke: "rgba(0,0,0,0.5)",
+      strokeWidth: 4,
+    });
+  }
+
+  /** Stos 3 złotych monet wyśrodkowany na (cx,cy). */
+  private drawCoinStack(ctx: CanvasRenderingContext2D, cx: number, cy: number, rad: number) {
+    const coin = (ox: number, oy: number) => {
+      const g = ctx.createRadialGradient(
+        cx + ox - rad * 0.35,
+        cy + oy - rad * 0.35,
+        rad * 0.15,
+        cx + ox,
+        cy + oy,
+        rad * 1.25,
+      );
+      g.addColorStop(0, "#ffe680");
+      g.addColorStop(0.55, "#f2b632");
+      g.addColorStop(1, "#c07f0d");
+      ctx.beginPath();
+      ctx.ellipse(cx + ox, cy + oy, rad, rad * 0.8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#7d520a";
+      ctx.stroke();
+    };
+    coin(-rad * 0.32, rad * 0.44);
+    coin(rad * 0.34, rad * 0.3);
+    coin(0, -rad * 0.3);
+    // połysk na wierzchniej monecie
+    ctx.beginPath();
+    ctx.ellipse(cx - rad * 0.28, cy - rad * 0.55, rad * 0.38, rad * 0.2, -0.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fill();
+  }
+
+  /** Pojedyncza obracająca się moneta (animacja „lecą w róg" + ikonka przy tekście). */
+  private drawCoinIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, rad: number, spin: number) {
+    const rx = Math.max(rad * 0.18, rad * Math.abs(Math.cos(spin)));
+    const g = ctx.createLinearGradient(cx - rad, cy, cx + rad, cy);
+    g.addColorStop(0, "#c07f0d");
+    g.addColorStop(0.5, "#ffe680");
+    g.addColorStop(1, "#e0a11c");
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, rad, 0, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.shadowColor = "rgba(255,180,60,0.5)";
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = "#7d520a";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawCoinFly(ctx: CanvasRenderingContext2D, now: number) {
+    if (!this.coinFly.length) return;
+    let anyAlive = false;
+    for (let i = 0; i < this.coinFly.length; i++) {
+      const c = this.coinFly[i];
+      const t = (now - c.born - c.delay) / 640;
+      if (t < 0) {
+        anyAlive = true;
+        continue;
+      }
+      if (t > 1.28) continue;
+      anyAlive = true;
+      const p = Math.min(t, 1);
+      const e = 1 - Math.pow(1 - p, 2);
+      const mx = (c.bx + c.tx) / 2;
+      const my = Math.min(c.by, c.ty) - 100;
+      const x = (1 - e) * (1 - e) * c.bx + 2 * (1 - e) * e * mx + e * e * c.tx;
+      const y = (1 - e) * (1 - e) * c.by + 2 * (1 - e) * e * my + e * e * c.ty;
+      const land = clamp((t - 1) / 0.28, 0, 1);
+      const rad = 14 * (1 - land * 0.9);
+      ctx.save();
+      ctx.globalAlpha = 1 - land;
+      this.drawCoinIcon(ctx, x, y, Math.max(2, rad), p * 13 + i);
+      ctx.restore();
+    }
+    if (!anyAlive) this.coinFly = [];
   }
 
   /** Przycisk rysowany w kodzie w stylu makiety. */
