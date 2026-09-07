@@ -6086,9 +6086,12 @@ export class Game {
     }
 
     // --- monety za wynik: „Zdobyłeś X monet" + animacja w lewy górny róg ---
-    if (this.coinsEarned > 0) {
+    // Nawet słaba runda (dużo bomb, wynik przy zerze) NIE odejmuje monet —
+    // `coinsEarned` jest liczone z wyniku po `Math.max(0, ...)`, więc minimum to 0.
+    {
+      const earned = Math.max(0, this.coinsEarned);
       const cy = 786;
-      const label = `Zdobyłeś ${this.coinsEarned} ${monetyWord(this.coinsEarned)}`;
+      const label = `Zdobyłeś ${earned} ${monetyWord(earned)}`;
       ctx.save();
       ctx.font = `900 24px ${HEAD_FONT}`;
       const mw = ctx.measureText(label)?.width;
@@ -6100,11 +6103,11 @@ export class Game {
         size: 24,
         weight: "900",
         font: HEAD_FONT,
-        color: "#ffd867",
+        color: earned > 0 ? "#ffd867" : "#c9bda9",
         shadows: HEAD_SHADOWS,
       });
 
-      if (!this.coinFlySpawned && now - this.resultsAt > 2000) {
+      if (earned > 0 && !this.coinFlySpawned && now - this.resultsAt > 2000) {
         this.coinFlySpawned = true;
         const n = clamp(this.coinsEarned, 6, 14);
         const tx = HIT_COINS.x + HIT_COINS.h * 0.62;
