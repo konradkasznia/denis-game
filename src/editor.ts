@@ -182,16 +182,21 @@ async function fetchSongAudio(id: string): Promise<Blob | null> {
   ]) {
     try {
       const r = await fetch(url);
-      if (!r.ok) continue;
+      if (!r.ok) {
+        console.warn("[audio]", url, "→", r.status);
+        continue;
+      }
       const b = await r.blob();
+      console.warn("[audio]", url, "→", r.status, b.size + "B", b.type || "(brak typu)");
       if (b.size < 2000) continue; // 404-owa stronka / pusta odpowiedź
       const sig = new Uint8Array(await b.slice(0, 3).arrayBuffer());
       const isMp3 =
         (sig[0] === 0x49 && sig[1] === 0x44 && sig[2] === 0x33) || // "ID3"
         (sig[0] === 0xff && (sig[1] & 0xe0) === 0xe0); // ramka MPEG
       if (isMp3 || /audio|mpeg/i.test(b.type)) return b;
-    } catch {
-      /* następne źródło */
+      console.warn("[audio]", url, "→ nie wygląda na mp3 (sygnatura", [...sig].join(","), ")");
+    } catch (e) {
+      console.warn("[audio]", url, "→ błąd:", e);
     }
   }
   return null;
@@ -1331,27 +1336,29 @@ $<HTMLButtonElement>("pullchart").addEventListener("click", async () => {
     applyChart(j.chart);
     const n = j.chart.notes?.length ?? 0;
 
-    // MUZYKA: jeśli lokalnie brak / cichy podkład — dociągnij mp3 z serwera
-    // (repo albo to wgrane wcześniej przez „Wyślij do aplikacji").
-    if (isRealAudioBlob(await audioGet(id))) {
-      setPub(`wczytano z serwera ✓  ${n} nut (muzyka już jest)`);
+    // MUZYKA: przycisk „z serwera" ZAWSZE ładuje serwerową wersję mp3
+    // (repo `assets/songs/<id>.mp3` albo wgrane przez „Wyślij do aplikacji").
+    setPub(`mapa ${n} nut ✓ — pobieram muzykę…`);
+    let mp3: Blob | null = null;
+    try {
+      mp3 = await fetchSongAudio(id);
+    } catch (e) {
+      setPub(`wczytano ${n} nut ✓ — błąd pobierania mp3: ${e}`, true);
       return;
     }
-    setPub(`mapa ${n} nut ✓ — pobieram muzykę…`);
-    const mp3 = await fetchSongAudio(id);
     if (!mp3) {
-      setPub(`wczytano ${n} nut ✓ — brak mp3 na serwerze, przeciągnij plik ręcznie`, true);
+      setPub(`wczytano ${n} nut ✓ — na serwerze nie ma mp3 dla „${id}", przeciągnij plik ręcznie`, true);
       return;
     }
     await audioPut(id, mp3);
     try {
       await decodeInto(mp3, true);
       setPub(`wczytano z serwera ✓  ${n} nut + muzyka (${(mp3.size / 1048576).toFixed(1)} MB)`);
-    } catch {
-      setPub(`wczytano ${n} nut ✓, ale mp3 się nie zdekodowało — spróbuj wgrać ręcznie`, true);
+    } catch (e) {
+      setPub(`pobrałem mp3 (${(mp3.size / 1048576).toFixed(1)} MB), ale nie dało się go zdekodować: ${e}`, true);
     }
-  } catch {
-    setPub("brak połączenia z serwerem", true);
+  } catch (e) {
+    setPub(`błąd: ${e}`, true);
   }
 });
 
