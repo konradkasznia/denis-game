@@ -35,6 +35,13 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
       + `public/charts/ksiaze-z-bajki.json` (80 nut). Wpis w `SYNTH_TRACKS` usunięty.
       **Wszystkie 3 grywalne rundy mają teraz prawdziwe mp3.**
 
+## Monety
+
+- [ ] **Sync monet z kontem** — teraz tylko `localStorage["denis.coins"]`.
+      Po wyczyszczeniu / na innym urządzeniu monety przepadają. Docelowo:
+      pole w tabeli users + zwracać w `/api/auth/me`, scalać jak gwiazdki
+      (`game.syncSession`). Dopisywać przy `submitScore` (POST) razem z wynikiem.
+
 ## Charty / edytor
 
 - [ ] **Panna Młoda: odbudować i opublikować mapę na czysto** — na serwerze siedzi
