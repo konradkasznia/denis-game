@@ -1,7 +1,8 @@
-// Generuje ikony aplikacji (PWA / „Dodaj do ekranu początkowego" na iOS + ikona 1024 do sklepów).
-// Gotowe pliki są w repo (public/icons/, art/icon-1024.png) — uruchamiaj tylko przy zmianie źródła.
+// [PRZESTARZAŁE] Generował ikony z renderu Funko Denisa (public/assets/denis/denis-stage.png).
+// Aktualny pipeline ikon to `tools/mk-android-icons.mjs` (źródło: Materiały robocze/Ikony/).
+// denis-stage.png został wyniesiony do lokalnego Robocze/misc/ — jak chcesz uruchomić
+// ten skrypt, wskaż nowe źródło w `denisSquare` poniżej.
 //   npm i -D sharp && node tools/make-icons.mjs && npm rm -D sharp
-// Źródło: public/assets/denis/denis-stage.png (render Funko Denisa).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import sharp from "sharp";

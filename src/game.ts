@@ -79,7 +79,7 @@ const inRect = (r: Rect, x: number, y: number) =>
 
 // Utwory z własnym tłem karuzeli WYBIERZ HIT (`assets/ui/slider-bg/<id>.jpg`).
 // Tylko na sliderze — po starcie gry tło (drawStage) się nie zmienia.
-// panna-mloda celowo pominięta (zostaje domyślne stage-bg.png).
+// panna-mloda celowo pominięta (zostaje domyślne stage-bg.jpg).
 const SLIDER_BG_SONGS = new Set([
   "ksiaze-z-bajki",
   "pogrzebowka",
@@ -543,8 +543,6 @@ export class Game {
   private scene: Scene = "loading";
   private audio = new AudioEngine();
 
-  private bg = new Image();
-  private bgReady = false;
   private songBg: HTMLImageElement | null = null; // tło bieżącego utworu
   private bgCache = new Map<string, HTMLImageElement>();
   private character = new Character();
@@ -671,14 +669,15 @@ export class Game {
 
   constructor(canvas?: HTMLCanvasElement | null) {
     this.fields = new FieldOverlay(canvas);
-    this.bg.onload = () => {
-      this.bgReady = true;
-      if (this.scene === "loading") this.gotoStart();
-    };
-    this.bg.onerror = () => {
-      if (this.scene === "loading") this.gotoStart();
-    };
-    this.bg.src = "assets/denis/denis-stage.png";
+    // ekran „loading" → menu. Nie blokujemy na obrazku tła — `drawUiBg` ma
+    // fallback na gradient. `onload` przyspiesza przejście, timer je gwarantuje.
+    {
+      const go = () => {
+        if (this.scene === "loading") this.gotoStart();
+      };
+      loadImg("assets/ui/stage-bg.jpg").onload = go; // przy okazji: prefetch tła
+      setTimeout(go, 0);
+    }
     setHapticsEnabled(true); // wibracje zawsze włączone
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
     registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
@@ -688,7 +687,7 @@ export class Game {
     void this.preloadChart();
     // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
     for (const n of [
-      "stage-bg.png", "wybierz-hit.png", "gear.png",
+      "stage-bg.jpg", "wybierz-hit.png", "gear.png",
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
@@ -2764,12 +2763,12 @@ export class Game {
 
   // ---- rysowanie: wspólne tło ------------------------------------
 
-  private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number, plain = false) {
-    // w grze z animowaną postacią i bez własnego tła: czysta ciemna scena
-    // (żeby nie było drugiego Denisa z domyślnego zdjęcia)
+  private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number) {
+    // tło rozgrywki: własne tło utworu (`assets/bg/<id>.jpg`) albo ciemna scena
+    // z reflektorami (postać animowana rysuje się osobno)
     const top = -this.vdy;
     const vh = this.sh();
-    const img = this.songBg ?? (plain ? null : this.bgReady ? this.bg : null);
+    const img = this.songBg;
     if (img && img.width) {
       const iw = img.width;
       const ih = img.height;
@@ -3678,14 +3677,14 @@ export class Game {
     return loadImg(`assets/ui/${name}`);
   }
 
-  /** Tło sceny: grafika `assets/ui/stage-bg.png` (cover) albo ciemny gradient.
+  /** Tło sceny: grafika `assets/ui/stage-bg.jpg` (cover) albo ciemny gradient.
    *  `gray` = wersja czarno-biała (dla zablokowanego poziomu). */
-  private drawUiBg(ctx: CanvasRenderingContext2D, gray = false, bgKey = "stage-bg.png") {
+  private drawUiBg(ctx: CanvasRenderingContext2D, gray = false, bgKey = "stage-bg.jpg") {
     const top = -this.vdy;
     const vh = this.sh();
     const midY = top + vh / 2;
     let bg = this.uiImg(bgKey);
-    if (bgKey !== "stage-bg.png" && !imgReady(bg)) bg = this.uiImg("stage-bg.png");
+    if (bgKey !== "stage-bg.jpg" && !imgReady(bg)) bg = this.uiImg("stage-bg.jpg");
     if (imgReady(bg)) {
       // „cover" na cały widoczny obszar (rozciągnięte tło na wyższych telefonach)
       const s = Math.max(VW / bg.naturalWidth, vh / bg.naturalHeight);
@@ -3777,7 +3776,7 @@ export class Game {
 
     // tło karuzeli: własne dla wybranych utworów, inaczej domyślne stage-bg
     const bgKey =
-      meta && SLIDER_BG_SONGS.has(meta.id) ? `slider-bg/${meta.id}.jpg` : "stage-bg.png";
+      meta && SLIDER_BG_SONGS.has(meta.id) ? `slider-bg/${meta.id}.jpg` : "stage-bg.jpg";
     this.drawUiBg(ctx, locked, bgKey);
 
     // logo — wyśrodkowane, dolna krawędź tuż nad „POZIOM N"
@@ -4160,8 +4159,6 @@ export class Game {
   private drawPlay(ctx: CanvasRenderingContext2D) {
     const pulse = this.beatPulse();
 
-    const plainStage = this.character.hasContent() && !this.songBg;
-
     // ---- trzęsienie ekranu ----
     const sh = this.shake;
     const sx = sh ? (Math.random() - 0.5) * sh : 0;
@@ -4172,12 +4169,7 @@ export class Game {
     const missGlow = clamp(1 - (this.songTime - this.denisMissAt) / 0.3, 0, 1);
     const popGlow = this.songTime - this.denisPopAt < 0.15 ? 0.5 : 0;
     const heat = this.flowTier / MAX_FLOW_TIER;
-    this.drawStage(
-      ctx,
-      0.34 + missGlow * 0.12 - heat * 0.06,
-      pulse + popGlow + heat * 0.35,
-      plainStage,
-    );
+    this.drawStage(ctx, 0.34 + missGlow * 0.12 - heat * 0.06, pulse + popGlow + heat * 0.35);
 
     if (heat > 0.01 || missGlow > 0.02) {
       ctx.save();
