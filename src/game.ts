@@ -143,9 +143,9 @@ const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
 // wyśrodkowana względem grafiki postaci (charRect) — patrz drawHits.
-const HIT_SIGN_R = 34;
+const HIT_SIGN_R = 68; // 2× większe znaki (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
-const HIT_SIGN_DY = 88; // odstęp środków w kolumnie
+const HIT_SIGN_DY = 150; // odstęp środków w kolumnie
 
 type ObstacleKind = "bomb" | "vodka" | "flashlight";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
@@ -721,6 +721,7 @@ export class Game {
       "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
       ...SONGS.map((s) => `select-${s.id}.png`),
       ...[...SLIDER_BG_SONGS].map((id) => `slider-bg/${id}.jpg`),
+      "Warning/BOMBA.png", "Warning/FLASZKA.png", "Warning/LATARKA.png",
     ]) {
       loadImg(`assets/ui/${n}`);
     }
@@ -3495,6 +3496,12 @@ export class Game {
   // ---- znaki ostrzegawcze o przeszkodach (slider Pogrzebówki) ----
 
   /** Znak „drogowy": białe koło, czerwony obrys, ciemny piktogram (bomba / butelka / latarka). */
+  private static readonly WARN_SIGN_FILE: Record<ObstacleKind, string> = {
+    bomb: "BOMBA",
+    vodka: "FLASZKA",
+    flashlight: "LATARKA",
+  };
+
   private drawWarnSign(
     ctx: CanvasRenderingContext2D,
     cx: number,
@@ -3502,6 +3509,19 @@ export class Game {
     r: number,
     kind: ObstacleKind,
   ) {
+    // gotowa grafika znaku (białe koło + czerwony rant + ikona), inaczej rysowana zapasowo
+    const img = this.uiImg(`Warning/${Game.WARN_SIGN_FILE[kind]}.png`);
+    if (imgReady(img)) {
+      const d = r * 2.14; // grafika ma ~7% przezroczystego marginesu wokół koła
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.45)";
+      ctx.shadowBlur = r * 0.3;
+      ctx.shadowOffsetY = r * 0.12;
+      ctx.drawImage(img, cx - d / 2, cy - d / 2, d, d);
+      ctx.restore();
+      return;
+    }
+
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -4107,12 +4127,6 @@ export class Game {
       signs.forEach((kind, i) => {
         const cx = HIT_SIGN_X;
         const cy = top + i * HIT_SIGN_DY;
-        ctx.save();
-        ctx.fillStyle = "rgba(8,6,12,0.5)";
-        ctx.beginPath();
-        ctx.arc(cx, cy, HIT_SIGN_R + 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
         this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R, kind);
         const pad = 8;
         this.hitSignRects.push({
