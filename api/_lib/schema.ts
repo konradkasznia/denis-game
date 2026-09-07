@@ -12,6 +12,8 @@ export const SCHEMA_SQL: string[] = [
     nick TEXT NOT NULL DEFAULT '',
     terms INTEGER NOT NULL DEFAULT 0,
     terms_at TEXT,
+    coins INTEGER NOT NULL DEFAULT 0,
+    unlocked TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS users_login_lc ON users (lower(login))`,

@@ -11,9 +11,18 @@ import {
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
-import { addCoins, coins, coinsFromScore, fmtCoins, monetyWord } from "./coins.ts";
+import {
+  addCoins,
+  applyServerCoins,
+  applyServerUnlocked,
+  coins,
+  coinsFromScore,
+  fmtCoins,
+  fmtCoinsFull,
+  monetyWord,
+} from "./coins.ts";
 import { isNative } from "./native.ts";
-import { apiBase } from "./net.ts";
+import { api, ApiError, apiBase, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
@@ -34,6 +43,7 @@ import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
 import {
   bestStars,
   clearedStreak,
+  coinUnlockPrice,
   devUnlocked,
   levelUnlocked,
   markDiscovered,
@@ -674,6 +684,10 @@ export class Game {
   private coinsEarned = 0;
   private coinFly: { bx: number; by: number; tx: number; ty: number; born: number; delay: number }[] = [];
   private coinFlySpawned = false;
+  // odblokowanie poziomu za monety
+  private coinLackModal = 0; // cena poziomu, gdy pokazujemy „za mało monet" (0 = zamknięty)
+  private unlockError = false; // odblokowanie nie przeszło (offline / błąd serwera)
+  private unlockBusy = false;
 
   constructor(canvas?: HTMLCanvasElement | null) {
     this.fields = new FieldOverlay(canvas);
@@ -713,11 +727,15 @@ export class Game {
   private async syncSession() {
     try {
       const me = await fetchMe();
-      if (me?.progress) {
+      if (!me) return;
+      if (me.progress) {
         mergeServerStars(me.progress);
         mergeServerBest(me.progress);
         this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
       }
+      // monety i odblokowania — serwer autorytatywny (są wydawane, nie tylko rosną)
+      applyServerCoins(me.coins);
+      applyServerUnlocked(me.unlocked);
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
@@ -1384,6 +1402,23 @@ export class Game {
     }
     if (this.logoutModal) this.drawLogoutModal(ctx);
     if (this.obstacleModal) this.drawObstacleModal(ctx);
+    if (this.coinLackModal) {
+      const have = coins();
+      const need = Math.max(0, this.coinLackModal - have);
+      this.drawModal(
+        ctx,
+        "💰",
+        "ZBIERZ WIĘCEJ MONET",
+        `Masz ${fmtCoinsFull(have)} z ${fmtCoinsFull(this.coinLackModal)} monet. Za każde 10 000 punktów w rundzie dostajesz 1 monetę. Graj w odblokowane rundy, uzbieraj brakujące ${fmtCoinsFull(need)} i wróć tu, żeby odblokować ten poziom.`,
+      );
+    } else if (this.unlockError) {
+      this.drawModal(
+        ctx,
+        "📡",
+        "SPRÓBUJ PONOWNIE",
+        "Odblokowanie wymaga połączenia z internetem i nie udało się teraz. Sprawdź sieć i spróbuj jeszcze raz.",
+      );
+    }
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -1475,6 +1510,14 @@ export class Game {
       if (!this.obstacleOkRect || inRect(this.obstacleOkRect, x, y)) {
         uiSound("buttons");
         this.obstacleModal = null;
+      }
+      return;
+    }
+    if (this.coinLackModal || this.unlockError) {
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
+        uiSound("buttons");
+        this.coinLackModal = 0;
+        this.unlockError = false;
       }
       return;
     }
@@ -1630,6 +1673,12 @@ export class Game {
     if (this.obstacleModal) {
       uiSound("back");
       this.obstacleModal = null;
+      return true;
+    }
+    if (this.coinLackModal || this.unlockError) {
+      uiSound("back");
+      this.coinLackModal = 0;
+      this.unlockError = false;
       return true;
     }
     if (this.preparing) {
@@ -2060,6 +2109,24 @@ export class Game {
       void refreshBoard(this.boardSongId, this.boardPeriod);
       return;
     }
+    // przycisk „ODBLOKUJ za X monet" (Pogrzebówka po bramce gwiazdkowej)
+    const price = meta.playable ? coinUnlockPrice(this.hitIndex) : 0;
+    if (price > 0 && inRect(this.hb(HIT_GRAJ), x, y)) {
+      if (this.unlockBusy) return;
+      if (!backendReachable()) {
+        uiSound("buttons");
+        this.unlockError = true;
+        return;
+      }
+      if (coins() < price) {
+        uiSound("buttons");
+        this.coinLackModal = price;
+        return;
+      }
+      void this.buyUnlock(meta.id, price);
+      return;
+    }
+
     if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       uiSound("play");
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
@@ -2068,6 +2135,40 @@ export class Game {
       this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
       haptic("combo");
       void this.startPlay();
+    }
+  }
+
+  /** Zakup odblokowania poziomu za monety (Pogrzebówka). Serwer autorytatywny. */
+  private async buyUnlock(songId: string, price: number) {
+    if (this.unlockBusy) return;
+    this.unlockBusy = true;
+    uiSound("buttons");
+    try {
+      const r = await api<{ ok?: boolean; coins?: number; unlocked?: string[] }>("/api/account", {
+        method: "POST",
+        body: { action: "unlock", songId },
+        auth: true,
+      });
+      applyServerCoins(r.coins);
+      applyServerUnlocked(r.unlocked);
+      if ((r.unlocked ?? []).includes(songId)) {
+        uiSound("play");
+        haptic("flowUp");
+        this.burstFx("confetti", VW / 2, HIT_STARS_Y + 40);
+        this.burstFx("confetti", VW / 2 - 150, HIT_STARS_Y + 130);
+        this.burstFx("confetti", VW / 2 + 150, HIT_STARS_Y + 130);
+      } else {
+        this.coinLackModal = price;
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) {
+        this.coinLackModal = price;
+        void this.syncSession(); // dociągnij prawdziwe saldo z serwera
+      } else {
+        this.unlockError = true;
+      }
+    } finally {
+      this.unlockBusy = false;
     }
   }
 
@@ -3926,9 +4027,13 @@ export class Game {
       return;
     }
 
-    // poziom zablokowany progresją → ukośna pieczątka „PRZEJDŹ POPRZEDNI POZIOM"
-    // na postaci (zamiast napisu pod przyciskiem)
-    if (!unlocked) {
+    // cena odblokowania za monety (0 = nie dotyczy albo bramka gwiazdkowa
+    // jeszcze niezaliczona albo już odblokowane)
+    const coinPrice = meta.playable ? coinUnlockPrice(idx) : 0;
+
+    // zablokowany, a bramka gwiazdkowa niezaliczona → „PRZEJDŹ POPRZEDNI POZIOM".
+    // Gdy bramka zaliczona, ale trzeba kupić za monety → przycisk niżej (bez pieczątki).
+    if (!unlocked && !coinPrice) {
       this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
     }
 
@@ -3961,13 +4066,44 @@ export class Game {
       });
     }
 
-    // GRAJ!
+    // GRAJ! albo „ODBLOKUJ za X monet"
     const graj = this.hb(HIT_GRAJ);
-    this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
+    if (coinPrice > 0) {
+      this.drawUnlockButton(ctx, graj, coinPrice);
+    } else {
+      this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
+    }
 
     // WYNIKI | NAGRODY
     this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI", style: "dark-gold" });
     this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
+  }
+
+  /** Przycisk „🪙 ODBLOKUJ / za X monet" (styl jak GRAJ, dwuwierszowy z monetami). */
+  private drawUnlockButton(ctx: CanvasRenderingContext2D, r: Rect, price: number) {
+    this.styledBtn(ctx, r, "", "gold");
+    const faceH = r.h - Math.round(r.h * 0.14);
+    // stos monet po lewej
+    this.drawCoinStack(ctx, r.x + 46, r.y + faceH / 2, 20);
+    // dwa wiersze tekstu, przesunięte w prawo od monet
+    const tx = r.x + 44 + (r.w - 44) / 2;
+    text(ctx, "ODBLOKUJ", tx, r.y + faceH / 2 - 15, {
+      size: 30,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff",
+      stroke: "#70380b",
+      strokeWidth: 5,
+      shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.4)" }],
+    });
+    text(ctx, `za ${fmtCoinsFull(price)} monet`, tx, r.y + faceH / 2 + 17, {
+      size: 20,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff",
+      stroke: "#70380b",
+      strokeWidth: 4,
+    });
   }
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
@@ -5987,55 +6123,86 @@ export class Game {
   }
 
   /** Stos 3 złotych monet wyśrodkowany na (cx,cy). */
-  private drawCoinStack(ctx: CanvasRenderingContext2D, cx: number, cy: number, rad: number) {
-    const coin = (ox: number, oy: number) => {
-      const g = ctx.createRadialGradient(
-        cx + ox - rad * 0.35,
-        cy + oy - rad * 0.35,
-        rad * 0.15,
-        cx + ox,
-        cy + oy,
-        rad * 1.25,
-      );
-      g.addColorStop(0, "#ffe680");
-      g.addColorStop(0.55, "#f2b632");
-      g.addColorStop(1, "#c07f0d");
-      ctx.beginPath();
-      ctx.ellipse(cx + ox, cy + oy, rad, rad * 0.8, 0, 0, Math.PI * 2);
-      ctx.fillStyle = g;
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#7d520a";
-      ctx.stroke();
-    };
-    coin(-rad * 0.32, rad * 0.44);
-    coin(rad * 0.34, rad * 0.3);
-    coin(0, -rad * 0.3);
-    // połysk na wierzchniej monecie
+  /** Gwiazdka wpisana w monetę (piktogram na twarzy). */
+  private drawCoinStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, sq: number) {
     ctx.beginPath();
-    ctx.ellipse(cx - rad * 0.28, cy - rad * 0.55, rad * 0.38, rad * 0.2, -0.5, 0, Math.PI * 2);
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 === 0 ? r : r * 0.44;
+      const px = cx + Math.cos(a) * rr;
+      const py = cy + Math.sin(a) * rr * sq;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(150,95,14,0.72)";
+    ctx.fill();
+  }
+
+  /** Jedna stylizowana moneta: rant + kopulasta twarz + rowek + gwiazdka + refleks.
+   *  `sq` (0..1) spłaszcza w pionie (perspektywa), `thick` = grubość boku pod monetą. */
+  private drawCoin(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    r: number,
+    sq = 1,
+    thick = 0,
+  ) {
+    const ry = r * sq;
+    if (thick > 0) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + thick, r, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#9a6410";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.rect(cx - r, cy, r * 2, thick);
+      ctx.fillStyle = "#9a6410";
+      ctx.fill();
+    }
+    // rant
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#b9800f";
+    ctx.fill();
+    // twarz (kopulasty gradient)
+    const face = ctx.createRadialGradient(cx - r * 0.32, cy - ry * 0.36, r * 0.08, cx, cy, r * 1.05);
+    face.addColorStop(0, "#fff1bd");
+    face.addColorStop(0.45, "#ffd24c");
+    face.addColorStop(1, "#e2990f");
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * 0.82, ry * 0.82, 0, 0, Math.PI * 2);
+    ctx.fillStyle = face;
+    ctx.fill();
+    // rowek
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * 0.82, ry * 0.82, 0, 0, Math.PI * 2);
+    ctx.lineWidth = Math.max(1, r * 0.08);
+    ctx.strokeStyle = "rgba(154,100,16,0.5)";
+    ctx.stroke();
+    if (sq > 0.5) this.drawCoinStar(ctx, cx, cy, r * 0.44, sq);
+    // refleks
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.33, cy - ry * 0.36, r * 0.3, ry * 0.15, -0.5, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.fill();
   }
 
+  /** Stos 3 monet wyśrodkowany na (cx,cy). */
+  private drawCoinStack(ctx: CanvasRenderingContext2D, cx: number, cy: number, rad: number) {
+    const sq = 0.5;
+    const th = rad * 0.28;
+    this.drawCoin(ctx, cx + rad * 0.1, cy + rad * 0.46, rad, sq, th);
+    this.drawCoin(ctx, cx - rad * 0.1, cy + rad * 0.02, rad, sq, th);
+    this.drawCoin(ctx, cx + rad * 0.04, cy - rad * 0.42, rad, sq, th);
+  }
+
   /** Pojedyncza obracająca się moneta (animacja „lecą w róg" + ikonka przy tekście). */
   private drawCoinIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, rad: number, spin: number) {
-    const rx = Math.max(rad * 0.18, rad * Math.abs(Math.cos(spin)));
-    const g = ctx.createLinearGradient(cx - rad, cy, cx + rad, cy);
-    g.addColorStop(0, "#c07f0d");
-    g.addColorStop(0.5, "#ffe680");
-    g.addColorStop(1, "#e0a11c");
+    const sq = Math.max(0.14, Math.abs(Math.cos(spin)));
     ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, rad, 0, 0, Math.PI * 2);
-    ctx.fillStyle = g;
-    ctx.shadowColor = "rgba(255,180,60,0.5)";
-    ctx.shadowBlur = 8;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = 1.4;
-    ctx.strokeStyle = "#7d520a";
-    ctx.stroke();
+    ctx.shadowColor = "rgba(255,190,70,0.5)";
+    ctx.shadowBlur = 9;
+    this.drawCoin(ctx, cx, cy, rad, sq, 0);
     ctx.restore();
   }
 

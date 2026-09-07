@@ -27,7 +27,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       /* brak tabeli / błąd odczytu — zwróć sam profil */
     }
 
-    return json(res, 200, { ok: true, login: u.login, nick: u.nick, terms: u.terms, progress });
+    // monety + poziomy odblokowane za monety (autorytatywne — klient nadpisuje cache)
+    let coins = 0;
+    let unlocked: string[] = [];
+    try {
+      const cr = await db().execute({ sql: "SELECT coins, unlocked FROM users WHERE id = ?", args: [u.id] });
+      coins = Math.max(0, Number(cr.rows[0]?.coins ?? 0));
+      unlocked = String(cr.rows[0]?.unlocked ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } catch {
+      /* stara baza bez kolumn — zero monet */
+    }
+
+    return json(res, 200, {
+      ok: true,
+      login: u.login,
+      nick: u.nick,
+      terms: u.terms,
+      progress,
+      coins,
+      unlocked,
+    });
   } catch (e) {
     console.error("me", e);
     return json(res, 500, { error: "Błąd serwera." });

@@ -1,3 +1,5 @@
+import { isUnlocked, UNLOCK_COST } from "./coins.ts";
+
 // Rejestr utworów + śledzenie, które gracz już „poznał".
 //
 // Docelowo każdy wpis dostaje własny plik audio, beatmapę (chart) i okładkę
@@ -169,12 +171,29 @@ export function mergeServerStars(server: Record<string, { stars?: number }>): vo
   }
 }
 
+/** Czy poziom przeszedł bramkę gwiazdkową (zaliczony poprzedni na >= UNLOCK_STARS). */
+function starGatePassed(index: number): boolean {
+  const prev = SONGS[index - 1];
+  return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
+}
+
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
   if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
-  const prev = SONGS[index - 1];
-  return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
+  if (!starGatePassed(index)) return false;
+  // niektóre poziomy wymagają jeszcze zakupu za monety (patrz coins.ts)
+  const id = SONGS[index]?.id;
+  if (id && UNLOCK_COST[id]) return isUnlocked(id);
+  return true;
+}
+
+/** Ile monet potrzeba, by odblokować ten poziom TERAZ (0 = nie dotyczy /
+ *  bramka gwiazdkowa jeszcze niezaliczona / już odblokowany). */
+export function coinUnlockPrice(index: number): number {
+  const id = SONGS[index]?.id;
+  if (!id || !UNLOCK_COST[id] || isUnlocked(id)) return 0;
+  return starGatePassed(index) ? UNLOCK_COST[id] : 0;
 }
 
 /** Ile kolejnych poziomów od początku zaliczono na >= UNLOCK_STARS gwiazdek. */

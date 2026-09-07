@@ -191,6 +191,8 @@ export interface Me {
   login: string;
   nick: string;
   progress?: Record<string, { score: number; stars: number }>;
+  coins?: number;
+  unlocked?: string[];
 }
 
 /** Sprawdza sesję po stronie serwera (po starcie aplikacji / po zalogowaniu).
@@ -201,7 +203,7 @@ export async function fetchMe(): Promise<Me | null> {
   if (!backendReachable() || !getToken()) return null;
   try {
     const r = await api<Me>("/api/auth/me", { auth: true });
-    return { login: r.login, nick: r.nick, progress: r.progress };
+    return { login: r.login, nick: r.nick, progress: r.progress, coins: r.coins, unlocked: r.unlocked };
   } catch {
     return null;
   }

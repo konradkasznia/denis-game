@@ -6,6 +6,7 @@
 // realnych wyników jest mało — żeby tablica nie świeciła pustką.
 
 import { nick as myNick } from "./account.ts";
+import { applyServerCoins } from "./coins.ts";
 import { api, backendReachable, getToken } from "./net.ts";
 
 export type Period = "month" | "all";
@@ -136,7 +137,12 @@ export async function refreshBoard(songId: string, period: Period = "all"): Prom
 async function postScore(songId: string, score: number, stars: number) {
   if (!backendReachable() || !getToken()) return;
   try {
-    await api("/api/scores", { method: "POST", body: { songId, score, stars }, auth: true });
+    const r = await api<{ coins?: number }>("/api/scores", {
+      method: "POST",
+      body: { songId, score, stars },
+      auth: true,
+    });
+    applyServerCoins(r.coins); // serwer dopisał monety za ten przebieg — weź jego liczbę
     await Promise.all([refreshBoard(songId, "all"), refreshBoard(songId, "month")]);
   } catch {
     /* wynik jest zapisany lokalnie; zsynchronizuje się przy następnej okazji */

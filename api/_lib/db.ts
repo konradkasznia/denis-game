@@ -33,6 +33,13 @@ export function ensureSchema(): Promise<void> {
       if (cols.includes("email") && !cols.includes("login")) {
         await c.execute("ALTER TABLE users RENAME COLUMN email TO login");
       }
+      // waluta „monety" + lista poziomów odblokowanych za monety (CSV)
+      if (cols.length && !cols.includes("coins")) {
+        await c.execute("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0");
+      }
+      if (cols.length && !cols.includes("unlocked")) {
+        await c.execute("ALTER TABLE users ADD COLUMN unlocked TEXT NOT NULL DEFAULT ''");
+      }
     } catch {
       /* users jeszcze nie istnieje — CREATE TABLE poniżej */
     }

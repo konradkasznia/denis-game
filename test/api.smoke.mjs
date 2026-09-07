@@ -168,6 +168,37 @@ ok(
   "sesja przesuwana: przedłużona przy użyciu (aktywny gracz nie zostaje wylogowany)",
 );
 
+// --- monety: dopisywanie za wynik + atomowe odblokowanie za monety ---
+const cu = Number(
+  (await c.execute({ sql: "INSERT INTO users (login, pw_hash, created_at) VALUES ('Monetnik','x',?)", args: [now] }))
+    .lastInsertRowid,
+);
+// dopisz monety jak scores.ts (1 / 10 000 pkt)
+for (const s of [254321, 30000]) {
+  await c.execute({ sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [Math.floor(s / 10000), cu] });
+}
+ok(
+  Number((await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [cu] })).rows[0].coins) === 28,
+  "monety: 25 + 3 za dwa przebiegi",
+);
+// odblokowanie: atomowy UPDATE (odejmij + dopisz do unlocked, tylko gdy starczy i nieodblokowane)
+const UNLOCK_SQL = `UPDATE users SET coins = coins - ?, unlocked = TRIM(unlocked || ',' || ?, ',')
+  WHERE id = ? AND coins >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
+  RETURNING coins, unlocked`;
+const tooPoor = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
+ok(tooPoor.rows.length === 0, "odblokowanie: 28 monet < 1000 → brak zmiany");
+await c.execute({ sql: "UPDATE users SET coins = 1200 WHERE id = ?", args: [cu] });
+const bought = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
+ok(
+  bought.rows.length === 1 &&
+    Number(bought.rows[0].coins) === 200 &&
+    String(bought.rows[0].unlocked) === "pogrzebowka",
+  "odblokowanie: 1200 → 200 monet, unlocked = pogrzebowka",
+);
+const again = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
+ok(again.rows.length === 0, "odblokowanie: drugie kliknięcie nie pobiera ponownie");
+await c.execute({ sql: "DELETE FROM users WHERE id = ?", args: [cu] });
+
 // --- kaskada usunięcia konta ---
 await c.batch(
   [

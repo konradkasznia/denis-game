@@ -132,6 +132,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const bestStars = Math.max(Number(prev.rows[0]?.stars ?? 0), stars);
     const now = nowIso();
     const m = ym();
+    // monety: 1 za każde pełne 10 000 pkt TEGO przebiegu (nie „najlepszego") —
+    // liczone z wyniku po capie anty-cheat, więc z górną granicą
+    const coinsGained = Math.floor(score / 10_000);
     await c.batch(
       [
         {
@@ -152,10 +155,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   updated_at = excluded.updated_at`,
           args: [u.id, songId, m, score, stars, now],
         },
+        { sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [coinsGained, u.id] },
       ],
       "write",
     );
-    return json(res, 200, { ok: true, best, stars: bestStars, rank: await rankAll(songId, best) });
+    let coins = 0;
+    try {
+      const cr = await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [u.id] });
+      coins = Math.max(0, Number(cr.rows[0]?.coins ?? 0));
+    } catch {
+      /* stara baza — brak kolumny coins */
+    }
+    return json(res, 200, {
+      ok: true,
+      best,
+      stars: bestStars,
+      rank: await rankAll(songId, best),
+      coins,
+      coinsGained,
+    });
   } catch (e) {
     console.error("scores", e);
     return json(res, 500, { error: "Błąd serwera." });

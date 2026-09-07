@@ -37,10 +37,14 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
 
 ## Monety
 
-- [ ] **Sync monet z kontem** — teraz tylko `localStorage["denis.coins"]`.
-      Po wyczyszczeniu / na innym urządzeniu monety przepadają. Docelowo:
-      pole w tabeli users + zwracać w `/api/auth/me`, scalać jak gwiazdki
-      (`game.syncSession`). Dopisywać przy `submitScore` (POST) razem z wynikiem.
+- [x] ~~Sync monet z kontem~~ — ZROBIONE (2026-09-07). `users.coins` + `users.unlocked`
+      w bazie; `/api/scores` POST dopisuje monety za przebieg i zwraca saldo;
+      `/api/auth/me` zwraca `coins` + `unlocked`; `/api/account {action:"unlock"}`
+      atomowo odejmuje i odblokowuje. Klient: serwer autorytatywny, localStorage = cache.
+- [ ] **Anti-farm monet** — `/api/scores` ufa wynikowi klienta (po capie anty-cheat)
+      i dopisuje `floor(score/10000)` za KAŻDY POST. Rate limit 40/10 min ogranicza,
+      ale zmodyfikowany klient może spamować. Rozważyć: podpisany „nonce" rundy /
+      minimalny czas między postami dla tego samego utworu.
 
 ## Charty / edytor
 

@@ -1,9 +1,16 @@
 // Monety — waluta zbierana za wynik w rundach. Za każde pełne 10 000 pkt =
-// 1 moneta (bez połówek: 9 999 pkt = 0 monet). Na razie tylko localStorage;
-// docelowo do zsynchronizowania z kontem (patrz TODO.md).
+// 1 moneta (bez połówek: 9 999 pkt = 0 monet).
+//
+// Serwer jest ŹRÓDŁEM PRAWDY (monety są wydawane, nie tylko rosną). localStorage
+// to tylko cache do natychmiastowego UI i pracy offline — nadpisywany przy każdej
+// synchronizacji z `/api/auth/me` oraz odpowiedzi z `/api/scores` / `/api/account`.
 
 const KEY = "denis.coins";
+const UNLOCK_KEY = "denis.unlocked";
 const PER_COIN = 10_000;
+
+/** Ile monet kosztuje odblokowanie danego poziomu (musi zgadzać się z api/account.ts). */
+export const UNLOCK_COST: Record<string, number> = { pogrzebowka: 1000 };
 
 export function coins(): number {
   try {
@@ -14,15 +21,63 @@ export function coins(): number {
   }
 }
 
-export function addCoins(n: number): number {
-  const total = coins() + Math.max(0, Math.floor(n));
+function setCoins(n: number) {
   try {
-    localStorage.setItem(KEY, String(total));
+    localStorage.setItem(KEY, String(Math.max(0, Math.floor(n))));
   } catch {
     /* ignore */
   }
-  return total;
 }
+
+/** Dopisuje monety lokalnie (optymistycznie po rundzie). Serwer skoryguje. */
+export function addCoins(n: number): number {
+  const t = coins() + Math.max(0, Math.floor(n));
+  setCoins(t);
+  return t;
+}
+
+/** Nadpisuje lokalny stan monet wartością z serwera (autorytatywną). */
+export function applyServerCoins(n: unknown): void {
+  if (typeof n === "number" && Number.isFinite(n)) setCoins(n);
+}
+
+// ---- odblokowania za monety ----------------------------------------------
+
+export function unlockedSet(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(UNLOCK_KEY) || "[]");
+    return new Set(Array.isArray(raw) ? raw.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function isUnlocked(id: string): boolean {
+  return unlockedSet().has(id);
+}
+
+export function addUnlockedLocal(id: string): void {
+  const s = unlockedSet();
+  if (s.has(id)) return;
+  s.add(id);
+  try {
+    localStorage.setItem(UNLOCK_KEY, JSON.stringify([...s]));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Nadpisuje listę odblokowanych wartością z serwera (autorytatywną). */
+export function applyServerUnlocked(list: unknown): void {
+  if (!Array.isArray(list)) return;
+  try {
+    localStorage.setItem(UNLOCK_KEY, JSON.stringify(list.map(String)));
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---- pomocnicze ---------------------------------------------------------
 
 /** Ile monet za dany wynik punktowy (pełne dziesiątki tysięcy, bez zaokrągleń w górę). */
 export function coinsFromScore(score: number): number {
@@ -38,6 +93,11 @@ export function fmtCoins(n: number): string {
 function short(v: number): string {
   const r = Math.round(v * 10) / 10;
   return (Number.isInteger(r) ? String(r) : r.toFixed(1)).replace(".", ",");
+}
+
+/** Pełny zapis z separatorem tysięcy: 1000 → "1 000". */
+export function fmtCoinsFull(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
 /** Odmiana: 1 monetę / 2–4 monety / 5+ monet. */
