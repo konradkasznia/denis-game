@@ -143,9 +143,9 @@ const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
 // wyśrodkowana względem grafiki postaci (charRect) — patrz drawHits.
-const HIT_SIGN_R = 68; // 2× większe znaki (Konrad 2026-09-07)
+const HIT_SIGN_R = 38; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
-const HIT_SIGN_DY = 150; // odstęp środków w kolumnie
+const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
 type ObstacleKind = "bomb" | "vodka" | "flashlight";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
@@ -4124,10 +4124,13 @@ export class Game {
         HIT_TITLE_Y + 46 + HIT_SIGN_R + 8,
         this.hb(HIT_GRAJ).y - 20 - HIT_SIGN_R - span,
       );
+      // bardzo delikatny „oddech" znaków: ±3%, pełny cykl ~2,4 s
+      const signT = performance.now() / 1000;
       signs.forEach((kind, i) => {
         const cx = HIT_SIGN_X;
         const cy = top + i * HIT_SIGN_DY;
-        this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R, kind);
+        const signPulse = 1 + Math.sin(signT * 2.6 + i * 0.7) * 0.03;
+        this.drawWarnSign(ctx, cx, cy, HIT_SIGN_R * signPulse, kind);
         const pad = 8;
         this.hitSignRects.push({
           kind,
