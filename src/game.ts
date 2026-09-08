@@ -4020,26 +4020,30 @@ export class Game {
   private drawTutModal(ctx: CanvasRenderingContext2D) {
     this.fillViewport(ctx, "rgba(4,4,10,0.86)");
 
-    const pw = VW - 44;
-    const px = 22;
+    const pw = VW - 40;
+    const px = 20;
+    const tx = px + 26; // tekst wyrównany DO LEWEJ, na całą szerokość panelu
     const steps: { txt: string; col: string }[] = [
-      { txt: "1.  Kółka nadjeżdżają z góry, każde swoim torem.", col: "#e2d7c7" },
-      { txt: "2.  Stuknij w dole ekranu DOKŁADNIE gdy kółko trafia w białą obręcz.", col: "#e2d7c7" },
-      { txt: "3.  PERFECT = trafienie w punkt: najlepsza ocena, najwięcej punktów.", col: "#8affc1" },
-      { txt: "4.  Seria trafień = COMBO i rosnący mnożnik (do ×5). „OK” albo pudło ją zeruje.", col: "#ffd24c" },
+      { txt: "1. Kółka nadjeżdżają z góry, każde swoim torem.", col: "#e2d7c7" },
+      { txt: "2. Stuknij w dole ekranu dokładnie w chwili, gdy kółko wchodzi w białą obręcz na linii.", col: "#e2d7c7" },
+      { txt: "3. Podłużne kółka PRZYTRZYMAJ palcem, aż całe przejadą przez linię.", col: "#e2d7c7" },
+      { txt: "4. PERFECT = trafienie w idealny moment. Najlepsza ocena, najwięcej punktów.", col: "#8affc1" },
+      { txt: "5. Seria trafień to COMBO i rosnący mnożnik (do ×5). Zwykłe „OK” albo pudło ją zeruje.", col: "#ffd24c" },
     ];
-    const wrapped = steps.map((s) => wrapText(s.txt, 40));
-    const lineH = 31;
+    const wrapChars = Math.floor((pw - (tx - px) - 22) / 10.4); // ~cała szerokość panelu
+    const wrapped = steps.map((s) => wrapText(s.txt, wrapChars));
+    const lineH = 30;
+    const stepGap = 8;
     const nLines = wrapped.reduce((a, w) => a + w.length, 0);
-    const prevW = pw - 40;
-    const prevH = 196;
+    const prevW = pw - 36;
+    const prevH = 190;
     const btnH = MODAL_OK.h;
-    const titleY = 100;
-    const bodyTop = titleY + 40;
-    const bodyH = nLines * lineH + 10;
-    const prevGap = 14;
-    const ph = bodyTop + bodyH + prevGap + prevH + 24 + btnH + 30;
-    const py = Math.max(12, (VH - ph) / 2);
+    const titleY = 96;
+    const bodyTop = titleY + 34;
+    const bodyH = nLines * lineH + steps.length * stepGap;
+    const prevGap = 12;
+    const ph = bodyTop + bodyH + prevGap + prevH + 24 + btnH + 28;
+    const py = Math.max(10, (VH - ph) / 2);
 
     ctx.fillStyle = "#15121c";
     roundRect(ctx, px, py, pw, ph, 24);
@@ -4049,9 +4053,9 @@ export class Game {
     roundRect(ctx, px, py, pw, ph, 24);
     ctx.stroke();
 
-    text(ctx, "👆", VW / 2, py + 52, { size: 38 });
+    text(ctx, "👆", VW / 2, py + 50, { size: 36 });
     text(ctx, "JAK GRAĆ", VW / 2, py + titleY, {
-      size: 34,
+      size: 33,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffd24c",
@@ -4060,9 +4064,10 @@ export class Game {
     let ly = py + bodyTop;
     wrapped.forEach((w, si) => {
       w.forEach((ln) => {
-        text(ctx, ln, VW / 2, ly, { size: 20, color: steps[si].col });
+        text(ctx, ln, tx, ly, { size: 20, color: steps[si].col, align: "left" });
         ly += lineH;
       });
+      ly += stepGap;
     });
 
     const prevX = VW / 2 - prevW / 2;
@@ -4123,13 +4128,30 @@ export class Game {
     ctx.lineTo(ox + ow - 6, hitY);
     ctx.stroke();
 
-    const CYCLE = 2.0;
-    const c = t % CYCLE;
-    const lane = Math.floor(t / CYCLE) % 4;
+    const SLOT = 2.6;
+    const c = t % SLOT;
+    const lane = Math.floor(t / SLOT) % 4;
+    const isHold = lane >= 2; // 1. i 2. kółko = stuknięcie, 3. i 4. = przytrzymanie
     const bx = lanesX[lane];
-    const fall = Math.min(c / 1.32, 1); // 0 = horyzont, 1 = na obręczy
-    const impact = c >= 1.3 && c < 1.78;
-    const ip = impact ? (c - 1.3) / 0.48 : 0; // 0..1 postęp błysku
+    const noteX = (f: number) => vx + (bx - vx) * (0.12 + 0.88 * clamp(f, 0, 1));
+    const noteY = (f: number) => vy + (hitY - vy) * clamp(f, 0, 1);
+    const noteR = (f: number) => 3 + 12 * clamp(f, 0, 1);
+
+    // --- fazy w slocie ---
+    const FALL = isHold ? 1.1 : 1.32;
+    const fall = Math.min(c / FALL, 1);
+    // TAP
+    const tapImpact = !isHold && c >= FALL - 0.02 && c < FALL + 0.5;
+    const tip = tapImpact ? (c - FALL + 0.02) / 0.52 : 0;
+    // HOLD
+    const HOLD_END = FALL + 0.95;
+    const REL_END = HOLD_END + 0.42;
+    const holding = isHold && c >= FALL && c < HOLD_END;
+    const releasing = isHold && c >= HOLD_END && c < REL_END;
+    const rp = releasing ? (c - HOLD_END) / 0.42 : 0;
+    const hg = holding ? (c - FALL) / 0.95 : c >= HOLD_END ? 1 : 0; // postęp „przejeżdżania" ogona
+    const HL = 0.5; // długość ogona w przestrzeni „f"
+    const activeGreen = tapImpact || holding || releasing;
 
     // obręcze na linii — aktywna rozjaśnia się gdy nuta blisko
     lanesX.forEach((lx, i) => {
@@ -4137,88 +4159,130 @@ export class Game {
       const near = hot ? Math.max(0, (fall - 0.5) / 0.5) : 0;
       ctx.beginPath();
       ctx.arc(lx, hitY, 15, 0, Math.PI * 2);
-      ctx.strokeStyle = impact && hot ? "#8affc1" : `rgba(255,255,255,${0.5 + near * 0.45})`;
-      ctx.lineWidth = 3 + near * 2 + (impact && hot ? 1 : 0);
+      ctx.strokeStyle = hot && activeGreen ? "#8affc1" : `rgba(255,255,255,${0.5 + near * 0.45})`;
+      ctx.lineWidth = 3 + near * 2 + (hot && activeGreen ? 1 : 0);
       ctx.stroke();
     });
 
-    // nuta w locie (rośnie perspektywicznie, z krótką smugą)
-    if (!impact) {
-      const noteX = (f: number) => vx + (bx - vx) * (0.12 + 0.88 * f);
-      const noteY = (f: number) => vy + (hitY - vy) * f;
-      const x = noteX(fall);
-      const y = noteY(fall);
-      const rr = 3 + 12 * fall;
-      ctx.save();
-      ctx.globalAlpha = 0.28;
-      ctx.fillStyle = "#ffd24c";
-      for (const b of [0.08, 0.16]) {
-        const f2 = Math.max(0, fall - b);
-        ctx.beginPath();
-        ctx.arc(noteX(f2), noteY(f2), 3 + 12 * f2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-      ctx.save();
-      ctx.shadowColor = "#ffb347";
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.arc(x, y, rr, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffd24c";
-      ctx.fill();
-      ctx.restore();
-      // strzałka-wskaźnik nad obręczą, gdy nuta blisko
-      if (fall > 0.5) {
+    if (isHold) {
+      // --- KÓŁKO PODŁUŻNE (do przytrzymania) ---
+      const headF = c < FALL ? fall : 1;
+      const tailF = c < FALL ? headF - HL : 1 - HL + HL * hg;
+      if (c < HOLD_END) {
+        const tf = Math.max(0.02, tailF);
+        const hy = noteY(headF);
+        const ty = noteY(tf);
+        const hr = noteR(headF);
+        const tr = noteR(tf);
         ctx.save();
-        ctx.globalAlpha = (fall - 0.5) / 0.5;
-        ctx.fillStyle = "#ffd24c";
+        ctx.shadowColor = holding ? "#8affc1" : "#ffb347";
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = holding ? "#8affc1" : "#ffd24c";
         ctx.beginPath();
-        ctx.moveTo(bx - 9, hitY - 30);
-        ctx.lineTo(bx + 9, hitY - 30);
-        ctx.lineTo(bx, hitY - 20);
+        ctx.moveTo(noteX(headF) - hr, hy);
+        ctx.lineTo(noteX(tf) - tr, ty);
+        ctx.lineTo(noteX(tf) + tr, ty);
+        ctx.lineTo(noteX(headF) + hr, hy);
         ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(noteX(headF), hy, hr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(noteX(tf), ty, tr, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
-    }
-
-    // BŁYSK trafienia dokładnie na obręczy
-    if (impact) {
-      ctx.save();
-      ctx.globalAlpha = 1 - ip;
-      for (let k = 0; k < 3; k++) {
+      if (holding) {
+        text(ctx, "PRZYTRZYMAJ", bx, hitY - 42, {
+          size: 18,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#8affc1",
+          shadows: HEAD_SHADOWS,
+        });
+      } else if (releasing) {
+        ctx.save();
+        ctx.globalAlpha = 1 - rp;
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          ctx.arc(bx, hitY, 14 + rp * (22 + k * 12), 0, Math.PI * 2);
+          ctx.strokeStyle = "#8affc1";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        ctx.restore();
         ctx.beginPath();
-        ctx.arc(bx, hitY, 14 + ip * (22 + k * 12), 0, Math.PI * 2);
-        ctx.strokeStyle = "#8affc1";
-        ctx.lineWidth = 3;
-        ctx.stroke();
+        ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(138,255,193,${0.95 - rp * 0.5})`;
+        ctx.fill();
+        text(ctx, "PUŚĆ!", bx, hitY - 40, {
+          size: 20,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#8affc1",
+          shadows: HEAD_SHADOWS,
+        });
       }
-      ctx.restore();
-      ctx.beginPath();
-      ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(138,255,193,${0.95 - ip * 0.5})`;
-      ctx.fill();
-      text(ctx, "TERAZ!", bx, hitY - 40, {
-        size: 22,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#8affc1",
-        shadows: HEAD_SHADOWS,
-      });
+      // palec: podczas trzymania DOCIŚNIĘTY do obręczy, przy puszczeniu się cofa
+      const press = holding ? 14 : releasing ? 14 * (1 - rp) : 0;
+      text(ctx, "👆", bx, hitY + 50 - press, { size: 34 });
+    } else {
+      // --- KÓŁKO ZWYKŁE (stuknięcie) ---
+      if (!tapImpact) {
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = "#ffd24c";
+        for (const bk of [0.08, 0.16]) {
+          const f2 = Math.max(0, fall - bk);
+          ctx.beginPath();
+          ctx.arc(noteX(f2), noteY(f2), noteR(f2), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+        ctx.save();
+        ctx.shadowColor = "#ffb347";
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(noteX(fall), noteY(fall), noteR(fall), 0, Math.PI * 2);
+        ctx.fillStyle = "#ffd24c";
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.globalAlpha = 1 - tip;
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          ctx.arc(bx, hitY, 14 + tip * (22 + k * 12), 0, Math.PI * 2);
+          ctx.strokeStyle = "#8affc1";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(138,255,193,${0.95 - tip * 0.5})`;
+        ctx.fill();
+        text(ctx, "TERAZ!", bx, hitY - 40, {
+          size: 22,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#8affc1",
+          shadows: HEAD_SHADOWS,
+        });
+      }
+      const jab = tapImpact ? Math.sin(Math.min(tip / 0.35, 1) * Math.PI) * 16 : 0;
+      text(ctx, "👆", bx, hitY + 52 - jab, { size: 34 });
     }
 
-    // „PALEC" pod obręczą — w chwili trafienia dźga w górę
-    const jab = impact ? Math.sin(Math.min(ip / 0.35, 1) * Math.PI) * 16 : 0;
-    text(ctx, "👆", bx, hitY + 52 - jab, { size: 34 });
-
-    // podpis: KIEDY stukać
-    text(ctx, "STUKNIJ, GDY KÓŁKO WEJDZIE W OBRĘCZ", ox + ow / 2, labelY, {
-      size: 13,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#ffd24c",
-      letterSpacing: "1px",
-    });
+    // podpis: co robić z tym kółkiem
+    text(
+      ctx,
+      isHold ? "PODŁUŻNE KÓŁKA PRZYTRZYMAJ PALCEM" : "STUKNIJ, GDY KÓŁKO WEJDZIE W OBRĘCZ",
+      ox + ow / 2,
+      labelY,
+      { size: 13, weight: "900", font: HEAD_FONT, color: "#ffd24c", letterSpacing: "1px" },
+    );
   }
 
   // ---- wspólne elementy UI ----------------------------------
