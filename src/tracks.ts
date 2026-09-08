@@ -122,30 +122,37 @@ interface RawChart {
 
 const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)));
 
-// dwie nuty na TEJ SAMEJ ścieżce praktycznie w tym samym momencie = błąd edytora
-// (nałożone duplikaty), nie zamysł — jednego tapnięcia fizycznie nie da się
-// rozdzielić na dwie nuty, więc druga byłaby gwarantowanym PUDŁEM. Próg poniżej
-// jakiegokolwiek grywalnego odstępu (16-tka przy 200 BPM to 75 ms), więc akordów
+// dwie nuty na TEJ SAMEJ ścieżce zbyt blisko siebie = błąd edytora (nałożone
+// duplikaty), nie zamysł — jednym tapnięciem nie da się fizycznie rozdzielić
+// dwóch nut, więc druga byłaby gwarantowanym PUDŁEM. 45 ms to i tak mniej niż
+// jakikolwiek grywalny odstęp (16-tka przy 200 BPM to 75 ms), więc akordów
 // (różne ścieżki) ani szybkich serii NIE rusza.
-const MIN_SAME_LANE_GAP = 0.02;
+const MIN_SAME_LANE_GAP = 0.045;
 
 export function rawToSong(raw: RawChart): SongDef {
   const sorted = raw.notes
     .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb, !!n.fire))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
-  const lastByLane = new Map<number, number>();
+  const lastIdxByLane = new Map<number, number>();
   const notes: Note[] = [];
   let dropped = 0;
   for (const n of sorted) {
-    const prev = lastByLane.get(n.lane);
-    if (prev !== undefined && n.time - prev < MIN_SAME_LANE_GAP) {
+    const pi = lastIdxByLane.get(n.lane);
+    const prev = pi !== undefined ? notes[pi] : undefined;
+    if (pi !== undefined && prev !== undefined && n.time - prev.time < MIN_SAME_LANE_GAP) {
       dropped++;
+      // z nałożonej pary zostaw korzystniejszą dla gracza: trzymanie > zwykła > bomba
+      const rank = (x: Note) => (x.dur > 0 ? 2 : x.bomb ? 0 : 1);
+      if (rank(n) > rank(prev)) notes[pi] = n;
       continue;
     }
-    lastByLane.set(n.lane, n.time);
+    lastIdxByLane.set(n.lane, notes.length);
     notes.push(n);
   }
-  if (dropped) console.warn(`rawToSong(${raw.id}): pominięto ${dropped} nałożonych nut`);
+  if (dropped) {
+    notes.sort((a, b) => a.time - b.time || a.lane - b.lane); // podmiana mogła lekko rozjechać kolejność
+    console.warn(`rawToSong(${raw.id}): pominięto ${dropped} nałożonych nut`);
+  }
   // beatmapa z edytora może nie mieć sensownego `duration` (utwór bez mp3) —
   // wtedy licz go z ostatniej nuty, żeby podkład syntezowany nie skończył się
   // od razu i gra nie wpadła w „finish()" tuż po odliczaniu
