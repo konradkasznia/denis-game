@@ -556,6 +556,22 @@ function markHealthWarnSeen(): void {
   }
 }
 
+/** Samouczek „jak grać": pokazany raz w życiu instalacji, przed 1. rundą. */
+function howToSeen(): boolean {
+  try {
+    return localStorage.getItem("denis.howto") === "1";
+  } catch {
+    return false;
+  }
+}
+function markHowToSeen(): void {
+  try {
+    localStorage.setItem("denis.howto", "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 export class Game {
   private scene: Scene = "loading";
   private audio = new AudioEngine();
@@ -674,6 +690,9 @@ export class Game {
   private obstacleModal: ObstacleKind | null = null;
   private obstacleModalAt = 0; // performance.now() otwarcia — zegar podglądu w pętli
   private obstacleOkRect: Rect | null = null;
+  private tutModal = false; // samouczek „jak grać" przed pierwszą rundą
+  private tutModalAt = 0;
+  private tutOkRect: Rect | null = null;
   private hitSignRects: { kind: ObstacleKind; r: Rect }[] = [];
   /** dostępność loginu przy rejestracji: "" | "checking" | "free" | "taken" */
   private authLoginState = "";
@@ -1447,6 +1466,7 @@ export class Game {
     }
     if (this.logoutModal) this.drawLogoutModal(ctx);
     if (this.obstacleModal) this.drawObstacleModal(ctx);
+    if (this.tutModal) this.drawTutModal(ctx);
     if (this.coinLackModal) {
       const have = coins();
       const need = Math.max(0, this.coinLackModal - have);
@@ -1561,6 +1581,18 @@ export class Game {
       if (!this.obstacleOkRect || inRect(this.obstacleOkRect, x, y)) {
         uiSound("buttons");
         this.obstacleModal = null;
+      }
+      return;
+    }
+    if (this.tutModal) {
+      // reaguje na przycisk „ZACZYNAM!" (albo dowolne stuknięcie) → start rundy
+      if (x < 0 || !this.tutOkRect || inRect(this.tutOkRect, x, y)) {
+        uiSound("play");
+        markHowToSeen();
+        this.tutModal = false;
+        void this.audio.unlock();
+        this.burstFx(this.comboFxKind(), VW / 2, 660);
+        void this.startPlay();
       }
       return;
     }
@@ -1724,6 +1756,13 @@ export class Game {
     if (this.obstacleModal) {
       uiSound("back");
       this.obstacleModal = null;
+      return true;
+    }
+    if (this.tutModal) {
+      // „wstecz" na samouczku = rezygnacja: zamknij, zostań na karuzeli
+      // (bez `markHowToSeen` — pokaże się znów przy następnym GRAJ)
+      uiSound("back");
+      this.tutModal = false;
       return true;
     }
     if (this.coinLackModal || this.unlockError) {
@@ -2187,8 +2226,14 @@ export class Game {
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
       void this.audio.unlock();
       this.trackId = meta.id;
-      this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
       haptic("combo");
+      // pierwsze uruchomienie w życiu instalacji → najpierw samouczek „jak grać"
+      if (!howToSeen()) {
+        this.tutModal = true;
+        this.tutModalAt = performance.now();
+        return;
+      }
+      this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
       void this.startPlay();
     }
   }
@@ -2376,6 +2421,7 @@ export class Game {
     if (this.preparing) return;
     this.soundModal = false;
     this.healthModal = false;
+    this.tutModal = false;
     this.audio.stop(); // ucisz ewentualny poprzedni przebieg zanim ruszymy nowy
     const myId = ++this.prepId;
     this.preparing = true;
@@ -2657,7 +2703,7 @@ export class Game {
         if (performance.now() < end) return true;
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
-    if (this.obstacleModal) return true; // płynny podgląd przeszkody w pętli
+    if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
     return false;
   }
 
@@ -3960,6 +4006,207 @@ export class Game {
         color: `rgba(255,206,138,${0.5 + 0.5 * m})`,
       });
     }
+  }
+
+  // ---- samouczek „jak grać" (przed pierwszą rundą) ----------
+
+  /** Modal samouczka: tytuł + 2 kroki + zapętlony podgląd rozgrywki + „ZACZYNAM!". */
+  private drawTutModal(ctx: CanvasRenderingContext2D) {
+    this.fillViewport(ctx, "rgba(4,4,10,0.85)");
+
+    const pw = VW - 48;
+    const px = 24;
+    const step1 = "1.  Kółka nadjeżdżają z góry, każde swoim torem.";
+    const step2 = "2.  Stuknij w dolnej połowie ekranu DOKŁADNIE gdy kółko trafia w białą obręcz na linii.";
+    const l1 = wrapText(step1, 38);
+    const l2 = wrapText(step2, 38);
+    const lineH = 34;
+    const prevW = pw - 44;
+    const prevH = 262;
+    const btnH = MODAL_OK.h;
+    const titleY = 108;
+    const bodyTop = titleY + 46;
+    const bodyH = (l1.length + l2.length) * lineH + 14;
+    const prevGap = 16;
+    const ph = bodyTop + bodyH + prevGap + prevH + 26 + btnH + 36;
+    const py = Math.max(16, (VH - ph) / 2);
+
+    ctx.fillStyle = "#15121c";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,90,0.55)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+
+    text(ctx, "👆", VW / 2, py + 58, { size: 44 });
+    text(ctx, "JAK GRAĆ", VW / 2, py + titleY, {
+      size: 36,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd24c",
+      shadows: HEAD_SHADOWS,
+    });
+    let ly = py + bodyTop;
+    [...l1, ...l2].forEach((ln, i) => {
+      text(ctx, ln, VW / 2, ly, { size: 21, color: i < l1.length ? "#e2d7c7" : "#ffe6a6" });
+      ly += lineH;
+    });
+
+    const prevX = VW / 2 - prevW / 2;
+    const prevY = py + bodyTop + bodyH + prevGap;
+    ctx.save();
+    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+    ctx.clip();
+    this.drawTutPreview(ctx, prevX, prevY, prevW, prevH, (performance.now() - this.tutModalAt) / 1000);
+    ctx.restore();
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1;
+    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+    ctx.stroke();
+
+    this.tutOkRect = {
+      x: VW / 2 - MODAL_OK.w / 2,
+      y: prevY + prevH + 26,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.uiButton(ctx, this.tutOkRect, "zaczynam", { fallback: "ZACZYNAM!" });
+  }
+
+  /** Zapętlony podgląd: nuta zjeżdża torem, a w chwili gdy wchodzi w obręcz —
+   *  błysk + „palec" stuka + „TERAZ!". Cykl przechodzi po kolejnych torach. */
+  private drawTutPreview(
+    ctx: CanvasRenderingContext2D,
+    ox: number,
+    oy: number,
+    ow: number,
+    oh: number,
+    t: number,
+  ) {
+    const lanesX = [0.12, 0.373, 0.627, 0.88].map((k) => ox + ow * k);
+    const vx = ox + ow / 2;
+    const vy = oy + oh * 0.04; // punkt zbiegu tuż przy górnej krawędzi — nuta widoczna od startu
+    const hitY = oy + oh * 0.6;
+    const labelY = oy + oh - 20;
+
+    // tło + zbiegające tory
+    const g = ctx.createLinearGradient(0, oy, 0, oy + oh);
+    g.addColorStop(0, "#1f1128");
+    g.addColorStop(1, "#05040a");
+    ctx.fillStyle = g;
+    ctx.fillRect(ox - 40, oy - 40, ow + 80, oh + 80);
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1;
+    lanesX.forEach((bx) => {
+      ctx.beginPath();
+      ctx.moveTo(bx, hitY + 20);
+      ctx.lineTo(vx + (bx - vx) * 0.12, vy);
+      ctx.stroke();
+    });
+    // linia trafienia
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.beginPath();
+    ctx.moveTo(ox + 6, hitY);
+    ctx.lineTo(ox + ow - 6, hitY);
+    ctx.stroke();
+
+    const CYCLE = 2.0;
+    const c = t % CYCLE;
+    const lane = Math.floor(t / CYCLE) % 4;
+    const bx = lanesX[lane];
+    const fall = Math.min(c / 1.32, 1); // 0 = horyzont, 1 = na obręczy
+    const impact = c >= 1.3 && c < 1.78;
+    const ip = impact ? (c - 1.3) / 0.48 : 0; // 0..1 postęp błysku
+
+    // obręcze na linii — aktywna rozjaśnia się gdy nuta blisko
+    lanesX.forEach((lx, i) => {
+      const hot = i === lane;
+      const near = hot ? Math.max(0, (fall - 0.5) / 0.5) : 0;
+      ctx.beginPath();
+      ctx.arc(lx, hitY, 15, 0, Math.PI * 2);
+      ctx.strokeStyle = impact && hot ? "#8affc1" : `rgba(255,255,255,${0.5 + near * 0.45})`;
+      ctx.lineWidth = 3 + near * 2 + (impact && hot ? 1 : 0);
+      ctx.stroke();
+    });
+
+    // nuta w locie (rośnie perspektywicznie, z krótką smugą)
+    if (!impact) {
+      const noteX = (f: number) => vx + (bx - vx) * (0.12 + 0.88 * f);
+      const noteY = (f: number) => vy + (hitY - vy) * f;
+      const x = noteX(fall);
+      const y = noteY(fall);
+      const rr = 3 + 12 * fall;
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = "#ffd24c";
+      for (const b of [0.08, 0.16]) {
+        const f2 = Math.max(0, fall - b);
+        ctx.beginPath();
+        ctx.arc(noteX(f2), noteY(f2), 3 + 12 * f2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.shadowColor = "#ffb347";
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(x, y, rr, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd24c";
+      ctx.fill();
+      ctx.restore();
+      // strzałka-wskaźnik nad obręczą, gdy nuta blisko
+      if (fall > 0.5) {
+        ctx.save();
+        ctx.globalAlpha = (fall - 0.5) / 0.5;
+        ctx.fillStyle = "#ffd24c";
+        ctx.beginPath();
+        ctx.moveTo(bx - 9, hitY - 30);
+        ctx.lineTo(bx + 9, hitY - 30);
+        ctx.lineTo(bx, hitY - 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // BŁYSK trafienia dokładnie na obręczy
+    if (impact) {
+      ctx.save();
+      ctx.globalAlpha = 1 - ip;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.arc(bx, hitY, 14 + ip * (22 + k * 12), 0, Math.PI * 2);
+        ctx.strokeStyle = "#8affc1";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(138,255,193,${0.95 - ip * 0.5})`;
+      ctx.fill();
+      text(ctx, "TERAZ!", bx, hitY - 40, {
+        size: 22,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#8affc1",
+        shadows: HEAD_SHADOWS,
+      });
+    }
+
+    // „PALEC" pod obręczą — w chwili trafienia dźga w górę
+    const jab = impact ? Math.sin(Math.min(ip / 0.35, 1) * Math.PI) * 16 : 0;
+    text(ctx, "👆", bx, hitY + 52 - jab, { size: 34 });
+
+    // podpis: KIEDY stukać
+    text(ctx, "STUKNIJ, GDY KÓŁKO WEJDZIE W OBRĘCZ", ox + ow / 2, labelY, {
+      size: 13,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd24c",
+      letterSpacing: "1px",
+    });
   }
 
   // ---- wspólne elementy UI ----------------------------------
