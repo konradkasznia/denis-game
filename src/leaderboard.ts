@@ -47,16 +47,20 @@ const NICKS = [
   "karolina_k", "Wojtek99", "asia_p", "MichałW",
 ];
 
-/** Deterministyczna „reszta stawki" (wypełniacz). Zakładka „ten miesiąc" ma
- *  mniej wpisów i niższe wyniki niż „wszystkie". */
+/** Deterministyczna „reszta stawki" (wypełniacz, gdy realnych wyników mało).
+ *  To tylko TŁO tabeli — nie ma udawać rekordzistów. Rozkład mocno skośny:
+ *  większość „graczy" w środku stawki, tylko pojedynczy blisko górnej granicy,
+ *  która jest CELOWO niższa niż bardzo dobry przebieg człowieka (~600 k+), żeby
+ *  świetna runda lądowała w czołówce, a nie „miejsce 36". Realne miejsce i tak
+ *  liczy serwer po samych prawdziwych graczach. */
 function fakeBoard(songId: string, period: Period): { nick: string; score: number }[] {
   const rng = mulberry32(hashStr(`board:${period}:${songId}`));
-  const n = period === "month" ? 150 : 220;
-  const cap = period === "month" ? 620000 : 920000;
-  const base = period === "month" ? 30000 : 45000;
+  const n = period === "month" ? 120 : 170;
+  const top = period === "month" ? 440_000 : 520_000; // najlepszy „bot"
+  const base = period === "month" ? 22_000 : 30_000;
   const rows: { nick: string; score: number }[] = [];
   for (let i = 0; i < n; i++) {
-    const score = base + Math.floor(Math.pow(rng(), 1.9) * cap);
+    const score = base + Math.floor(Math.pow(rng(), 2.4) * (top - base));
     const name =
       NICKS[Math.floor(rng() * NICKS.length)] +
       (rng() < 0.25 ? String(Math.floor(rng() * 90) + 10) : "");
@@ -191,6 +195,13 @@ export function submitScore(songId: string, score: number, stars = 0): number {
 
 export function topN(songId: string, period: Period, n = 10): Entry[] {
   return fullBoard(songId, period).slice(0, n);
+}
+
+/** Miejsce gracza wg SERWERA (liczone po samych prawdziwych graczach).
+ *  `null` gdy tablica tego utworu nie została jeszcze pobrana z serwera. */
+export function serverRank(songId: string, period: Period = "all"): number | null {
+  const r = remote.get(rkey(songId, period))?.me?.rank;
+  return typeof r === "number" && r > 0 ? r : null;
 }
 
 export function rankOf(songId: string, period: Period): number {

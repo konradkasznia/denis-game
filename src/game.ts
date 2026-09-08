@@ -33,7 +33,9 @@ import {
   mergeServerBest,
   myEntry,
   type Period,
+  rankOf,
   refreshBoard,
+  serverRank,
   submitScore,
   topN,
 } from "./leaderboard.ts";
@@ -2675,7 +2677,11 @@ export class Game {
         }
       }
       const gained = Math.floor(this.starFill());
-      this.resultRank = submitScore(this.trackId, this.score, gained);
+      // zapis + wysyłka na serwer (POST -> odświeżenie tablicy z prawdziwym „me.rank")
+      submitScore(this.trackId, this.score, gained);
+      // MIEJSCE pokazujemy dopiero gdy serwer odpowie (realni gracze, bez botów-
+      // wypełniaczy). Do tego czasu 0 = ukryte; watchdog niżej dokłada szacunek.
+      this.resultRank = serverRank(this.trackId) ?? 0;
       recordStars(this.trackId, gained);
       // monety za wynik — 1 za każde pełne 10 000 pkt
       this.coinsEarned = coinsFromScore(this.score);
@@ -6269,6 +6275,14 @@ export class Game {
     this.drawUiBg(ctx);
 
     const now = performance.now();
+    // MIEJSCE: gdy serwer zdąży odpowiedzieć (realni gracze) — bierzemy jego
+    // rangę; jeśli po 2,5 s wciąż nie ma (offline / wolna sieć) — szacunek
+    // z lokalnej tablicy.
+    const sr = serverRank(this.trackId);
+    if (sr != null) this.resultRank = sr;
+    else if (this.resultRank === 0 && now - this.resultsAt > 2500) {
+      this.resultRank = rankOf(this.trackId, "all");
+    }
     const reveal = clamp((now - this.resultsAt) / 1800, 0, 1);
     const eased = 1 - Math.pow(1 - reveal, 3);
     const finalR = this.rating();
