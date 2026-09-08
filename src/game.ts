@@ -40,6 +40,7 @@ import {
   topN,
 } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
+import { bumpVolume, refreshVolume, volumeGateActive } from "./volume.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
 import {
@@ -586,9 +587,11 @@ export class Game {
   private hitIndex = 0; // strona karuzeli WYBIERZ HIT
   /** obszar postaci na ekranie WYBIERZ HIT (do umieszczania pieczątek) */
   private charRect: Rect = { x: 60, y: 392, w: VW - 120, h: 576 };
-  private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
+  private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji (iOS/web)
   private soundModal = false;
   private soundModalTested = false; // w modalu dźwięku kliknięto „zagraj dźwięk testowy"
+  private soundModalFromPlay = false; // modal wyskoczył przy GRAJ (Android, wyciszony) → po nim start rundy
+  private soundBumpTried = false; // na Androidzie już raz próbowaliśmy podkręcić głośność
   private healthHintDone = false; // ostrzeżenie o światłoczułości pokazane w tej sesji
   private healthModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
@@ -779,20 +782,32 @@ export class Game {
     else this.enterHitsFresh();
   }
 
-  /** Wejście do karuzeli od zera — z modalem „włącz dźwięk" (raz na sesję). */
+  /** Wejście do karuzeli od zera — z modalem „włącz dźwięk". */
   private enterHitsFresh() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
-    // NAJPIERW dźwięk (tu uwaga gracza jest największa, a włączenie dźwięku jest
-    // kluczowe — gra działa w rytm muzyki), POTEM ostrzeżenie o migotaniu.
-    if (!this.soundHintDone) {
+    this.scene = "hits";
+    this.preloadHitAudio();
+    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
+    // NAJPIERW dźwięk (uwaga gracza największa, gra działa w rytm muzyki),
+    // POTEM ostrzeżenie o migotaniu.
+    if (volumeGateActive) {
+      // Android: modal dźwięku TYLKO gdy telefon wyciszony (i nie „raz na sesję")
+      void refreshVolume().then((lvl) => {
+        if (this.scene !== "hits" || this.soundModal || this.healthModal) return;
+        if (lvl <= 0) {
+          this.soundModal = true;
+          this.soundModalFromPlay = false;
+          this.soundBumpTried = false;
+        } else if (!this.healthHintDone && !healthWarnSeen()) {
+          this.healthModal = true;
+        }
+      });
+    } else if (!this.soundHintDone) {
       this.soundModal = true;
       this.soundModalTested = false;
     } else if (!this.healthHintDone && !healthWarnSeen()) {
       this.healthModal = true;
     }
-    this.scene = "hits";
-    this.preloadHitAudio();
-    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
   }
 
   private async preloadChart() {
@@ -1534,6 +1549,22 @@ export class Game {
       // reaguje TYLKO na przycisk (nie „dowolne stuknięcie") — chcemy, żeby
       // gracz świadomie użył przycisku. x < 0 = klawiatura / „dalej" = też liczy.
       if (x >= 0 && this.modalOkRect && !inRect(this.modalOkRect, x, y)) return;
+      if (volumeGateActive) {
+        // Android: przycisk „WŁĄCZ DŹWIĘK" = podkręć głośność do 50%
+        uiSound("buttons");
+        this.soundBumpTried = true;
+        void this.audio.unlock();
+        void bumpVolume(0.5).then(() => {
+          this.soundModal = false;
+          if (this.soundModalFromPlay) {
+            this.soundModalFromPlay = false;
+            void this.gateThenPlay(); // wróć do startu rundy (głośność już 50%)
+          } else if (!this.healthHintDone && !healthWarnSeen()) {
+            this.healthModal = true;
+          }
+        });
+        return;
+      }
       if (!this.soundModalTested) {
         // 1. kliknięcie = akcja: odblokuj audio (czysty gest — iOS Safari
         // wymaga stworzenia/wznowienia AudioContextu w reakcji na dotknięcie)
@@ -1597,8 +1628,7 @@ export class Game {
         markHowToSeen();
         this.tutModal = false;
         void this.audio.unlock();
-        this.burstFx(this.comboFxKind(), VW / 2, 660);
-        void this.startPlay();
+        void this.gateThenPlay(); // jeszcze sprawdź głośność (mógł wyciszyć w trakcie czytania)
       }
       return;
     }
@@ -1734,7 +1764,10 @@ export class Game {
       uiSound("back");
       this.soundModal = false;
       this.soundHintDone = true;
-      if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
+      // Android: „wstecz" na blokadzie przy GRAJ = rezygnacja ze startu rundy.
+      // Przy wejściu do apki (nie fromPlay) → dalej pokaż ostrzeżenie o migotaniu.
+      if (this.soundModalFromPlay) this.soundModalFromPlay = false;
+      else if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
       return true;
     }
     if (this.healthModal) {
@@ -2233,15 +2266,30 @@ export class Game {
       void this.audio.unlock();
       this.trackId = meta.id;
       haptic("combo");
-      // pierwsze uruchomienie w życiu instalacji → najpierw samouczek „jak grać"
-      if (!howToSeen()) {
-        this.tutModal = true;
-        this.tutModalAt = performance.now();
+      void this.gateThenPlay();
+    }
+  }
+
+  /** Ścieżka od „GRAJ" (i od „ZACZYNAM!" po samouczku) do startu rundy.
+   *  Bramki po kolei: 1) głośność telefonu (Android), 2) samouczek „jak grać". */
+  private async gateThenPlay() {
+    if (volumeGateActive) {
+      const lvl = await refreshVolume();
+      if (lvl > 0) this.soundBumpTried = false; // znów jest dźwięk → następne wyciszenie zablokuje
+      if (lvl <= 0 && !this.soundBumpTried) {
+        this.soundModal = true;
+        this.soundModalTested = false;
+        this.soundModalFromPlay = true;
         return;
       }
-      this.burstFx(this.comboFxKind(), VW / 2, 660); // efekt jak dla combo tego utworu
-      void this.startPlay();
     }
+    if (!howToSeen()) {
+      this.tutModal = true;
+      this.tutModalAt = performance.now();
+      return;
+    }
+    this.burstFx(this.comboFxKind(), VW / 2, 660);
+    void this.startPlay();
   }
 
   /** Zakup odblokowania poziomu za monety (Pogrzebówka). Serwer autorytatywny. */
@@ -3612,8 +3660,24 @@ export class Game {
   }
 
   private drawSoundModal(ctx: CanvasRenderingContext2D) {
-    const tested = this.soundModalTested;
     const btnH = MODAL_OK.h;
+
+    // Android: telefon wyciszony → jeden przycisk, który podkręca głośność.
+    if (volumeGateActive) {
+      const { py, bodyEnd, gap } = this.drawModalPanel(
+        ctx,
+        "🔊",
+        "WŁĄCZ DŹWIĘK",
+        "Telefon jest wyciszony. Gra działa w rytm muzyki, bez dźwięku nie ma zabawy. Kliknij, a podkręcimy głośność.",
+        btnH,
+      );
+      this.modalOkRect = { x: VW / 2 - MODAL_OK.w / 2, y: py + bodyEnd + gap, w: MODAL_OK.w, h: btnH };
+      this.uiButton(ctx, this.modalOkRect, "wlacz-dzwiek", { fallback: "🔊  WŁĄCZ DŹWIĘK", style: "gold" });
+      return;
+    }
+
+    // iOS / web: nie da się odczytać głośności → przycisk odtwarza dźwięk testowy.
+    const tested = this.soundModalTested;
     const { py, bodyEnd, gap } = this.drawModalPanel(
       ctx,
       "🔊",
