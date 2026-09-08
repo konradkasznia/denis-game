@@ -275,6 +275,20 @@ export class AudioEngine {
     return typeof d === "number" && d > 0.5 && d < 8 ? d : 3;
   }
 
+  /** Dźwięk testowy w modalu „WŁĄCZ DŹWIĘK" — ten sam klip co odliczanie, ale
+   *  z ponowką: tuż po `unlock()` klip 321.mp3 może się jeszcze doczytywać. */
+  playCountdownTest() {
+    const attempt = (n: number) => {
+      if (this.uiBuffers.has("321")) {
+        this.countdownCue();
+        return;
+      }
+      void this.loadUiClips();
+      if (n > 0) setTimeout(() => attempt(n - 1), 300);
+    };
+    attempt(6);
+  }
+
   /** Odliczanie „3-2-1 + winyl" (`assets/ui/Sounds/321.mp3`) — na starcie rundy
    *  ORAZ przy wznowieniu z pauzy. W przeciwieństwie do `uiSfx()` NIE respektuje
    *  blokady dźwięków w pauzie (to jest właśnie sygnał, że pauza się kończy) i w

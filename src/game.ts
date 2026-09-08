@@ -570,6 +570,7 @@ export class Game {
   private charRect: Rect = { x: 60, y: 392, w: VW - 120, h: 576 };
   private soundHintDone = false; // modal „włącz dźwięk" pokazany w tej sesji
   private soundModal = false;
+  private soundModalTested = false; // w modalu dźwięku kliknięto „zagraj dźwięk testowy"
   private healthHintDone = false; // ostrzeżenie o światłoczułości pokazane w tej sesji
   private healthModal = false;
   private offlineNotice = false; // „brak internetu — wynik niezapisany" na podsumowaniu
@@ -761,8 +762,14 @@ export class Game {
   /** Wejście do karuzeli od zera — z modalem „włącz dźwięk" (raz na sesję). */
   private enterHitsFresh() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
-    if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
-    else if (!this.soundHintDone) this.soundModal = true;
+    // NAJPIERW dźwięk (tu uwaga gracza jest największa, a włączenie dźwięku jest
+    // kluczowe — gra działa w rytm muzyki), POTEM ostrzeżenie o migotaniu.
+    if (!this.soundHintDone) {
+      this.soundModal = true;
+      this.soundModalTested = false;
+    } else if (!this.healthHintDone && !healthWarnSeen()) {
+      this.healthModal = true;
+    }
     this.scene = "hits";
     this.preloadHitAudio();
     void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
@@ -859,7 +866,7 @@ export class Game {
         this.resumeCheckAt = 0;
         if (advanced < 0.3) {
           this.loadError =
-            "Dźwięk zaciął się po powrocie z tła. Zagraj rundę jeszcze raz — dźwięk wróci.";
+            "Dźwięk zaciął się po powrocie z tła. Zagraj rundę jeszcze raz, dźwięk wróci.";
           this.audio.stop();
           this.scene = "hits";
         }
@@ -1417,8 +1424,8 @@ export class Game {
         break;
     }
 
-    if (this.healthModal) this.drawHealthModal(ctx);
-    else if (this.soundModal) this.drawSoundModal(ctx);
+    if (this.soundModal) this.drawSoundModal(ctx);
+    else if (this.healthModal) this.drawHealthModal(ctx);
     if (this.voteModal) this.drawVoteModal(ctx);
     if (this.offlineNotice && this.scene === "results") {
       this.drawModal(
@@ -1495,25 +1502,31 @@ export class Game {
       this.offlineNotice = false;
       return;
     }
-    if (this.healthModal) {
-      // ostrzeżenie o światłoczułości — dowolne stuknięcie potwierdza.
-      // Odblokuj audio JUŻ TERAZ (czysty gest) — iOS Safari wymaga stworzenia
-      // AudioContextu w reakcji na dotknięcie; przy okazji wczytują się klipy UI.
-      void this.audio.unlock();
-      this.healthModal = false;
-      this.healthHintDone = true;
-      markHealthWarnSeen();
-      if (!this.soundHintDone) this.soundModal = true;
-      return;
-    }
     if (this.soundModal) {
-      // to tylko potwierdzenie — dowolne stuknięcie zamyka.
-      // Przy okazji odblokuj audio JUŻ TERAZ (czysty gest) — na iOS Safari
-      // AudioContext trzeba stworzyć i wznowić w reakcji na dotknięcie.
+      // reaguje TYLKO na przycisk (nie „dowolne stuknięcie") — chcemy, żeby
+      // gracz świadomie użył przycisku. x < 0 = klawiatura / „dalej" = też liczy.
+      if (x >= 0 && this.modalOkRect && !inRect(this.modalOkRect, x, y)) return;
+      if (!this.soundModalTested) {
+        // 1. kliknięcie = akcja: odblokuj audio (czysty gest — iOS Safari
+        // wymaga stworzenia/wznowienia AudioContextu w reakcji na dotknięcie)
+        // i zagraj dźwięk testowy, żeby gracz OD RAZU słyszał, czy ma dźwięk
+        this.soundModalTested = true;
+        void this.audio.unlock().then(() => this.audio.playCountdownTest());
+        return;
+      }
       uiSound("buttons");
       void this.audio.unlock();
       this.soundModal = false;
       this.soundHintDone = true;
+      if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
+      return;
+    }
+    if (this.healthModal) {
+      // ostrzeżenie o światłoczułości — dowolne stuknięcie potwierdza
+      void this.audio.unlock();
+      this.healthModal = false;
+      this.healthHintDone = true;
+      markHealthWarnSeen();
       return;
     }
     if (this.offlineModal) {
@@ -1677,18 +1690,18 @@ export class Game {
       this.voteModal = null;
       return true;
     }
+    if (this.soundModal) {
+      uiSound("back");
+      this.soundModal = false;
+      this.soundHintDone = true;
+      if (!this.healthHintDone && !healthWarnSeen()) this.healthModal = true;
+      return true;
+    }
     if (this.healthModal) {
       void this.audio.unlock();
       this.healthModal = false;
       this.healthHintDone = true;
       markHealthWarnSeen();
-      if (!this.soundHintDone) this.soundModal = true;
-      return true;
-    }
-    if (this.soundModal) {
-      uiSound("back");
-      this.soundModal = false;
-      this.soundHintDone = true;
       return true;
     }
     if (this.offlineNotice) {
@@ -3466,7 +3479,7 @@ export class Game {
       ctx,
       "🚪",
       "WYLOGOWAĆ SIĘ?",
-      "Czy na pewno chcesz się wylogować? Wynik i postęp zostają na koncie — wrócą po ponownym zalogowaniu.",
+      "Czy na pewno chcesz się wylogować? Wynik i postęp zostają na koncie i wrócą po ponownym zalogowaniu.",
       btnH * 2 + btnGap,
     );
     this.logoutYesRect = {
@@ -3538,11 +3551,25 @@ export class Game {
   }
 
   private drawSoundModal(ctx: CanvasRenderingContext2D) {
-    this.drawModal(
+    const tested = this.soundModalTested;
+    const btnH = MODAL_OK.h;
+    const { py, bodyEnd, gap } = this.drawModalPanel(
       ctx,
       "🔊",
       "WŁĄCZ DŹWIĘK",
-      "Ustaw telefon na dźwięk i wyłącz tryb cichy, gra działa w rytm muzyki.",
+      tested
+        ? "Słyszysz? Świetnie! Jeśli nie, zdejmij telefon z trybu cichego, podkręć głośność i kliknij jeszcze raz."
+        : "Gra działa w rytm muzyki. Bez dźwięku nie ma zabawy. Zdejmij telefon z trybu cichego, podkręć głośność i sprawdź:",
+      btnH,
+    );
+    this.modalOkRect = { x: VW / 2 - MODAL_OK.w / 2, y: py + bodyEnd + gap, w: MODAL_OK.w, h: btnH };
+    this.uiButton(
+      ctx,
+      this.modalOkRect,
+      tested ? "gramy" : "zagraj-dzwiek",
+      tested
+        ? { fallback: "SŁYSZĘ, GRAMY!", style: "dark-green" }
+        : { fallback: "▶  ZAGRAJ DŹWIĘK", style: "gold" },
     );
   }
 
@@ -3552,6 +3579,8 @@ export class Game {
       "💡",
       "ZANIM ZACZNIESZ",
       "W grze migają światła w rytm muzyki. Jeśli jesteś na to wrażliwy, graj w jasnym pokoju i rób przerwy. Miłej zabawy!",
+      "gramy",
+      "GRAMY!",
     );
   }
 
@@ -6129,7 +6158,7 @@ export class Game {
         });
         text(
           ctx,
-          `Potrzebujesz ${"★".repeat(UNLOCK_STARS)} (86%) — masz ${"★".repeat(Math.max(0, starsNow))}`,
+          `Potrzebujesz ${"★".repeat(UNLOCK_STARS)} (86%), masz ${"★".repeat(Math.max(0, starsNow))}`,
           cx,
           by + 52,
           { size: 18, weight: "700", color: "#f0d9bd" },

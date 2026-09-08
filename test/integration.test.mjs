@@ -225,11 +225,13 @@ ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
 localStorage.setItem("denis.account", JSON.stringify({ login: "Test", nick: "", terms: true, method: "login" }));
 const gn = new Game();
 await new Promise((r) => setTimeout(r, 5));
-ok(gn.scene === "hits" && gn.healthModal === true, "po wczytaniu: ostrzeżenie o światłoczułości");
-gn.onPress(-1, -1, -1); // ROZUMIEM (zdrowie)
-ok(gn.healthModal === false && gn.soundModal === true, "po ostrzeżeniu: modal dźwięku nad karuzelą");
-gn.onPress(-1, -1, -1); // ROZUMIEM (dźwięk)
-ok(gn.soundModal === false && gn.scene === "hits", "modal zamyka się, zostaje WYBIERZ HIT");
+ok(gn.scene === "hits" && gn.soundModal === true, "po wczytaniu: NAJPIERW modal dźwięku");
+gn.onPress(-1, -1, -1); // 1. klik = akcja: zagraj dźwięk testowy
+ok(gn.soundModal === true && gn.soundModalTested === true, "1. klik dźwięku = akcja, modal zostaje");
+gn.onPress(-1, -1, -1); // 2. klik: GRAMY -> ostrzeżenie o migotaniu
+ok(gn.soundModal === false && gn.healthModal === true, "po dźwięku: ostrzeżenie o migotaniu");
+gn.onPress(-1, -1, -1); // GRAMY (zdrowie)
+ok(gn.healthModal === false && gn.scene === "hits", "modal zamyka się, zostaje WYBIERZ HIT");
 gn.onPress(1, 80, 1140); // WYNIKI (lewy przycisk dolnego rzędu)
 ok(gn.scene === "board", "WYNIKI otwiera tablicę utworu");
 gn.onPress(1, 360, 1076); // POWRÓT (przycisk na dole tablicy)
