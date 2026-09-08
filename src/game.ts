@@ -2715,7 +2715,7 @@ export class Game {
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
-    if (this.unlockBusy || this.fx.length) return true; // loader na przycisku + konfetti
+    if (this.unlockBusy || this.authBusy || this.fx.length) return true; // loader na przycisku + konfetti
     return false;
   }
 
@@ -3224,9 +3224,13 @@ export class Game {
 
     // przyciski — oba rysowane w kodzie, identycznych rozmiarów
     if (R.primary) {
-      this.uiButton(ctx, R.primary, reg ? "stworz-konto" : "zaloguj-sie", {
-        fallback: reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ",
-      });
+      if (this.authBusy) {
+        this.drawBtnLoader(ctx, R.primary); // loader zamiast „STWÓRZ KONTO" / „ZALOGUJ SIĘ"
+      } else {
+        this.uiButton(ctx, R.primary, reg ? "stworz-konto" : "zaloguj-sie", {
+          fallback: reg ? "STWÓRZ KONTO" : "ZALOGUJ SIĘ",
+        });
+      }
     }
     if (R.altLabel) {
       text(ctx, reg ? "Mam już konto" : "Nie masz jeszcze konta?", VW / 2, R.altLabel.y + 17, {
@@ -3298,9 +3302,6 @@ export class Game {
       this.authErrorCloseRect = null;
     }
 
-    if (this.authBusy) {
-      text(ctx, "Łączę z serwerem…", VW / 2, VH - 44, { size: 17, weight: "800", color: "#ffce8a" });
-    }
   }
 
   // ---- ekran: tablica wyników (per utwór, wejście z karuzeli) ----------
@@ -4586,16 +4587,18 @@ export class Game {
     this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
   }
 
+  /** Złoty przycisk z kręcącym się loaderem zamiast tekstu — na czas zapytania
+   *  do serwera. Nie zasłania reszty ekranu (konfetti, tło). */
+  private drawBtnLoader(ctx: CanvasRenderingContext2D, r: Rect) {
+    this.styledBtn(ctx, r, "", "gold");
+    const faceH = r.h - Math.round(r.h * 0.14);
+    this.drawSpinner(ctx, r.x + r.w / 2, r.y + faceH / 2, Math.min(23, faceH * 0.34), true);
+  }
+
   /** Przycisk odblokowania poziomu za monety — jeden wiersz, font jak GRAJ.
-   *  W trakcie zapytania do serwera (`unlockBusy`) zamiast tekstu kręci się
-   *  loader NA przycisku (żeby nie zasłaniać konfetti pełnoekranowym loaderem). */
+   *  W trakcie zapytania do serwera (`unlockBusy`) → loader na przycisku. */
   private drawUnlockButton(ctx: CanvasRenderingContext2D, r: Rect, price: number) {
-    if (this.unlockBusy) {
-      this.styledBtn(ctx, r, "", "gold");
-      const faceH = r.h - Math.round(r.h * 0.14);
-      this.drawSpinner(ctx, r.x + r.w / 2, r.y + faceH / 2, Math.min(23, faceH * 0.34), true);
-      return;
-    }
+    if (this.unlockBusy) return this.drawBtnLoader(ctx, r);
     this.styledBtn(ctx, r, `ODBLOKUJ ZA ${fmtCoinsFull(price)} MONET!`, "gold");
   }
 
