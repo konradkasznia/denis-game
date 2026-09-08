@@ -4016,47 +4016,53 @@ export class Game {
 
   // ---- samouczek „jak grać" (przed pierwszą rundą) ----------
 
-  /** Modal samouczka: tytuł + 2 kroki + zapętlony podgląd rozgrywki + „ZACZYNAM!". */
+  /** Modal samouczka: tytuł + kroki + zapętlony podgląd rozgrywki + „ZACZYNAM!". */
   private drawTutModal(ctx: CanvasRenderingContext2D) {
-    this.fillViewport(ctx, "rgba(4,4,10,0.85)");
+    this.fillViewport(ctx, "rgba(4,4,10,0.86)");
 
-    const pw = VW - 48;
-    const px = 24;
-    const step1 = "1.  Kółka nadjeżdżają z góry, każde swoim torem.";
-    const step2 = "2.  Stuknij w dolnej połowie ekranu DOKŁADNIE gdy kółko trafia w białą obręcz na linii.";
-    const l1 = wrapText(step1, 38);
-    const l2 = wrapText(step2, 38);
-    const lineH = 34;
-    const prevW = pw - 44;
-    const prevH = 262;
+    const pw = VW - 44;
+    const px = 22;
+    const steps: { txt: string; col: string }[] = [
+      { txt: "1.  Kółka nadjeżdżają z góry, każde swoim torem.", col: "#e2d7c7" },
+      { txt: "2.  Stuknij w dole ekranu DOKŁADNIE gdy kółko trafia w białą obręcz.", col: "#e2d7c7" },
+      { txt: "3.  PERFECT = trafienie w punkt: najlepsza ocena, najwięcej punktów.", col: "#8affc1" },
+      { txt: "4.  Seria trafień = COMBO i rosnący mnożnik (do ×5). „OK” albo pudło ją zeruje.", col: "#ffd24c" },
+    ];
+    const wrapped = steps.map((s) => wrapText(s.txt, 40));
+    const lineH = 31;
+    const nLines = wrapped.reduce((a, w) => a + w.length, 0);
+    const prevW = pw - 40;
+    const prevH = 196;
     const btnH = MODAL_OK.h;
-    const titleY = 108;
-    const bodyTop = titleY + 46;
-    const bodyH = (l1.length + l2.length) * lineH + 14;
-    const prevGap = 16;
-    const ph = bodyTop + bodyH + prevGap + prevH + 26 + btnH + 36;
-    const py = Math.max(16, (VH - ph) / 2);
+    const titleY = 100;
+    const bodyTop = titleY + 40;
+    const bodyH = nLines * lineH + 10;
+    const prevGap = 14;
+    const ph = bodyTop + bodyH + prevGap + prevH + 24 + btnH + 30;
+    const py = Math.max(12, (VH - ph) / 2);
 
     ctx.fillStyle = "#15121c";
-    roundRect(ctx, px, py, pw, ph, 26);
+    roundRect(ctx, px, py, pw, ph, 24);
     ctx.fill();
     ctx.strokeStyle = "rgba(255,180,90,0.55)";
     ctx.lineWidth = 2;
-    roundRect(ctx, px, py, pw, ph, 26);
+    roundRect(ctx, px, py, pw, ph, 24);
     ctx.stroke();
 
-    text(ctx, "👆", VW / 2, py + 58, { size: 44 });
+    text(ctx, "👆", VW / 2, py + 52, { size: 38 });
     text(ctx, "JAK GRAĆ", VW / 2, py + titleY, {
-      size: 36,
+      size: 34,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffd24c",
       shadows: HEAD_SHADOWS,
     });
     let ly = py + bodyTop;
-    [...l1, ...l2].forEach((ln, i) => {
-      text(ctx, ln, VW / 2, ly, { size: 21, color: i < l1.length ? "#e2d7c7" : "#ffe6a6" });
-      ly += lineH;
+    wrapped.forEach((w, si) => {
+      w.forEach((ln) => {
+        text(ctx, ln, VW / 2, ly, { size: 20, color: steps[si].col });
+        ly += lineH;
+      });
     });
 
     const prevX = VW / 2 - prevW / 2;
@@ -4073,7 +4079,7 @@ export class Game {
 
     this.tutOkRect = {
       x: VW / 2 - MODAL_OK.w / 2,
-      y: prevY + prevH + 26,
+      y: prevY + prevH + 24,
       w: MODAL_OK.w,
       h: btnH,
     };
