@@ -173,10 +173,17 @@ ok(noRelease.holdsBroken === 0, "żadne nie zerwane");
 console.log("\n· render wszystkich ekranów:");
 const gr = new Game();
 await new Promise((r) => setTimeout(r, 5));
-for (const sc of ["loading", "auth", "hits", "board", "rewards", "profile", "results", "play"]) {
+for (const sc of ["loading", "auth", "hits", "board", "rewards", "profile", "changepw", "results", "play"]) {
   gr.scene = sc;
   gr.render(ctx);
 }
+gr.scene = "changepw";
+gr.changePwMsg = "Hasło musi mieć min. 8 znaków, wielką literę i znak specjalny.";
+gr.render(ctx);
+gr.changePwBusy = true;
+gr.render(ctx);
+gr.changePwBusy = false;
+gr.changePwMsg = "";
 gr.soundModal = true;
 gr.render(ctx);
 gr.soundModal = false;

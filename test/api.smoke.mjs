@@ -73,6 +73,13 @@ ok(lookup.rows.length === 1, "wyszukanie po loginie bez rozróżniania wielkośc
 ok(await verifyPassword("Haslo123!", String(lookup.rows[0].pw_hash)), "poprawne hasło przechodzi");
 ok(!(await verifyPassword("zle", String(lookup.rows[0].pw_hash))), "złe hasło odrzucone");
 
+// --- zmiana hasła (POST /api/account {action:"password"}) ---
+const newHash = await hashPassword("NoweHaslo9#");
+await c.execute({ sql: "UPDATE users SET pw_hash = ? WHERE id = ?", args: [newHash, lookup.rows[0].id] });
+const after = await c.execute({ sql: "SELECT pw_hash FROM users WHERE id = ?", args: [lookup.rows[0].id] });
+ok(await verifyPassword("NoweHaslo9#", String(after.rows[0].pw_hash)), "zmiana hasła: nowe działa");
+ok(!(await verifyPassword("Haslo123!", String(after.rows[0].pw_hash))), "zmiana hasła: stare już nie działa");
+
 // --- sesja ---
 const token = randomToken(32);
 await c.execute({

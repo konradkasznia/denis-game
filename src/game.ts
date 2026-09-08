@@ -2,12 +2,14 @@
 // logika rytmiczna i rysowanie.
 
 import { AudioEngine } from "./audio.ts";
-import { clearSession, deleteAccount, hasAccount } from "./account.ts";
+import { clearSession, deleteAccount, hasAccount, login as accountLogin } from "./account.ts";
 import {
   checkLogin as apiCheckLogin,
   fetchMe,
   login as apiLogin,
+  PW_RULE,
   register as apiRegister,
+  validPassword,
 } from "./authApi.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
@@ -79,6 +81,7 @@ type Scene =
   | "board"
   | "rewards"
   | "profile"
+  | "changepw"
   | "play"
   | "results";
 
@@ -178,9 +181,14 @@ const SET_W = VW - MARGIN * 2;
 const SET_TERMS: Rect = { x: MARGIN, y: 246, w: SET_W, h: 96 };
 const SET_PRIV: Rect = { x: MARGIN, y: 356, w: SET_W, h: 96 };
 const SET_PUSH: Rect = { x: MARGIN, y: 462, w: SET_W, h: 96 }; // przełącznik powiadomień
-const SET_DELETE: Rect = { x: MARGIN, y: 590, w: SET_W, h: 96 };
-const SET_LOGOUT: Rect = { x: MARGIN, y: 700, w: SET_W, h: 96 };
-const SET_MAIL: Rect = { x: MARGIN, y: 952, w: SET_W, h: 120 };
+const SET_PW: Rect = { x: MARGIN, y: 590, w: SET_W, h: 96 }; // zmiana hasła
+const SET_DELETE: Rect = { x: MARGIN, y: 700, w: SET_W, h: 96 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 810, w: SET_W, h: 96 };
+const SET_MAIL: Rect = { x: MARGIN, y: 1012, w: SET_W, h: 120 };
+
+// --- ekran ZMIEŃ HASŁO ---
+const CPW_FIELD: Rect = { x: MARGIN, y: 300, w: SET_W, h: 86 };
+const CPW_SAVE: Rect = { x: MARGIN, y: 500, w: SET_W, h: 104 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
 const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
@@ -683,6 +691,12 @@ export class Game {
   private authTerms = false;
   private authShowPw = false;
   private authError = "";
+  // ekran „Zmień hasło" (z ustawień)
+  private newPw = "";
+  private newPwShow = false;
+  private changePwBusy = false;
+  private changePwMsg = "";
+  private changePwOk = false;
   /** którego pola dotyczy błąd (czerwony obrys): "login" | "password" | "both" | null */
   private authErrorField: "login" | "password" | "both" | null = null;
   private authErrorCloseRect: Rect | null = null;
@@ -1458,6 +1472,9 @@ export class Game {
       case "profile":
         this.drawProfile(ctx);
         break;
+      case "changepw":
+        this.drawChangePw(ctx);
+        break;
       case "play":
         this.drawPlay(ctx);
         break;
@@ -1662,6 +1679,7 @@ export class Game {
     if (this.scene === "board") return this.handleBoardTap(x, y);
     if (this.scene === "rewards") return this.handleRewardsTap(x, y);
     if (this.scene === "profile") return this.handleProfileTap(x, y);
+    if (this.scene === "changepw") return this.handleChangePwTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
     if (this.scene === "play") {
       if (this.rolling) return; // ciche odliczanie 3-2-1 — ignoruj dotyk
@@ -1825,6 +1843,11 @@ export class Game {
         uiSound("back");
         this.scene = "hits";
         return true;
+      case "changepw":
+        uiSound("back");
+        this.fields.clear();
+        this.scene = "profile";
+        return true;
       case "results":
         uiSound("back");
         this.enterHits();
@@ -1983,13 +2006,48 @@ export class Game {
     return this.fields.isFocused();
   }
 
-  /** Nakładka z prawdziwymi <input> — tylko na ekranie logowania. */
+  /** Nakładka z prawdziwymi <input> — ekran logowania i „Zmień hasło". */
   private syncFields() {
-    if (this.healthModal || this.soundModal || this.offlineModal || this.scene !== "auth") {
+    if (this.healthModal || this.soundModal || this.offlineModal) {
       this.fields.clear();
       return;
     }
-    this.fields.sync(this.authFieldSpecs());
+    if (this.scene === "auth") {
+      this.fields.sync(this.authFieldSpecs());
+    } else if (this.scene === "changepw") {
+      this.fields.sync(this.changePwFieldSpecs());
+    } else {
+      this.fields.clear();
+    }
+  }
+
+  private changePwFieldSpecs(): FieldSpec[] {
+    return [
+      {
+        key: "newpw",
+        type: this.newPwShow ? "text" : "password",
+        value: this.newPw,
+        placeholder: "Nowe hasło",
+        autocomplete: "new-password",
+        enterKeyHint: "go",
+        x: CPW_FIELD.x,
+        y: CPW_FIELD.y,
+        w: CPW_FIELD.w,
+        h: CPW_FIELD.h,
+        error: !!this.changePwMsg && !this.changePwOk,
+        onInput: (v) => {
+          this.newPw = v;
+          this.changePwMsg = "";
+        },
+        onEnter: () => this.changePassword(),
+        reveal: {
+          revealed: this.newPwShow,
+          onToggle: () => {
+            this.newPwShow = !this.newPwShow;
+          },
+        },
+      },
+    ];
   }
 
   private authFieldSpecs(): FieldSpec[] {
@@ -2400,6 +2458,16 @@ export class Game {
       uiSound("buttons");
       return void openDoc(DOC_PRIVACY_URL);
     }
+    if (inRect(SET_PW, x, y)) {
+      uiSound("buttons");
+      this.newPw = "";
+      this.newPwShow = false;
+      this.changePwMsg = "";
+      this.changePwOk = false;
+      this.changePwBusy = false;
+      this.scene = "changepw";
+      return;
+    }
     if (inRect(SET_MAIL, x, y)) {
       uiSound("buttons");
       return void openDoc(`mailto:${SUPPORT_EMAIL}`);
@@ -2763,7 +2831,7 @@ export class Game {
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
-    if (this.unlockBusy || this.authBusy || this.fx.length) return true; // loader na przycisku + konfetti
+    if (this.unlockBusy || this.authBusy || this.changePwBusy || this.fx.length) return true; // loader + konfetti
     return false;
   }
 
@@ -4495,6 +4563,18 @@ export class Game {
     // monety — lewy górny róg (klik → NAGRODY)
     this.drawCoinPill(ctx, HIT_COINS, coins());
 
+    // powitanie — na środku między monetami a zębatką
+    const who = accountLogin();
+    if (who) {
+      text(
+        ctx,
+        `Cześć, ${who.length > 15 ? who.slice(0, 14) + "…" : who}!`,
+        (HIT_COINS.x + HIT_COINS.w + HIT_GEAR.x) / 2,
+        HIT_COINS.y + HIT_COINS.h / 2 + 1,
+        { size: 23, weight: "800", color: "#ffe6b0", shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.5)" }] },
+      );
+    }
+
     // POZIOM N
     text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
       size: 24,
@@ -4837,6 +4917,7 @@ export class Game {
 
     this.linkRow(ctx, SET_TERMS, "Regulamin");
     this.linkRow(ctx, SET_PRIV, "Polityka prywatności");
+    this.linkRow(ctx, SET_PW, "Zmień hasło");
 
     // Powiadomienia o nowej zawartości (nowe poziomy / utwory)
     this.toggleRow(
@@ -4874,6 +4955,87 @@ export class Game {
       size: 14,
       color: "#6b6055",
     });
+  }
+
+  // ---- ekran: ZMIEŃ HASŁO -----------------------------------
+
+  private drawChangePw(ctx: CanvasRenderingContext2D) {
+    this.drawUiBg(ctx);
+    text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
+      size: 26,
+      align: "left",
+      color: "#ffce8a",
+      weight: "700",
+    });
+    text(ctx, "ZMIEŃ HASŁO", VW / 2, 130, {
+      size: 44,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff7ec",
+      shadows: HEAD_SHADOWS,
+    });
+    // samo pole „Nowe hasło" (z oczkiem) rysuje `FieldOverlay` — patrz changePwFieldSpecs
+    const msgY = CPW_FIELD.y + CPW_FIELD.h + 30;
+    if (this.changePwMsg) {
+      text(ctx, this.changePwMsg, VW / 2, msgY, {
+        size: 19,
+        weight: "800",
+        color: this.changePwOk ? "#8affc1" : "#ff8a97",
+      });
+    } else {
+      text(ctx, "Min. 8 znaków, wielka litera i znak specjalny.", VW / 2, msgY, {
+        size: 16,
+        color: "#9a8c7e",
+      });
+    }
+
+    if (this.changePwBusy) {
+      this.drawBtnLoader(ctx, CPW_SAVE);
+    } else {
+      this.styledBtn(ctx, CPW_SAVE, this.changePwOk ? "ZAPISANE" : "ZAPISZ", this.changePwOk ? "dark-green" : "gold");
+    }
+  }
+
+  private handleChangePwTap(x: number, y: number) {
+    if (x < 0 || inRect(BACK, x, y)) {
+      uiSound("back");
+      this.fields.clear();
+      this.scene = "profile";
+      return;
+    }
+    if (!this.changePwBusy && !this.changePwOk && inRect(CPW_SAVE, x, y)) {
+      uiSound("buttons");
+      void this.changePassword();
+    }
+  }
+
+  private async changePassword() {
+    if (this.changePwBusy || this.changePwOk) return;
+    if (!validPassword(this.newPw)) {
+      this.changePwMsg = PW_RULE;
+      this.changePwOk = false;
+      return;
+    }
+    if (!backendReachable()) {
+      this.changePwMsg = "Brak połączenia z internetem.";
+      return;
+    }
+    this.fields.blur();
+    this.changePwBusy = true;
+    this.changePwMsg = "";
+    try {
+      await api("/api/account", { method: "POST", body: { action: "password", newPassword: this.newPw }, auth: true });
+      this.changePwOk = true;
+      this.changePwMsg = "Hasło zmienione.";
+      this.newPw = "";
+      this.fields.clear();
+      haptic("flowUp");
+    } catch (e) {
+      this.changePwMsg =
+        e instanceof ApiError ? e.message : "Nie udało się zmienić hasła. Spróbuj ponownie.";
+    } finally {
+      this.changePwBusy = false;
+    }
   }
 
   // ---- ekran: gra --------------------------------------------

@@ -1,13 +1,14 @@
 // Operacje na koncie zalogowanego użytkownika.
-//   POST { action: "nick", nick }       → zmiana nazwy wyświetlanej (opcjonalna)
-//   POST { action: "unlock", songId }   → odblokowanie poziomu za monety
-//   POST { action: "delete" }           → usunięcie konta i wszystkich danych
+//   POST { action: "nick", nick }              → zmiana nazwy wyświetlanej (opcjonalna)
+//   POST { action: "password", newPassword }   → zmiana hasła (zalogowany)
+//   POST { action: "unlock", songId }          → odblokowanie poziomu za monety
+//   POST { action: "delete" }                  → usunięcie konta i wszystkich danych
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
 import { nickAllowed } from "./_lib/nick.js";
 import { limitReq } from "./_lib/ratelimit.js";
-import { allow, body, json, sessionUser } from "./_lib/util.js";
+import { allow, body, hashPassword, json, PW_RULE, sessionUser, validPassword } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
 const UNLOCK_COST: Record<string, number> = { pogrzebowka: 200 };
@@ -24,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!allowed) return json(res, 429, { error: "Zbyt wiele operacji. Spróbuj później." });
     if (!u) return json(res, 401, { error: "Brak sesji." });
     const c = db();
-    const b = body<{ action?: string; nick?: string; songId?: string }>(req);
+    const b = body<{ action?: string; nick?: string; songId?: string; newPassword?: string }>(req);
 
     if (b.action === "nick") {
       const nick = String(b.nick || "").trim().slice(0, 18);
@@ -32,6 +33,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!nc.ok) return json(res, 400, { error: nc.error });
       await c.execute({ sql: "UPDATE users SET nick = ? WHERE id = ?", args: [nick, u.id] });
       return json(res, 200, { ok: true, nick });
+    }
+
+    if (b.action === "password") {
+      const np = String(b.newPassword || "");
+      if (!validPassword(np)) return json(res, 400, { error: PW_RULE });
+      const hash = await hashPassword(np);
+      await c.execute({ sql: "UPDATE users SET pw_hash = ? WHERE id = ?", args: [hash, u.id] });
+      return json(res, 200, { ok: true });
     }
 
     if (b.action === "unlock") {
