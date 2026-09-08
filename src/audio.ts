@@ -46,7 +46,7 @@ export class AudioEngine {
   // wątek renderu audio żywy na iOS (inaczej `currentTime` zamiera na 0)
   private _sfxOn = true;
   private _uiOn = true;
-  // --- muzyka tła menu (loop-background.mp3) — wszędzie poza rozgrywką ---
+  // --- muzyka tła menu (loopbackground2.mp3) — wszędzie poza rozgrywką ---
   private loopBuf: AudioBuffer | null = null;
   private loopSrc: AudioBufferSourceNode | null = null;
   private loopGain: GainNode | null = null;
@@ -160,9 +160,8 @@ export class AudioEngine {
   /** MP3 ma na starcie „encoder delay", a na końcu padding — kilkadziesiąt ms
    *  ciszy, której nie ma w oryginalnym PCM. `loop = true` zapętla bufor
    *  wiernie, więc ta cisza słychać jako dziurę na styku pętli. Przycinamy
-   *  bufor do fragmentu z realnym sygnałem — to jest gapless dla MP3.
-   *  (Zmierzone dla loop-background.mp3: 1306 próbek na starcie + 893 na końcu
-   *  = 46 ms przerwy; po przycięciu 3.4807 s = równe 8 taktów przy 138 BPM.) */
+   *  bufor do fragmentu z realnym sygnałem — to jest gapless dla MP3 (żadnego
+   *  crossfade / nachodzenia pętli; źródłowy plik jest już idealnie zapętlony). */
   private trimForLoop(buf: AudioBuffer): AudioBuffer {
     const ctx = this.ctx;
     if (!ctx) return buf;
@@ -199,10 +198,10 @@ export class AudioEngine {
     if (this.loopLoading || !this.ctx || this.loopBuf) return;
     this.loopLoading = true;
     try {
-      const res = await fetch("assets/ui/Sounds/loop-background.mp3");
+      const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
       if (res.ok) {
         const raw = await this.decode((await res.arrayBuffer()).slice(0));
-        this.loopBuf = this.trimForLoop(raw); // bez tego slychac dziure na styku petli
+        this.loopBuf = this.trimForLoop(raw); // tylko cisza kodera MP3 — bez crossfade
       }
     } catch {
       /* muzyka tła jest opcjonalna */
