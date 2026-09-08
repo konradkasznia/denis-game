@@ -592,7 +592,6 @@ export class Game {
   private paused = false;
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
   private resumeCheckAt = 0; // performance.now() kontroli „czy dźwięk faktycznie wrócił po tle"
-  private resumeCheckT = 0; // songTime w chwili wznowienia (do porównania, czy zegar ruszył)
   private loopOn = false; // czy muzyka tła menu jest teraz włączona
   /** odliczanie 3-2-1 PRZED startem utworu (klip 321.mp3) — audio rusza po „1" */
   private rolling = false;
@@ -822,6 +821,10 @@ export class Game {
       else this.audio.stopLoop();
     }
     if (this.paused && this.resumeAt && performance.now() >= this.resumeAt) {
+      // SYNCHRONICZNIE zakotwicz zegar utworu na pozycji z pauzy — ZANIM
+      // wyjdziemy z pauzy, żeby pierwsza klatka nie odczytała czasu zawyżonego
+      // o to, ile AudioContext „nabił" podczas odliczania (nutki przyspieszały).
+      this.songTime = this.audio.reanchorResume();
       this.paused = false;
       this.resumeAt = 0;
       // odbudowa źródła podkładu + keep-alive — iOS po powrocie z tła potrafi je ubić
@@ -829,7 +832,6 @@ export class Game {
       // ...a gdy iOS ubił CAŁY wątek renderu (zegar stoi mimo state="running"),
       // resume nic nie da — uzbrój kontrolę, która za chwilę to wykryje.
       this.resumeCheckAt = performance.now() + 2600;
-      this.resumeCheckT = this.songTime;
     }
     if (this.scene === "play" && !this.awaitingStart && !this.paused) {
       // zegar utworu = zegar audio przez CAŁY czas (odliczanie zwraca -3 → 0)
@@ -858,13 +860,13 @@ export class Game {
       } else if (this.songTime >= 0.1) {
         this.songStartedAt = 0; // wystartowało OK — watchdog wyłączony
       }
-      // kontrola po wznowieniu z tła: zegar utworu ani drgnął → wątek renderu
-      // audio jest martwy (iOS po głębokim tle), resume nic nie da. Kończymy
-      // rundę czytelnym komunikatem; ponowne wejście w GRAJ odbuduje kontekst.
+      // kontrola po wznowieniu z tła: zegar utworu jedzie z zegara ściennego,
+      // ale jeśli zegar AudioContextu jest MARTWY (iOS po głębokim tle) to
+      // muzyki nie ma i nie wróci — kończymy rundę czytelnym komunikatem
+      // (ponowne wejście w GRAJ odbuduje kontekst przez hardReset).
       if (this.resumeCheckAt && performance.now() >= this.resumeCheckAt) {
-        const advanced = this.songTime - this.resumeCheckT;
         this.resumeCheckAt = 0;
-        if (advanced < 0.3) {
+        if (!this.audio.clockAlive()) {
           this.loadError =
             "Dźwięk zaciął się po powrocie z tła. Zagraj rundę jeszcze raz, dźwięk wróci.";
           this.audio.stop();

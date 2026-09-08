@@ -26,6 +26,10 @@ export class AudioEngine {
   private ctxAtStart = 0;
   private pausedTotalMs = 0; // suma czasu spędzonego w pauzie (zegar ścienny)
   private pauseStartMs = 0; // != 0 => właśnie trwa pauza
+  // tuż po wznowieniu z pauzy zegar AudioContextu jest niestabilny (dopiero się
+  // rozkręca po `resume()`), więc przez ~0,6 s liczymy czas utworu WYŁĄCZNIE z
+  // zegara ściennego (`performance.now()`), a potem płynnie wracamy do ctx.
+  private resumeSettleUntil = 0;
   private pauseSeq = 0; // numer pauzy — chroni opóźniony suspend przed nowym przebiegiem
   private trackBuffers = new Map<string, AudioBuffer>();
   private trackRaw = new Map<string, ArrayBuffer>(); // pobrane bajty przed dekodowaniem
@@ -386,6 +390,7 @@ export class AudioEngine {
     this.uiLoading = false;
     this.loopLoading = false;
     this.wallStartMs = 0;
+    this.resumeSettleUntil = 0;
     this.lastSongT = -Infinity;
     try {
       await old?.close();
@@ -504,13 +509,51 @@ export class AudioEngine {
    *  MONOTONICZNY — nigdy nie zwraca mniej niż poprzednio (nuty się nie cofają). */
   getSongTime(): number {
     if (!this.ctx || !this._running) return this.lastSongT === -Infinity ? 0 : this.lastSongT;
-    const raw = !this.wallStartMs
-      ? this.ctx.currentTime - this.startTime
-      : this.clockAlive()
+    let raw: number;
+    if (this.resumeSettleUntil > 0) {
+      if (performance.now() < this.resumeSettleUntil) {
+        // świeżo po wznowieniu — ufamy tylko zegarowi ściennemu
+        raw = this.wallElapsed() - this.leadIn;
+      } else {
+        // koniec „dosiadania": przeklej zegar ctx tak, by kontynuował PŁYNNIE
+        // od miejsca, w którym skończył zegar ścienny (bez skoku)
+        this.startTime = this.ctx.currentTime - this.lastSongT;
+        this.ctxAtStart = this.ctx.currentTime - (this.lastSongT + this.leadIn);
+        this.resumeSettleUntil = 0;
+        raw = this.ctx.currentTime - this.startTime;
+      }
+    } else if (!this.wallStartMs) {
+      raw = this.ctx.currentTime - this.startTime;
+    } else {
+      raw = this.clockAlive()
         ? this.ctx.currentTime - this.startTime
         : this.wallElapsed() - this.leadIn;
+    }
     if (raw > this.lastSongT) this.lastSongT = raw;
     return this.lastSongT;
+  }
+
+  /** Zakotwiczenie zegara utworu przy wznowieniu z pauzy — SYNCHRONICZNE, wołane
+   *  ZANIM gra wyjdzie z pauzy, żeby pierwsza klatka po wznowieniu nie zdążyła
+   *  odczytać zawyżonego czasu (AudioContext chodził w tle / podczas odliczania).
+   *  Pozycję utworu bierze z zegara ściennego (jedyny pewny), zeruje `lastSongT`
+   *  na nią i włącza 0,6 s „dosiadania" na zegarze ściennym. Zwraca pozycję. */
+  reanchorResume(): number {
+    if (!this._running) return this.lastSongT === -Infinity ? 0 : this.lastSongT;
+    if (this.pauseStartMs) {
+      this.pausedTotalMs += performance.now() - this.pauseStartMs;
+      this.pauseStartMs = 0;
+    }
+    const pos = Math.max(0, this.wallElapsed() - this.leadIn);
+    const now = performance.now();
+    this.wallStartMs = now - (pos + this.leadIn) * 1000;
+    this.pausedTotalMs = 0;
+    const ct = this.ctx ? this.ctx.currentTime : 0;
+    this.startTime = ct - pos;
+    this.ctxAtStart = ct - (pos + this.leadIn);
+    this.lastSongT = pos;
+    this.resumeSettleUntil = now + 600;
+    return pos;
   }
 
   // --- diagnostyka (do ekranu błędu na telefonie) ---
@@ -768,20 +811,10 @@ export class AudioEngine {
       /* ignore */
     }
     this.srcNode = null;
+    // zegar utworu jest już zakotwiczony przez `reanchorResume()` (wołane
+    // synchronicznie, zanim gra wyszła z pauzy) — tu tylko restart źródła audio
+    // od tej samej pozycji
     const pos = Math.max(0, this.wallElapsed() - this.leadIn);
-
-    // Zakotwicz zegar utworu DOKŁADNIE na `pos`. Bez tego `getSongTime()`
-    // (ścieżka `ctx.currentTime - startTime`) oddaje wartość zawyżoną o czas,
-    // przez który `AudioContext` chodził w tle albo w trakcie odliczania 3-2-1
-    // (`countdownCue()` wznawia ctx wcześniej, żeby zagrać „pik") → nuty
-    // „przeskakują" do przodu po wznowieniu. Po zakotwiczeniu obie ścieżki
-    // `getSongTime()` zwracają `pos` i idą dalej równo z buforem audio.
-    this.ctxAtStart = this.ctx.currentTime - (pos + this.leadIn);
-    this.startTime = this.ctx.currentTime - pos;
-    this.wallStartMs = performance.now() - (pos + this.leadIn) * 1000;
-    this.pausedTotalMs = 0;
-    this.pauseStartMs = 0;
-    this.lastSongT = pos;
 
     if (this.mp3Buf) {
       const dur = this.mp3Buf.duration;
@@ -821,6 +854,7 @@ export class AudioEngine {
     this._running = false;
     this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
     this.pausedTotalMs = 0;
+    this.resumeSettleUntil = 0;
     this.lastSongT = -Infinity;
     this.mp3Buf = null;
     this.curSong = null;
@@ -863,6 +897,7 @@ export class AudioEngine {
     this.ctxAtStart = ctx.currentTime;
     this.pausedTotalMs = 0;
     this.pauseStartMs = 0;
+    this.resumeSettleUntil = 0;
     this.lastSongT = -Infinity; // nowy przebieg — zegar może wrócić do ~0
     this.curSong = song;
     const t0 = ctx.currentTime + this.leadIn;
