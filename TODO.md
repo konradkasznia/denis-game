@@ -41,7 +41,9 @@ Lista rzeczy odłożonych na później. Dopisujemy tu zamiast rozpraszać po com
 - [x] ~~BPM Pogrzebówki / Księcia~~ — poprawione (Konrad, 2026-09-07):
       Pogrzebówka 130, Panna Młoda i Książę z bajki 155. Zapasowe charty w repo
       zsynchronizowane.
-- [ ] **Panna Młoda: odbudować i opublikować mapę na czysto** — na serwerze
-      siedzi wersja z 1 nutą (po publikacji z pustej siatki). Gra działa, bo
-      cofa się do `public/charts/panna-mloda.json` (310 nut), ale porządek by
-      się przydał.
+- [x] ~~Panna Młoda: mapa na czysto~~ — ZROBIONE (Konrad, ~2026-09-08).
+      Opublikowana wersja ma 287 nut, bez nałożonych.
+- [ ] **Pogrzebówka: poprawić 2 nałożone nuty w edytorze** — `0:20.40` tor 0
+      (dwie zwykłe 26 ms od siebie) i `1:04.03` tor 3 (zwykła + trzymanie 9 ms).
+      Silnik już je ignoruje (`MIN_SAME_LANE_GAP` w `rawToSong`, 45 ms), ale
+      źródło warto naprawić. Panna Młoda i Książę są czyste.
