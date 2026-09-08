@@ -122,10 +122,30 @@ interface RawChart {
 
 const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)));
 
+// dwie nuty na TEJ SAMEJ ścieżce praktycznie w tym samym momencie = błąd edytora
+// (nałożone duplikaty), nie zamysł — jednego tapnięcia fizycznie nie da się
+// rozdzielić na dwie nuty, więc druga byłaby gwarantowanym PUDŁEM. Próg poniżej
+// jakiegokolwiek grywalnego odstępu (16-tka przy 200 BPM to 75 ms), więc akordów
+// (różne ścieżki) ani szybkich serii NIE rusza.
+const MIN_SAME_LANE_GAP = 0.02;
+
 export function rawToSong(raw: RawChart): SongDef {
-  const notes: Note[] = raw.notes
+  const sorted = raw.notes
     .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb, !!n.fire))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
+  const lastByLane = new Map<number, number>();
+  const notes: Note[] = [];
+  let dropped = 0;
+  for (const n of sorted) {
+    const prev = lastByLane.get(n.lane);
+    if (prev !== undefined && n.time - prev < MIN_SAME_LANE_GAP) {
+      dropped++;
+      continue;
+    }
+    lastByLane.set(n.lane, n.time);
+    notes.push(n);
+  }
+  if (dropped) console.warn(`rawToSong(${raw.id}): pominięto ${dropped} nałożonych nut`);
   // beatmapa z edytora może nie mieć sensownego `duration` (utwór bez mp3) —
   // wtedy licz go z ostatniej nuty, żeby podkład syntezowany nie skończył się
   // od razu i gra nie wpadła w „finish()" tuż po odliczaniu

@@ -2471,9 +2471,21 @@ export class Game {
     return Math.max(1, s);
   }
 
-  /** Ocena rundy 0..~1.3 (gauge klamruje do 1). */
+  /** Ocena rundy 0..~1.3 (gauge klamruje do 1).
+   *  Bierzemy WIĘKSZĄ z dwóch miar:
+   *   1) wynik / „par" — jak dobrze punktowałeś (zależne od mnożnika i kalibracji chartu),
+   *   2) czysta celność trafień — ile nut trafiłeś porządnie, niezależnie od punktów.
+   *  Ścieżka (2) chroni przed „zagrałem czysto, a wyszło NIEZALICZONE" na świeżo
+   *  przerobionym charcie, gdzie `parScore` bywa zawyżony (problem „Księcia z bajki").
+   *  Skala: ~0,62 celności ≈ próg 0,70; ~0,94 celności ≈ 1,0. */
   private rating(): number {
-    return this.score / this.parScore;
+    const byScore = this.score / this.parScore;
+    const total = this.song.notes.length;
+    if (total <= 0) return byScore;
+    // waga trafienia: PERFECT 1, SUPER 0,85, OK 0,45, PUDŁO 0
+    const clean = this.counts.perfect + this.counts.great * 0.85 + this.counts.good * 0.45;
+    const byAccuracy = clean / total; // 0,85 (same SUPER) > próg 0,70 = zaliczone
+    return Math.max(byScore, byAccuracy);
   }
 
   private pauseGame() {
@@ -4588,10 +4600,13 @@ export class Game {
       // odliczanie 3-2-1 po wznowieniu: NIE zasłaniamy pola gry — gracz musi
       // widzieć zamrożone nuty i przygotować się. Tylko lekki scrim + liczba.
       this.fillViewport(ctx, "rgba(4,4,10,0.30)");
-      // klip 321.mp3 bywa > 3 s — liczbę pokazujemy tylko przez ostatnie 3 s
-      const left = Math.min(3, Math.ceil((this.resumeAt - performance.now()) / 1000));
-      if (left >= 1 && this.resumeAt - performance.now() <= 3050) {
-        const frac = 1 - ((this.resumeAt - performance.now()) / 1000 - (left - 1));
+      // 3-2-1 w stałym tempie 1 s; nadmiar klipu 321.mp3 to „hold" po „1"
+      const rel = (this.resumeAt - performance.now()) / 1000;
+      const tail = Math.max(0, this.rollSec - 3);
+      const cd = rel - tail;
+      const left = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1;
+      if (rel > 0.05 && cd <= 3.05) {
+        const frac = cd > 0.05 ? 1 - (cd - (left - 1)) : 1;
         text(ctx, String(left), VW / 2, this.sh() / 2 - this.vdy, {
           size: 200 - frac * 40,
           weight: "900",
@@ -5754,14 +5769,17 @@ export class Game {
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
-    // odliczanie 3-2-1 PRZED startem utworu — songTime leci -rollSec → 0.
-    // Klip 321.mp3 bywa dłuższy niż 3 s (intro przed „pikaniem") — liczby
-    // pokazujemy tylko przez ostatnie 3 s, resztę zasłania sam dźwięk.
+    // Odliczanie 3-2-1 leci w STAŁYM tempie 1 s (jak zawsze). Klip 321.mp3 bywa
+    // dłuższy niż 3 s (winyl na końcu) — nadmiar `tail` doklejamy jako „hold" PO
+    // wybiciu „1", zanim ruszy gra, żeby nie było przeskoku nut.
     if (!this.rolling || this.paused) return;
-    const rel = Math.max(0, -this.songTime);
-    if (rel <= 0.05 || rel > 3.05) return;
-    const n = Math.min(3, Math.ceil(rel));
-    const f = n - rel;
+    const rel = Math.max(0, -this.songTime); // sekundy do startu gry
+    if (rel <= 0.05) return;
+    const tail = Math.max(0, this.rollSec - 3);
+    const cd = rel - tail; // 3 → 0 przez pierwsze 3 s
+    if (cd > 3.05) return;
+    const n = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1; // w fazie „hold" trzymamy „1"
+    const f = cd > 0.05 ? n - cd : 0;
     ctx.save();
     ctx.globalAlpha = clamp(1 - f, 0.15, 1);
     text(ctx, String(n), VW / 2, this.sh() / 2 - this.vdy - 60, {
