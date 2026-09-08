@@ -1390,25 +1390,29 @@ export class Game {
   }
 
   /** Kręcący się złoty loader (kolor jak przyciski primary). */
-  private drawSpinner(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  private drawSpinner(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, dark = false) {
     const t = performance.now() / 1000;
     ctx.save();
     ctx.translate(x, y);
     ctx.lineCap = "round";
     // ślad
     ctx.lineWidth = r * 0.22;
-    ctx.strokeStyle = "rgba(255,206,138,0.16)";
+    ctx.strokeStyle = dark ? "rgba(90,42,6,0.28)" : "rgba(255,206,138,0.16)";
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.stroke();
-    // łuk — złoty gradient, obraca się
+    // obracający się łuk
     ctx.rotate((t * 3.4) % (Math.PI * 2));
-    const g = ctx.createLinearGradient(-r, -r, r, r);
-    g.addColorStop(0, "#ffe27a");
-    g.addColorStop(1, "#e8971c");
-    ctx.strokeStyle = g;
-    ctx.shadowColor = "rgba(255,180,60,0.55)";
-    ctx.shadowBlur = 14;
+    if (dark) {
+      ctx.strokeStyle = "#5a2a06";
+    } else {
+      const g = ctx.createLinearGradient(-r, -r, r, r);
+      g.addColorStop(0, "#ffe27a");
+      g.addColorStop(1, "#e8971c");
+      ctx.strokeStyle = g;
+      ctx.shadowColor = "rgba(255,180,60,0.55)";
+      ctx.shadowBlur = 14;
+    }
     ctx.beginPath();
     ctx.arc(0, 0, r, -Math.PI * 0.15, Math.PI * 1.15);
     ctx.stroke();
@@ -2243,8 +2247,9 @@ export class Game {
   /** Zakup odblokowania poziomu za monety (Pogrzebówka). Serwer autorytatywny. */
   private async buyUnlock(songId: string, price: number) {
     if (this.unlockBusy) return;
-    this.unlockBusy = true;
+    this.unlockBusy = true; // loader na przycisku od razu
     uiSound("buttons");
+    haptic("tick");
     try {
       const r = await api<{ ok?: boolean; coins?: number; unlocked?: string[] }>("/api/account", {
         method: "POST",
@@ -2710,6 +2715,7 @@ export class Game {
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
+    if (this.unlockBusy || this.fx.length) return true; // loader na przycisku + konfetti
     return false;
   }
 
@@ -4580,8 +4586,16 @@ export class Game {
     this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
   }
 
-  /** Przycisk odblokowania poziomu za monety — jeden wiersz, font jak GRAJ. */
+  /** Przycisk odblokowania poziomu za monety — jeden wiersz, font jak GRAJ.
+   *  W trakcie zapytania do serwera (`unlockBusy`) zamiast tekstu kręci się
+   *  loader NA przycisku (żeby nie zasłaniać konfetti pełnoekranowym loaderem). */
   private drawUnlockButton(ctx: CanvasRenderingContext2D, r: Rect, price: number) {
+    if (this.unlockBusy) {
+      this.styledBtn(ctx, r, "", "gold");
+      const faceH = r.h - Math.round(r.h * 0.14);
+      this.drawSpinner(ctx, r.x + r.w / 2, r.y + faceH / 2, Math.min(23, faceH * 0.34), true);
+      return;
+    }
     this.styledBtn(ctx, r, `ODBLOKUJ ZA ${fmtCoinsFull(price)} MONET!`, "gold");
   }
 

@@ -16,10 +16,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
   try {
     await ensureSchema();
-    if (!(await limitReq(req, "account", 30, 600))) {
-      return json(res, 429, { error: "Zbyt wiele operacji. Spróbuj później." });
-    }
-    const u = await sessionUser(req);
+    // limit i sesja to niezależne odczyty z bazy — równolegle (jedna podróż mniej)
+    const [allowed, u] = await Promise.all([
+      limitReq(req, "account", 30, 600),
+      sessionUser(req).catch(() => null),
+    ]);
+    if (!allowed) return json(res, 429, { error: "Zbyt wiele operacji. Spróbuj później." });
     if (!u) return json(res, 401, { error: "Brak sesji." });
     const c = db();
     const b = body<{ action?: string; nick?: string; songId?: string }>(req);
