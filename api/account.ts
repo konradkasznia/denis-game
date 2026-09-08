@@ -10,7 +10,7 @@ import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, sessionUser } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
-const UNLOCK_COST: Record<string, number> = { pogrzebowka: 1000 };
+const UNLOCK_COST: Record<string, number> = { pogrzebowka: 200 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;

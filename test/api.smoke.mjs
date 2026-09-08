@@ -185,17 +185,17 @@ ok(
 const UNLOCK_SQL = `UPDATE users SET coins = coins - ?, unlocked = TRIM(unlocked || ',' || ?, ',')
   WHERE id = ? AND coins >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
   RETURNING coins, unlocked`;
-const tooPoor = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
-ok(tooPoor.rows.length === 0, "odblokowanie: 28 monet < 1000 → brak zmiany");
-await c.execute({ sql: "UPDATE users SET coins = 1200 WHERE id = ?", args: [cu] });
-const bought = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
+const tooPoor = await c.execute({ sql: UNLOCK_SQL, args: [200, "pogrzebowka", cu, 200, "pogrzebowka"] });
+ok(tooPoor.rows.length === 0, "odblokowanie: 28 monet < 200 → brak zmiany");
+await c.execute({ sql: "UPDATE users SET coins = 250 WHERE id = ?", args: [cu] });
+const bought = await c.execute({ sql: UNLOCK_SQL, args: [200, "pogrzebowka", cu, 200, "pogrzebowka"] });
 ok(
   bought.rows.length === 1 &&
-    Number(bought.rows[0].coins) === 200 &&
+    Number(bought.rows[0].coins) === 50 &&
     String(bought.rows[0].unlocked) === "pogrzebowka",
-  "odblokowanie: 1200 → 200 monet, unlocked = pogrzebowka",
+  "odblokowanie: 250 → 50 monet, unlocked = pogrzebowka",
 );
-const again = await c.execute({ sql: UNLOCK_SQL, args: [1000, "pogrzebowka", cu, 1000, "pogrzebowka"] });
+const again = await c.execute({ sql: UNLOCK_SQL, args: [200, "pogrzebowka", cu, 200, "pogrzebowka"] });
 ok(again.rows.length === 0, "odblokowanie: drugie kliknięcie nie pobiera ponownie");
 await c.execute({ sql: "DELETE FROM users WHERE id = ?", args: [cu] });
 

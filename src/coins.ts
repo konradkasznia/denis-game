@@ -10,7 +10,7 @@ const UNLOCK_KEY = "denis.unlocked";
 const PER_COIN = 10_000;
 
 /** Ile monet kosztuje odblokowanie danego poziomu (musi zgadzać się z api/account.ts). */
-export const UNLOCK_COST: Record<string, number> = { pogrzebowka: 1000 };
+export const UNLOCK_COST: Record<string, number> = { pogrzebowka: 200 };
 
 export function coins(): number {
   try {
