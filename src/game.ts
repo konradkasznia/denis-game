@@ -47,7 +47,6 @@ import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judg
 import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
 import {
   bestStars,
-  clearedStreak,
   coinUnlockPrice,
   devUnlocked,
   levelUnlocked,
@@ -2190,11 +2189,11 @@ export class Game {
 
   // ---- WYBIERZ HIT (karuzela poziomów) --------------------------------
 
-  /** Najwyższy index strony dostępny w karuzeli. */
+  /** Najwyższy index strony dostępny w karuzeli. Pokazujemy wszystkie poziomy
+   *  w przód (zablokowane / „wkrótce" też) — gracz widzi, co go czeka. */
   private maxHitIndex(): number {
     if (devUnlocked()) return SONGS.length - 1; // konto Konrad — wszystkie poziomy
-    const lastPublic = SONGS.map((s) => !s.devOnly).lastIndexOf(true);
-    return Math.max(1, Math.min(lastPublic, clearedStreak() + 1));
+    return SONGS.map((s) => !s.devOnly).lastIndexOf(true); // wszystkie publiczne
   }
 
   private enterHits() {
@@ -4880,40 +4879,40 @@ export class Game {
 
   // ---- ekran: USTAWIENIA -----------------------------------
 
+  /** Ciemne, prawie nieprzezroczyste tło wiersza ustawień — żeby napis był
+   *  czytelny na zdjęciu sceny (był ledwo widoczny biały welon). */
+  private settingsRowBg(ctx: CanvasRenderingContext2D, r: Rect) {
+    ctx.fillStyle = "rgba(9,7,13,0.72)";
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,206,138,0.34)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+    ctx.stroke();
+  }
+
   /** Wiersz-przycisk ustawień (obramowany, etykieta + „›"). */
   private linkRow(ctx: CanvasRenderingContext2D, r: Rect, label: string, color = "#ffce8a") {
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.stroke();
-    text(ctx, label, r.x + 24, r.y + r.h / 2, {
-      size: 22,
+    this.settingsRowBg(ctx, r);
+    text(ctx, label, r.x + 26, r.y + r.h / 2, {
+      size: 27,
       align: "left",
       weight: "800",
       color,
     });
-    text(ctx, "›", r.x + r.w - 26, r.y + r.h / 2, { size: 30, align: "right", color });
+    text(ctx, "›", r.x + r.w - 28, r.y + r.h / 2, { size: 36, align: "right", color });
   }
 
   /** Wiersz ustawień z przełącznikiem on/off (pigułka po prawej). */
   private toggleRow(ctx: CanvasRenderingContext2D, r: Rect, label: string, sub: string, on: boolean) {
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 14);
-    ctx.stroke();
-    text(ctx, label, r.x + 24, r.y + r.h / 2 - 11, {
-      size: 21,
+    this.settingsRowBg(ctx, r);
+    text(ctx, label, r.x + 26, r.y + r.h / 2 - 13, {
+      size: 25,
       align: "left",
       weight: "800",
       color: "#ffce8a",
     });
-    text(ctx, sub, r.x + 24, r.y + r.h / 2 + 15, { size: 14, align: "left", color: "#9a8c7e" });
+    text(ctx, sub, r.x + 26, r.y + r.h / 2 + 17, { size: 17, align: "left", color: "#b6a897" });
     // pigułka
     const pw = 68;
     const ph = 34;
@@ -4930,11 +4929,12 @@ export class Game {
 
   private drawProfile(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
+    this.fillViewport(ctx, "rgba(4,4,10,0.5)"); // ściemnij zdjęcie sceny — czytelność
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
-      size: 26,
+      size: 28,
       align: "left",
       color: "#ffce8a",
-      weight: "700",
+      weight: "800",
     });
     text(ctx, "USTAWIENIA", VW / 2, 130, {
       size: 44,
@@ -4964,25 +4964,25 @@ export class Game {
 
     // stopka: Impulsywni + kontakt
     text(ctx, "IMPULSYWNI", VW / 2, SET_MAIL.y + 8, {
-      size: 22,
+      size: 24,
       weight: "900",
       font: HEAD_FONT,
       color: "#ffce8a",
       letterSpacing: "3px",
     });
-    text(ctx, "kreatywne rozwiązania dla branży muzycznej", VW / 2, SET_MAIL.y + 44, {
-      size: 16,
-      color: "#c9b7a6",
-    });
-    text(ctx, SUPPORT_EMAIL, VW / 2, SET_MAIL.y + 78, {
+    text(ctx, "kreatywne rozwiązania dla branży muzycznej", VW / 2, SET_MAIL.y + 46, {
       size: 18,
+      color: "#cbbaa8",
+    });
+    text(ctx, SUPPORT_EMAIL, VW / 2, SET_MAIL.y + 82, {
+      size: 20,
       weight: "700",
       color: "#ff9f43",
     });
 
-    text(ctx, `DENIS Impulsywni Live · wersja ${APP_VERSION}`, VW / 2, VH - 44, {
-      size: 14,
-      color: "#6b6055",
+    text(ctx, `DENIS Impulsywni Live · wersja ${APP_VERSION}`, VW / 2, VH - 42, {
+      size: 15,
+      color: "#7b6e60",
     });
   }
 
@@ -4990,11 +4990,12 @@ export class Game {
 
   private drawChangePw(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
+    this.fillViewport(ctx, "rgba(4,4,10,0.5)");
     text(ctx, "‹ WRÓĆ", BACK.x + 14, BACK.y + 34, {
-      size: 26,
+      size: 28,
       align: "left",
       color: "#ffce8a",
-      weight: "700",
+      weight: "800",
     });
     text(ctx, "ZMIEŃ HASŁO", VW / 2, 130, {
       size: 44,

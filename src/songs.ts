@@ -181,19 +181,20 @@ function starGatePassed(index: number): boolean {
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
   if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
-  if (!starGatePassed(index)) return false;
-  // niektóre poziomy wymagają jeszcze zakupu za monety (patrz coins.ts)
   const id = SONGS[index]?.id;
+  // poziom kupowany za monety = runda bonusowa: omija bramkę gwiazdkową,
+  // liczy się tylko zakup (patrz coins.ts)
   if (id && UNLOCK_COST[id]) return isUnlocked(id);
+  if (!starGatePassed(index)) return false;
   return true;
 }
 
 /** Ile monet potrzeba, by odblokować ten poziom TERAZ (0 = nie dotyczy /
- *  bramka gwiazdkowa jeszcze niezaliczona / już odblokowany). */
+ *  już odblokowany). Rundy bonusowe można kupić w dowolnym momencie. */
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
   if (!id || !UNLOCK_COST[id] || isUnlocked(id)) return 0;
-  return starGatePassed(index) ? UNLOCK_COST[id] : 0;
+  return UNLOCK_COST[id];
 }
 
 /** Ile kolejnych poziomów od początku zaliczono na >= UNLOCK_STARS gwiazdek. */

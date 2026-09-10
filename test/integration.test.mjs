@@ -269,6 +269,16 @@ recordStars("panna-mloda", 4);
 ok(bestStars("panna-mloda") === 4, "zapis gwiazdek");
 ok(levelUnlocked(1) === true, "4 gwiazdki na poziomie 1 odblokowują poziom 2");
 
+// runda bonusowa (Pogrzebówka) — kupno omija bramkę gwiazdkową
+const { coinUnlockPrice } = await import("../src/songs.ts");
+localStorage.removeItem("denis.stars");
+localStorage.removeItem("denis.unlocked");
+ok(coinUnlockPrice(2) === 200, "Pogrzebówkę można kupić bez zaliczenia księcia");
+ok(levelUnlocked(2) === false, "Pogrzebówka zablokowana dopóki nie kupiona");
+localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
+ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
+localStorage.removeItem("denis.unlocked");
+
 // kolejność rund
 const { nextRound } = await import("../src/songs.ts");
 ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
@@ -310,7 +320,7 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   // zaliczone ale <4 gwiazdek -> KONTYNUUJ zostawia na tym samym poziomie
   localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5 }));
   const gl = new Game();
-  gl.trackId = "ksiaze-z-bajki"; // poziom 2; pogrzebówka wymaga 4★ na ksiaze
+  gl.trackId = "ksiaze-z-bajki"; // poziom 2; pogrzebówka (runda bonusowa) wymaga zakupu za monety
   await new Promise((r) => setTimeout(r, 5));
   await gl.startPlay();
   gl.score = 800; // rating 0.8 -> zaliczone, 3 gwiazdki
