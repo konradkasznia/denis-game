@@ -194,6 +194,17 @@ console.log("\n· rejestracja / ranking:");
 localStorage.removeItem("denis.account");
 localStorage.removeItem("denis.users");
 localStorage.removeItem("denis.token");
+const { pwChecks, validPassword } = await import("../src/authApi.ts");
+ok(!validPassword("Haslo!!!!"), "hasło bez cyfry odrzucone");
+ok(!validPassword("haslo123!"), "hasło bez wielkiej litery odrzucone");
+ok(!validPassword("Haslo123"), "hasło bez znaku specjalnego odrzucone");
+ok(!validPassword("Ha1!"), "hasło za krótkie odrzucone");
+ok(validPassword("Haslo123!"), "hasło z 4/4 wymogów przechodzi");
+{
+  const c = pwChecks("Haslo1");
+  ok(c.upper && c.digit && !c.len && !c.special, "pwChecks: rozpoznaje spełnione/niespełnione");
+}
+
 const ga = new Game();
 await new Promise((r) => setTimeout(r, 5));
 ok(ga.scene === "auth" && ga.authMode === "register", "bez konta start na ekranie PIERWSZY RAZ");

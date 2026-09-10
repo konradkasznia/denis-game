@@ -51,11 +51,28 @@ function mask(s: string): string {
 export function validLogin(s: string): boolean {
   return /^[\p{L}\p{N}._-]{3,18}$/u.test(s.trim());
 }
-/** Hasło: min. 8 znaków, przynajmniej jedna wielka litera i jeden znak specjalny. */
-export function validPassword(p: string): boolean {
-  return p.length >= 8 && p.length <= 200 && /\p{Lu}/u.test(p) && /[^\p{L}\p{N}]/u.test(p);
+/** Które wymogi hasła są spełnione (do „check-listy" pod polem). */
+export interface PwChecks {
+  len: boolean;
+  upper: boolean;
+  special: boolean;
+  digit: boolean;
 }
-export const PW_RULE = "Hasło musi mieć min. 8 znaków, wielką literę i znak specjalny.";
+export function pwChecks(p: string): PwChecks {
+  const s = typeof p === "string" ? p : "";
+  return {
+    len: s.length >= 8,
+    upper: /\p{Lu}/u.test(s),
+    special: /[^\p{L}\p{N}\s]/u.test(s),
+    digit: /\p{Nd}/u.test(s),
+  };
+}
+/** Hasło: min. 8 znaków, wielka litera, znak specjalny i cyfra. */
+export function validPassword(p: string): boolean {
+  const c = pwChecks(p);
+  return c.len && (p?.length ?? 0) <= 200 && c.upper && c.special && c.digit;
+}
+export const PW_RULE = "Hasło musi mieć min. 8 znaków, wielką literę, cyfrę i znak specjalny.";
 
 function startSession(login: string) {
   saveAccount({

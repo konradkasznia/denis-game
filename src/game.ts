@@ -7,7 +7,7 @@ import {
   checkLogin as apiCheckLogin,
   fetchMe,
   login as apiLogin,
-  PW_RULE,
+  pwChecks,
   register as apiRegister,
   validPassword,
 } from "./authApi.ts";
@@ -188,7 +188,7 @@ const SET_MAIL: Rect = { x: MARGIN, y: 1012, w: SET_W, h: 120 };
 
 // --- ekran ZMIEŃ HASŁO ---
 const CPW_FIELD: Rect = { x: MARGIN, y: 300, w: SET_W, h: 86 };
-const CPW_SAVE: Rect = { x: MARGIN, y: 500, w: SET_W, h: 104 };
+const CPW_SAVE: Rect = { x: MARGIN, y: 588, w: SET_W, h: 104 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
 const BOARD_TAB_M: Rect = { x: MARGIN, y: 132, w: (VW - MARGIN * 2) / 2 - 4, h: 58 };
@@ -248,7 +248,7 @@ const AUTH_HEAD_W_MAX = 400; // …i przy dużym zapasie wysokości
 const AUTH_HEAD_AR = 1182 / 1330; // wys/szer head.png
 const AUTH_HEAD_GAP = 40; // odstęp głowa → pierwsze pole
 const AUTH_MIN_TOP = 46; // minimalny margines głowy od górnej krawędzi (nie ucinać)
-const AUTH_BOT_REG = 1078; // dolna krawędź bloku (link polityki) — tryb rejestracji
+const AUTH_BOT_REG = 1154; // dolna krawędź bloku (link polityki) — tryb rejestracji
 const AUTH_BOT_LOGIN = 968; // — tryb logowania
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
@@ -1952,13 +1952,13 @@ export class Game {
       return {
         f1,
         f2,
-        hint: { x: cx, y: 468 + dy, w: cw, h: 66 } as Rect, // 2 linie pod hasłem
-        terms: { x: cx, y: 552 + dy, w: cw, h: 76 } as Rect,
-        primary: { x: cx, y: 648 + dy, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
-        altLabel: { x: cx, y: 786 + dy, w: cw, h: 34 } as Rect,
-        alt1: { x: cx, y: 826 + dy, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
-        docT: { x: cx, y: 968 + dy, w: cw, h: 52 } as Rect,
-        docP: { x: cx, y: 1026 + dy, w: cw, h: 52 } as Rect,
+        hint: { x: cx, y: 462 + dy, w: cw, h: 190 } as Rect, // check-lista wymagań + warning
+        terms: { x: cx, y: 628 + dy, w: cw, h: 76 } as Rect,
+        primary: { x: cx, y: 724 + dy, w: cw, h: btnH } as Rect, // STWÓRZ KONTO
+        altLabel: { x: cx, y: 862 + dy, w: cw, h: 34 } as Rect,
+        alt1: { x: cx, y: 902 + dy, w: cw, h: btnH } as Rect, // ZALOGUJ SIĘ
+        docT: { x: cx, y: 1044 + dy, w: cw, h: 52 } as Rect,
+        docP: { x: cx, y: 1102 + dy, w: cw, h: 52 } as Rect,
       };
     }
     return {
@@ -2031,7 +2031,7 @@ export class Game {
         autocomplete: "new-password",
         enterKeyHint: "go",
         x: CPW_FIELD.x,
-        y: CPW_FIELD.y,
+        y: CPW_FIELD.y + this.frameDY(), // scena „changepw" jest przesuwana w pionie
         w: CPW_FIELD.w,
         h: CPW_FIELD.h,
         error: !!this.changePwMsg && !this.changePwOk,
@@ -3287,6 +3287,31 @@ export class Game {
     });
   }
 
+  /** Jeden wiersz check-listy wymagań hasła: ✓ (zielone) gdy spełnione, ✗ (szare)
+   *  gdy nie. `y` = środek wiersza w pionie. */
+  private pwReqLine(ctx: CanvasRenderingContext2D, x: number, y: number, met: boolean, label: string) {
+    const col = met ? "#7dffb0" : "#8a7d6f";
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    if (met) {
+      ctx.moveTo(x, y + 1);
+      ctx.lineTo(x + 6, y + 7);
+      ctx.lineTo(x + 17, y - 7);
+    } else {
+      ctx.moveTo(x + 1, y - 6);
+      ctx.lineTo(x + 14, y + 7);
+      ctx.moveTo(x + 14, y - 6);
+      ctx.lineTo(x + 1, y + 7);
+    }
+    ctx.stroke();
+    ctx.restore();
+    text(ctx, label, x + 30, y + 1, { size: 19, align: "left", weight: "700", color: col });
+  }
+
   private drawAuth(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     const R = this.authRects() as Record<string, Rect | undefined>;
@@ -3313,21 +3338,25 @@ export class Game {
 
     // dostępność loginu pokazuje ikona ✓/✗ w polu (FieldSpec.status) — bez tekstu obok
 
-    // info pod hasłem (rejestracja): wymagania + brak odzyskiwania
+    // info pod hasłem (rejestracja): check-lista wymagań (zielone gdy spełnione)
+    // + przypomnienie o braku odzyskiwania hasła
     if (R.hint) {
-      text(
-        ctx,
-        "Min. 8 znaków, wielka litera i znak specjalny.",
-        R.hint.x + 4,
-        R.hint.y + 12,
-        { size: 18, align: "left", color: "#d3c3b2" },
+      const c = pwChecks(this.authPassword);
+      const rows: [boolean, string][] = [
+        [c.len, "min. 8 znaków"],
+        [c.upper, "wielka litera"],
+        [c.special, "znak specjalny"],
+        [c.digit, "cyfra"],
+      ];
+      rows.forEach(([ok, label], i) =>
+        this.pwReqLine(ctx, R.hint!.x + 6, R.hint!.y + 14 + i * 32, ok, label),
       );
       text(
         ctx,
         "Hasła nie odzyskasz. Zapisz je w bezpiecznym miejscu.",
-        R.hint.x + 4,
-        R.hint.y + 42,
-        { size: 18, align: "left", color: "#c3ae9a" },
+        R.hint.x + 6,
+        R.hint.y + 14 + 4 * 32 + 8,
+        { size: 17, align: "left", color: "#c3ae9a" },
       );
     }
 
@@ -4975,18 +5004,30 @@ export class Game {
       shadows: HEAD_SHADOWS,
     });
     // samo pole „Nowe hasło" (z oczkiem) rysuje `FieldOverlay` — patrz changePwFieldSpecs
-    const msgY = CPW_FIELD.y + CPW_FIELD.h + 30;
-    if (this.changePwMsg) {
-      text(ctx, this.changePwMsg, VW / 2, msgY, {
-        size: 19,
+    if (this.changePwOk) {
+      text(ctx, this.changePwMsg, VW / 2, CPW_FIELD.y + CPW_FIELD.h + 60, {
+        size: 20,
         weight: "800",
-        color: this.changePwOk ? "#8affc1" : "#ff8a97",
+        color: "#8affc1",
       });
     } else {
-      text(ctx, "Min. 8 znaków, wielka litera i znak specjalny.", VW / 2, msgY, {
-        size: 16,
-        color: "#9a8c7e",
-      });
+      const c = pwChecks(this.newPw);
+      const rows: [boolean, string][] = [
+        [c.len, "min. 8 znaków"],
+        [c.upper, "wielka litera"],
+        [c.special, "znak specjalny"],
+        [c.digit, "cyfra"],
+      ];
+      rows.forEach(([ok, label], i) =>
+        this.pwReqLine(ctx, CPW_FIELD.x + 6, CPW_FIELD.y + CPW_FIELD.h + 34 + i * 32, ok, label),
+      );
+      if (this.changePwMsg) {
+        text(ctx, this.changePwMsg, VW / 2, CPW_FIELD.y + CPW_FIELD.h + 34 + 4 * 32 + 14, {
+          size: 18,
+          weight: "800",
+          color: "#ff8a97",
+        });
+      }
     }
 
     if (this.changePwBusy) {
@@ -5011,9 +5052,10 @@ export class Game {
 
   private async changePassword() {
     if (this.changePwBusy || this.changePwOk) return;
+    // wymagania widać na check-liście pod polem — tu tylko blokujemy zapis
     if (!validPassword(this.newPw)) {
-      this.changePwMsg = PW_RULE;
-      this.changePwOk = false;
+      this.changePwMsg = "";
+      haptic("miss");
       return;
     }
     if (!backendReachable()) {
