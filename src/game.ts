@@ -5033,8 +5033,10 @@ export class Game {
 
     if (this.changePwBusy) {
       this.drawBtnLoader(ctx, CPW_SAVE);
+    } else if (this.changePwOk) {
+      this.styledBtn(ctx, CPW_SAVE, "POWRÓT", "dark-gold");
     } else {
-      this.styledBtn(ctx, CPW_SAVE, this.changePwOk ? "ZAPISANE" : "ZAPISZ", this.changePwOk ? "dark-green" : "gold");
+      this.styledBtn(ctx, CPW_SAVE, "ZAPISZ", "gold");
     }
   }
 
@@ -5045,7 +5047,14 @@ export class Game {
       this.scene = "profile";
       return;
     }
-    if (!this.changePwBusy && !this.changePwOk && inRect(CPW_SAVE, x, y)) {
+    if (!this.changePwBusy && inRect(CPW_SAVE, x, y)) {
+      if (this.changePwOk) {
+        // hasło już zmienione — przycisk działa jak „wróć"
+        uiSound("back");
+        this.fields.clear();
+        this.scene = "profile";
+        return;
+      }
       uiSound("buttons");
       void this.changePassword();
     }
