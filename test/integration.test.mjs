@@ -279,6 +279,21 @@ localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
 ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
 localStorage.removeItem("denis.unlocked");
 
+// wylogowanie musi czyścić WSZYSTKO przypisane do konta (w tym monety i
+// odblokowania) — inaczej nowe konto na tym samym urządzeniu "dziedziczy"
+// saldo poprzedniego (zgłoszenie: nowe konto miało już monety)
+{
+  const { addCoins } = await import("../src/coins.ts");
+  const { clearSession } = await import("../src/account.ts");
+  addCoins(250);
+  localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
+  clearSession();
+  ok(
+    localStorage.getItem("denis.coins") === null && localStorage.getItem("denis.unlocked") === null,
+    "wylogowanie czyści monety i odblokowania (nie zostają dla następnego konta)",
+  );
+}
+
 // kolejność rund
 const { nextRound } = await import("../src/songs.ts");
 ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");

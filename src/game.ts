@@ -1541,7 +1541,17 @@ export class Game {
         this.fillViewport(ctx, "rgba(4,4,10,0.8)");
         const cy = this.sh() / 2 - this.vdy;
         this.drawSpinner(ctx, VW / 2, cy - 34, 40);
-        text(ctx, "stuknij, aby przerwać", VW / 2, cy + 58, { size: 21, color: "#8a7c6c" });
+        // etykieta etapu — bez niej 35 s samego spinnera na wolniejszym
+        // telefonie/tablecie (albo słabej sieci) wygląda jak zawieszona apka
+        text(ctx, this.prepStep, VW / 2, cy + 34, { size: 18, weight: "700", color: "#c9bda9" });
+        const slow = secs > 10;
+        if (slow) {
+          text(ctx, "To trwa dłużej niż zwykle — sprawdź połączenie.", VW / 2, cy + 64, {
+            size: 16,
+            color: "#8a7c6c",
+          });
+        }
+        text(ctx, "stuknij, aby przerwać", VW / 2, cy + (slow ? 96 : 58), { size: 21, color: "#8a7c6c" });
       }
     } else if (this.loadError && this.scene === "hits") {
       const lines = this.loadError.split("\n").flatMap((seg) => wrapText(seg, 46));

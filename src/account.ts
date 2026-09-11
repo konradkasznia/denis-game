@@ -65,7 +65,12 @@ export function setNick(nick: string) {
   syncToServer({ action: "nick", nick: a.nick });
 }
 
-/** Kończy sesję (wylogowanie): usuwa konto i lokalny postęp na tym urządzeniu. */
+/** Kończy sesję (wylogowanie): usuwa konto i lokalny postęp na tym urządzeniu.
+ *  WAŻNE: musi wyczyścić WSZYSTKO co jest przypisane do konta (w tym monety
+ *  i odblokowania za monety) — inaczej po zalogowaniu się na to samo
+ *  urządzenie na INNE/nowe konto, ekran przez chwilę (albo, przy słabej
+ *  sieci, bardzo długo — patrz syncSession()) pokazuje saldo poprzedniego
+ *  konta, bo lokalny cache jeszcze nie zdążył się nadpisać z serwera. */
 export function clearSession() {
   for (const k of [
     KEY,
@@ -75,6 +80,8 @@ export function clearSession() {
     "denis.best",
     "denis.discovered",
     "denis.settings",
+    "denis.coins",
+    "denis.unlocked",
   ]) {
     try {
       localStorage.removeItem(k);
