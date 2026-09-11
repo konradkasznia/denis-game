@@ -227,16 +227,25 @@ export async function loadTrack(id: string): Promise<SongDef> {
   const published = isNative ? null : await fetchPublishedChart(id);
 
   // 2. plik beatmapy w repo — używany jako fallback ORAZ jako miara, czy
-  //    opublikowana mapa nie jest przypadkowo okrojona
+  //    opublikowana mapa nie jest przypadkowo okrojona. To zawsze plik
+  //    LOKALNY (zaszyty w buildzie/bundlu) — krótki timeout, żeby ewentualne
+  //    zacięcie nie kosztowało pełnych 35 s zewnętrznego watchdoga w game.ts
+  //    (ta sama klasa błędu co przy audio — patrz audio.ts AudioLoadError).
   let repo: RawChart | null = null;
   try {
-    const res = await fetch(`charts/${id}.json`);
-    if (res.ok) {
-      const raw = (await res.json()) as RawChart;
-      if (raw && Array.isArray(raw.notes) && raw.notes.length) repo = raw;
+    const ctrl = typeof AbortController === "function" ? new AbortController() : undefined;
+    const to = ctrl ? setTimeout(() => ctrl.abort(), 8000) : undefined;
+    try {
+      const res = await fetch(`charts/${id}.json`, { signal: ctrl?.signal });
+      if (res.ok) {
+        const raw = (await res.json()) as RawChart;
+        if (raw && Array.isArray(raw.notes) && raw.notes.length) repo = raw;
+      }
+    } finally {
+      if (to) clearTimeout(to);
     }
   } catch {
-    /* brak pliku albo to nie JSON — lecimy dalej */
+    /* brak pliku, nie JSON, albo timeout — lecimy dalej (syntezowany podkład) */
   }
 
   if (published) {

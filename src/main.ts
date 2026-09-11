@@ -166,10 +166,26 @@ function frame(now: number, gen: number) {
 
   const dt = Math.min(elapsed, 0.05);
   last = now;
-  game.update(dt, now);
+  // Siatka bezpieczeństwa: cała gra to tysiące linii rysujących co klatkę —
+  // jeden nieprzewidziany brzegowy przypadek (np. dostęp do jeszcze
+  // niewczytanego obrazka, indeks poza tablicą) rzucony BEZ tego try/catch
+  // urywałby `ctx.restore()`, zostawiając canvas z niesparowanym `save()`
+  // NA STAŁE (przekrzywiony/obcięty rysunek do końca sesji, bez żadnego
+  // komunikatu). Teraz pojedyncza zła klatka jest pomijana, a pętla i canvas
+  // wracają do normy od następnej — zamiast trwale zepsutego ekranu.
+  try {
+    game.update(dt, now);
+  } catch (e) {
+    console.error("game.update() — pominięto klatkę:", e);
+  }
   ctx.save();
-  game.render(ctx);
-  ctx.restore();
+  try {
+    game.render(ctx);
+  } catch (e) {
+    console.error("game.render() — pominięto resztę klatki:", e);
+  } finally {
+    ctx.restore();
+  }
   if (firstFrame) {
     firstFrame = false;
     hideSplash(); // gra narysowana — chowamy natywny splash (Capacitor)

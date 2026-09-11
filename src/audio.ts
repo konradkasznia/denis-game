@@ -746,7 +746,11 @@ export class AudioEngine {
       // paczce) i lepiej szybko przejść do zapasowego źródła / syntezy, niż
       // trzymać gracza na spinnerze
       const localAsset = isNative && !/^https?:/i.test(url);
-      const to = setTimeout(() => ctrl.abort(), localAsset ? 8000 : 30000);
+      // zdalny adres (zapasowe audio z edytora): 15 s, nie 30 — to i tak
+      // tylko JEDNO z kilku ogniw w łańcuchu awaryjnym (game.ts startPlay),
+      // a zewnętrzny watchdog daje 35 s NA CAŁOŚĆ; zbyt długi pojedynczy
+      // timeout tutaj potrafił sam skonsumować niemal cały ten budżet.
+      const to = setTimeout(() => ctrl.abort(), localAsset ? 8000 : 15000);
       try {
         const res = await fetch(url, { signal: ctrl.signal });
         if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
@@ -1016,7 +1020,16 @@ export class AudioEngine {
     // pozycja 0 bufora = pozycja 0 utworu (bez ciszy lead-in — dobiera ją start()/resume)
     this.renderArrangement(oac, master, this.makeNoise(oac), song, 0);
     try {
-      const buf = await oac.startRendering();
+      // startRendering() nie ma własnego timeoutu — na bardzo słabym sprzęcie
+      // mogłoby to wisieć bez końca (to jest OSTATNI fallback audio: nic po
+      // nim nie ma poza zewnętrznym watchdogiem w game.ts). Po timeoucie i tak
+      // lądujemy w tym samym catch co przy realnym błędzie — start() wtedy
+      // gra syntezę NA ŻYWO (renderArrangement na prawdziwym AudioContext),
+      // więc gra nadal działa, tylko bez pre-renderu.
+      const buf = await Promise.race([
+        oac.startRendering(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("startRendering timeout (20s)")), 20000)),
+      ]);
       this.synthBuf = buf;
       this.synthBufId = song.id;
     } catch {
