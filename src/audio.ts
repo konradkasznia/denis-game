@@ -7,6 +7,25 @@
 // bufor; reszta API (getSongTime / start / stop) zostaje bez zmian.
 
 import type { SongDef } from "./chart.ts";
+import { isNative } from "./native.ts";
+
+/** Błąd z `loadTrack()` — z etapem, na którym padło. Rozróżnienie ważne dla
+ *  wołającego (game.ts): „fetch" nieudany = plik może być gdzie indziej (np.
+ *  wersja wysłana z edytora), warto spróbować ponownie pod innym adresem.
+ *  „decode" nieudany = mamy te same bajty, które właśnie nie zdekodowały się
+ *  NA TYM urządzeniu (np. WebView nie ogarnia danego kodeka mp3) — ponowne
+ *  pobranie identycznych bajtów z innego adresu nic nie zmieni, więc nie ma
+ *  sensu tracić na to czasu (a to właśnie dawało długie „zawieszenie" na
+ *  słabszych tabletach: 30 s fetch + 15 s decode PONOWNIE, zanim gra w końcu
+ *  spadła na syntezowany podkład). */
+export class AudioLoadError extends Error {
+  phase: "fetch" | "decode";
+  constructor(phase: "fetch" | "decode", message: string) {
+    super(message);
+    this.name = "AudioLoadError";
+    this.phase = phase;
+  }
+}
 
 /** Dźwięki interfejsu — grane przez TEN SAM AudioContext co muzyka (jedna
  *  sesja audio). HTMLAudioElement na iOS potrafił przerwać WebAudio → cisza. */
@@ -711,7 +730,9 @@ export class AudioEngine {
     }
   }
 
-  /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap. */
+  /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap.
+   *  Rzuca `AudioLoadError` z etapem („fetch"/„decode"), żeby wołający mógł
+   *  sensownie zdecydować, czy warto próbować gdzie indziej (patrz klasa). */
   async loadTrack(url: string, onStep?: (s: string) => void): Promise<void> {
     await this.unlock();
     if (this.trackBuffers.has(url)) return;
@@ -719,11 +740,19 @@ export class AudioEngine {
     if (!arr) {
       onStep?.("pobieranie pliku");
       const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 30000);
+      // adres względny (bez "http") = plik zaszyty w buildzie apki — lokalny
+      // odczyt z WebView, NIE prawdziwa sieć, więc 30 s na to to absurd; jeśli
+      // nie odpowiedział w kilka sekund, coś jest nie tak (np. pliku nie ma w
+      // paczce) i lepiej szybko przejść do zapasowego źródła / syntezy, niż
+      // trzymać gracza na spinnerze
+      const localAsset = isNative && !/^https?:/i.test(url);
+      const to = setTimeout(() => ctrl.abort(), localAsset ? 8000 : 30000);
       try {
         const res = await fetch(url, { signal: ctrl.signal });
         if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
         arr = await res.arrayBuffer();
+      } catch (e) {
+        throw new AudioLoadError("fetch", (e as Error)?.message || String(e));
       } finally {
         clearTimeout(to);
       }
@@ -731,9 +760,13 @@ export class AudioEngine {
     onStep?.("dekodowanie dźwięku");
     // decodeAudioData „odłącza" (detach) przekazany ArrayBuffer — dajemy kopię,
     // żeby przy błędzie/timeout dekodowania oryginał w trackRaw nadał się do retry
-    const buf = await this.decode(arr.slice(0));
-    this.trackBuffers.set(url, buf);
-    this.trackRaw.delete(url);
+    try {
+      const buf = await this.decode(arr.slice(0));
+      this.trackBuffers.set(url, buf);
+      this.trackRaw.delete(url);
+    } catch (e) {
+      throw new AudioLoadError("decode", (e as Error)?.message || String(e));
+    }
   }
 
   /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime).

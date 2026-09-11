@@ -1,7 +1,7 @@
 // Rdzeń gry: maszyna stanów (menu → odliczanie → gra → wynik) oraz cała
 // logika rytmiczna i rysowanie.
 
-import { AudioEngine } from "./audio.ts";
+import { AudioEngine, AudioLoadError } from "./audio.ts";
 import { clearSession, deleteAccount, hasAccount, login as accountLogin } from "./account.ts";
 import {
   checkLogin as apiCheckLogin,
@@ -2647,16 +2647,23 @@ export class Game {
             if (guard()) this.prepStep = s;
           });
         } catch (e) {
-          // brak pliku mp3 w repo/APK — spróbuj audio wysłanego z edytora,
-          // a jak i tego nie ma → podkład syntezowany (nuty z beatmapy i tak są)
-          console.warn("audio.loadTrack — brak pliku w repo:", e);
-          const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
-          try {
-            this.prepStep = "wczytywanie dźwięku";
-            await this.audio.loadTrack(pub);
-            song.audioUrl = pub; // audio.start() użyje tego bufora
-          } catch (e2) {
-            console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
+          console.warn("audio.loadTrack (lokalny plik) nieudane:", e);
+          // "decode" = mamy bajty, ale TO URZĄDZENIE nie potrafi ich
+          // zdekodować (np. WebView bez wsparcia dla danego kodeka mp3) —
+          // ponowne pobranie IDENTYCZNYCH bajtów z innego adresu nic nie da,
+          // więc od razu lecimy na syntezowany podkład (patrz AudioLoadError
+          // w audio.ts). Tylko przy "fetch" (pliku faktycznie nie znaleziono)
+          // ma sens próbować wersji wysłanej z edytora.
+          const decodeFailed = e instanceof AudioLoadError && e.phase === "decode";
+          if (!decodeFailed) {
+            const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
+            try {
+              this.prepStep = "wczytywanie dźwięku";
+              await this.audio.loadTrack(pub);
+              song.audioUrl = pub; // audio.start() użyje tego bufora
+            } catch (e2) {
+              console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
+            }
           }
         }
       }
