@@ -7,6 +7,7 @@
 // edytor będzie mógł je nadpisywać, a testy czytać przez `fs`.
 
 import { buildSynthSong, LANES, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
+import { isNative } from "./native.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
 
@@ -216,8 +217,14 @@ async function fetchPublishedChart(id: string): Promise<RawChart | null> {
 const MIN_PUBLISHED_NOTES = 12;
 
 export async function loadTrack(id: string): Promise<SongDef> {
-  // 1. beatmapa opublikowana z edytora (Turso)
-  const published = await fetchPublishedChart(id);
+  // 1. beatmapa opublikowana z edytora (Turso) — TYLKO na webie. W apce
+  //    natywnej (Android/iOS) wszystko jest już zaszyte w buildzie (dźwięk,
+  //    grafiki, beatmapy), więc nie ma po co czekać na sieć przy KAŻDYM
+  //    starcie poziomu — na słabszym łączu to właśnie dawało wrażenie
+  //    „zawieszonego" ładowania. Aktualizacje beatmap w apce idą przez nowy
+  //    build/release, nie przez edytor „na żywo" (to zostaje dla webu, gdzie
+  //    Konrad testuje zmiany bez przebudowy).
+  const published = isNative ? null : await fetchPublishedChart(id);
 
   // 2. plik beatmapy w repo — używany jako fallback ORAZ jako miara, czy
   //    opublikowana mapa nie jest przypadkowo okrojona

@@ -65,35 +65,32 @@ export function setNick(nick: string) {
   syncToServer({ action: "nick", nick: a.nick });
 }
 
-/** Kończy sesję (wylogowanie): usuwa konto i lokalny postęp na tym urządzeniu.
- *  WAŻNE: musi wyczyścić WSZYSTKO co jest przypisane do konta (w tym monety
- *  i odblokowania za monety) — inaczej po zalogowaniu się na to samo
- *  urządzenie na INNE/nowe konto, ekran przez chwilę (albo, przy słabej
- *  sieci, bardzo długo — patrz syncSession()) pokazuje saldo poprzedniego
- *  konta, bo lokalny cache jeszcze nie zdążył się nadpisać z serwera. */
+/** Klucze URZĄDZENIA (nie konta) — przeżywają wylogowanie, bo dotyczą tego
+ *  telefonu/przeglądarki, a nie zalogowanego gracza:
+ *   - denis.howto / denis.healthWarn — samouczek i ostrzeżenie o migotaniu,
+ *     „raz w życiu instalacji", niezależnie od tego, kto jest zalogowany;
+ *   - denis.push.optin — subskrypcja OneSignal jest per-URZĄDZENIE (apka nie
+ *     robi OneSignal.login/logout per konto), nie per-konto;
+ *   - denis.users — lokalny rejestr kont założonych OFFLINE na tym
+ *     urządzeniu (atrapa bez backendu) — trzeba go zachować, żeby dało się
+ *     z powrotem zalogować na te konta po wylogowaniu.
+ *  WSZYSTKO INNE pod prefiksem „denis." jest traktowane jako przypisane do
+ *  KONTA i kasowane — świadomie na zasadzie listy wyjątków (a nie listy
+ *  rzeczy do skasowania), żeby nowy klucz dodany w przyszłości domyślnie
+ *  też się czyścił, zamiast po cichu „przeciekać" do następnego konta na
+ *  tym samym urządzeniu (tak przeciekły kiedyś monety i odblokowania). */
+const DEVICE_KEYS = new Set(["denis.howto", "denis.healthWarn", "denis.push.optin", "denis.users"]);
+
+/** Kończy sesję (wylogowanie): usuwa konto i CAŁY lokalny postęp przypisany
+ *  do niego na tym urządzeniu (monety, odblokowania, gwiazdki, tablice
+ *  wyników, głosy w ankietach...) — patrz DEVICE_KEYS wyżej po listę
+ *  wyjątków, które celowo zostają. */
 export function clearSession() {
-  for (const k of [
-    KEY,
-    "denis.login",
-    "denis.token",
-    "denis.stars",
-    "denis.best",
-    "denis.discovered",
-    "denis.settings",
-    "denis.coins",
-    "denis.unlocked",
-  ]) {
-    try {
-      localStorage.removeItem(k);
-    } catch {
-      /* ignore */
-    }
-  }
   clearToken();
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k && k.startsWith("denis.board.")) localStorage.removeItem(k);
+      if (k && k.startsWith("denis.") && !DEVICE_KEYS.has(k)) localStorage.removeItem(k);
     }
   } catch {
     /* ignore */

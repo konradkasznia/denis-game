@@ -53,6 +53,12 @@ globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
   setItem: (k, v) => store.set(k, String(v)),
   removeItem: (k) => store.delete(k),
+  // .length/.key(i) też muszą działać jak w prawdziwym Storage — clearSession()
+  // (account.ts) zamiata WSZYSTKIE klucze "denis.*" właśnie przez nie
+  get length() {
+    return store.size;
+  },
+  key: (i) => [...store.keys()][i] ?? null,
 };
 globalThis.Image = class {
   set src(_v) {
@@ -279,18 +285,39 @@ localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
 ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
 localStorage.removeItem("denis.unlocked");
 
-// wylogowanie musi czyścić WSZYSTKO przypisane do konta (w tym monety i
-// odblokowania) — inaczej nowe konto na tym samym urządzeniu "dziedziczy"
-// saldo poprzedniego (zgłoszenie: nowe konto miało już monety)
+// wylogowanie musi czyścić WSZYSTKO przypisane do konta (monety,
+// odblokowania, gwiazdki, tablice wyników, głosy w ankietach...) — inaczej
+// nowe konto na tym samym urządzeniu "dziedziczy" dane poprzedniego
+// (zgłoszenie: nowe konto miało już monety). Klucze URZĄDZENIA (samouczek,
+// ostrzeżenie o migotaniu, zgoda push, lokalny rejestr kont offline) mają
+// celowo PRZEŻYĆ wylogowanie.
 {
   const { addCoins } = await import("../src/coins.ts");
   const { clearSession } = await import("../src/account.ts");
   addCoins(250);
   localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
+  localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5 }));
+  localStorage.setItem("denis.board.panna-mloda", "999999");
+  localStorage.setItem("denis.vote.poziom6", "pan-mlody");
+  localStorage.setItem("denis.howto", "1");
+  localStorage.setItem("denis.healthWarn", "1");
+  localStorage.setItem("denis.push.optin", "1");
+  localStorage.setItem("denis.users", JSON.stringify({ ktos: { pw: "x", login: "ktos", createdAt: "" } }));
   clearSession();
   ok(
-    localStorage.getItem("denis.coins") === null && localStorage.getItem("denis.unlocked") === null,
-    "wylogowanie czyści monety i odblokowania (nie zostają dla następnego konta)",
+    localStorage.getItem("denis.coins") === null &&
+      localStorage.getItem("denis.unlocked") === null &&
+      localStorage.getItem("denis.stars") === null &&
+      localStorage.getItem("denis.board.panna-mloda") === null &&
+      localStorage.getItem("denis.vote.poziom6") === null,
+    "wylogowanie czyści wszystko przypisane do konta (nie zostaje dla następnego konta)",
+  );
+  ok(
+    localStorage.getItem("denis.howto") === "1" &&
+      localStorage.getItem("denis.healthWarn") === "1" &&
+      localStorage.getItem("denis.push.optin") === "1" &&
+      localStorage.getItem("denis.users") !== null,
+    "wylogowanie NIE rusza danych urządzenia (samouczek, push, lokalne konta offline)",
   );
 }
 

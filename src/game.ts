@@ -48,6 +48,8 @@ import {
   bestStars,
   coinUnlockPrice,
   devUnlocked,
+  isBonusRound,
+  levelNumber,
   levelUnlocked,
   markDiscovered,
   mergeServerStars,
@@ -3376,8 +3378,8 @@ export class Game {
         ctx,
         "Hasła nie odzyskasz. Zapisz je w bezpiecznym miejscu.",
         R.hint.x + 6,
-        R.hint.y + 14 + 4 * 32 + 8,
-        { size: 17, align: "left", color: "#c3ae9a" },
+        R.hint.y + 14 + 4 * 32 + 12,
+        { size: 20, weight: "800", align: "left", color: "#7dffb0" },
       );
     }
 
@@ -4631,15 +4633,22 @@ export class Game {
       );
     }
 
-    // POZIOM N
-    text(ctx, `POZIOM ${idx + 1}`, VW / 2, HIT_LEVEL_Y, {
-      size: 24,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#ffd24c",
-      letterSpacing: "4px",
-      shadows: HEAD_SHADOWS,
-    });
+    // POZIOM N — rundy bonusowe (Pogrzebówka) mają własną etykietę i nie
+    // zajmują numeru, żeby kolejne poziomy nie „przeskakiwały" (levelNumber)
+    text(
+      ctx,
+      isBonusRound(meta?.id) ? "RUNDA BONUSOWA" : `POZIOM ${levelNumber(idx)}`,
+      VW / 2,
+      HIT_LEVEL_Y,
+      {
+        size: 24,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffd24c",
+        letterSpacing: "4px",
+        shadows: HEAD_SHADOWS,
+      },
+    );
 
     // strzałki na wysokości tytułu
     this.arrowBtn(ctx, HIT_ARROW_L, "left", idx > 0);
@@ -4876,7 +4885,10 @@ export class Game {
 
   private drawRewards(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
-    this.drawCoinPill(ctx, HIT_COINS, coins());
+    // ta sama pozycja co na karuzeli (prawy górny róg) — monety mają stać
+    // zawsze w tym samym miejscu w menu; lewy górny róg zostaje tylko na
+    // ekranie wyników, gdzie jest celem animacji „lot monet" po rundzie
+    this.drawCoinPill(ctx, HITS_HEAD_COINS, coins());
     // bez przycisku „‹ WRÓĆ" w rogu — zostaje systemowy powrót + „POWRÓT" na dole
     text(ctx, "NAGRODY", VW / 2, 130, {
       size: 48,
@@ -6694,14 +6706,20 @@ export class Game {
     const lvlIdx = SONGS.findIndex((s) => s.id === this.trackId);
 
     // --- nagłówek ---
-    text(ctx, `POZIOM ${lvlIdx + 1}`, VW / 2, 92, {
-      size: 22,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#ffce8a",
-      letterSpacing: "4px",
-      shadows: HEAD_SHADOWS,
-    });
+    text(
+      ctx,
+      isBonusRound(this.trackId) ? "RUNDA BONUSOWA" : `POZIOM ${levelNumber(lvlIdx)}`,
+      VW / 2,
+      92,
+      {
+        size: 22,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffce8a",
+        letterSpacing: "4px",
+        shadows: HEAD_SHADOWS,
+      },
+    );
     text(ctx, this.song.title.toUpperCase(), VW / 2, 146, {
       size: 46,
       weight: "900",

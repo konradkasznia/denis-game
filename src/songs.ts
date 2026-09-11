@@ -177,14 +177,19 @@ function starGatePassed(index: number): boolean {
   return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
 }
 
+/** Runda BONUSOWA (kupowana za monety, poza główną numeracją poziomów —
+ *  patrz levelNumber) — np. Pogrzebówka. */
+export function isBonusRound(id: string | undefined): boolean {
+  return !!id && !!UNLOCK_COST[id];
+}
+
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
   if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
   const id = SONGS[index]?.id;
-  // poziom kupowany za monety = runda bonusowa: omija bramkę gwiazdkową,
-  // liczy się tylko zakup (patrz coins.ts)
-  if (id && UNLOCK_COST[id]) return isUnlocked(id);
+  // runda bonusowa omija bramkę gwiazdkową, liczy się tylko zakup (coins.ts)
+  if (isBonusRound(id)) return isUnlocked(id!);
   if (!starGatePassed(index)) return false;
   return true;
 }
@@ -193,8 +198,19 @@ export function levelUnlocked(index: number): boolean {
  *  już odblokowany). Rundy bonusowe można kupić w dowolnym momencie. */
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
-  if (!id || !UNLOCK_COST[id] || isUnlocked(id)) return 0;
-  return UNLOCK_COST[id];
+  if (!isBonusRound(id) || isUnlocked(id!)) return 0;
+  return UNLOCK_COST[id!];
+}
+
+/** Numer „POZIOM N" do wyświetlenia — liczy tylko utwory NIE-bonusowe, żeby
+ *  runda bonusowa (Pogrzebówka) nie przesuwała numeracji kolejnych poziomów
+ *  (Pani policjantko zostaje „POZIOM 3", mimo że w SONGS jest na indeksie 3). */
+export function levelNumber(index: number): number {
+  let n = 0;
+  for (let i = 0; i <= index; i++) {
+    if (!isBonusRound(SONGS[i]?.id)) n++;
+  }
+  return n;
 }
 
 /** Ile kolejnych poziomów od początku zaliczono na >= UNLOCK_STARS gwiazdek. */
