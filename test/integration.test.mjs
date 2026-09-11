@@ -285,6 +285,17 @@ localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
 ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
 localStorage.removeItem("denis.unlocked");
 
+// aktualizacja apki: porównanie wersji X.Y.Z + zapamiętanie odrzucenia
+{
+  const { isNewerVersion, dismissUpdate, dismissedUpdateVersion } = await import("../src/appUpdate.ts");
+  ok(isNewerVersion("0.9.1", "0.9.0") === true, "0.9.1 nowsza niż 0.9.0");
+  ok(isNewerVersion("1.0.0", "0.9.9") === true, "1.0.0 nowsza niż 0.9.9");
+  ok(isNewerVersion("0.9.0", "0.9.0") === false, "równe wersje — nie nowsza");
+  ok(isNewerVersion("0.9.0", "0.9.1") === false, "starsza wersja — nie nowsza");
+  dismissUpdate("1.2.0");
+  ok(dismissedUpdateVersion() === "1.2.0", "odrzucona wersja zapamiętana");
+}
+
 // wylogowanie musi czyścić WSZYSTKO przypisane do konta (monety,
 // odblokowania, gwiazdki, tablice wyników, głosy w ankietach...) — inaczej
 // nowe konto na tym samym urządzeniu "dziedziczy" dane poprzedniego

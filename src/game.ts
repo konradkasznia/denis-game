@@ -11,6 +11,7 @@ import {
   register as apiRegister,
   validPassword,
 } from "./authApi.ts";
+import { checkForUpdate, dismissUpdate, type UpdateInfo } from "./appUpdate.ts";
 import { Character } from "./character.ts";
 import { buildSynthSong, LANES, type Note, type SongDef } from "./chart.ts";
 import {
@@ -190,6 +191,9 @@ const SET_PUSH: Rect = { x: MARGIN, y: 462, w: SET_W, h: 96 }; // przełącznik 
 const SET_PW: Rect = { x: MARGIN, y: 590, w: SET_W, h: 96 }; // zmiana hasła
 const SET_DELETE: Rect = { x: MARGIN, y: 700, w: SET_W, h: 96 };
 const SET_LOGOUT: Rect = { x: MARGIN, y: 810, w: SET_W, h: 96 };
+// widoczny TYLKO gdy jest dostępna nowa wersja (updateInfo) — mieści się w
+// istniejącej przerwie przed stopką, więc gdy go nie ma, nic się nie rusza
+const SET_UPDATE: Rect = { x: MARGIN, y: 918, w: SET_W, h: 88 };
 const SET_MAIL: Rect = { x: MARGIN, y: 1012, w: SET_W, h: 120 };
 
 // --- ekran ZMIEŃ HASŁO ---
@@ -613,6 +617,14 @@ export class Game {
   private logoutModal = false; // potwierdzenie „na pewno wylogować?" w ustawieniach
   private logoutYesRect: Rect | null = null;
   private logoutNoRect: Rect | null = null;
+  // aktualizacja apki (src/appUpdate.ts) — wykryta raz na start, modal pokazuje
+  // się TYLKO gdy jesteśmy na karuzeli i żaden inny modal nie jest aktywny;
+  // po „Nie teraz" nie wraca w tej sesji (ale zostaje dostępna w Ustawieniach)
+  private updateInfo: UpdateInfo | null = null;
+  private updateModal = false;
+  private updateDismissedThisSession = false;
+  private updateYesRect: Rect | null = null;
+  private updateNoRect: Rect | null = null;
   /** pionowe przesunięcie układu UI w bieżącej klatce (ekran wyższy niż VH) */
   private vdy = 0;
   private song: SongDef = buildSynthSong();
@@ -762,6 +774,9 @@ export class Game {
     registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
     void this.syncSession(); // sprawdź sesję na serwerze
     void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
+    void checkForUpdate(APP_VERSION).then((info) => {
+      this.updateInfo = info; // modal pokaże się, gdy dojdziemy do bezpiecznego momentu — patrz render()
+    });
     // wczytaj beatmapę domyślnego utworu w tle (do wyświetlenia w menu)
     void this.preloadChart();
     // wczytaj z góry grafiki menu, żeby ekrany nie „mrugały" pustką
@@ -1532,6 +1547,24 @@ export class Game {
       );
     }
 
+    // aktualizacja apki — pokaż dopiero w bezpiecznym momencie (karuzela,
+    // żaden inny modal), i tylko raz na sesję (po „Nie teraz" nie wraca)
+    if (
+      this.updateInfo &&
+      !this.updateModal &&
+      !this.updateDismissedThisSession &&
+      this.scene === "hits" &&
+      !this.soundModal &&
+      !this.healthModal &&
+      !this.voteModal &&
+      !this.logoutModal &&
+      !this.obstacleModal &&
+      !this.tutModal
+    ) {
+      this.updateModal = true;
+    }
+    if (this.updateModal) this.drawUpdateModal(ctx);
+
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
       // watchdog: nie zostawiaj gracza na zawsze na ekranie ładowania
@@ -1646,6 +1679,20 @@ export class Game {
       } else if (this.logoutNoRect && inRect(this.logoutNoRect, x, y)) {
         uiSound("buttons");
         this.logoutModal = false;
+      }
+      return;
+    }
+    if (this.updateModal) {
+      if (this.updateYesRect && inRect(this.updateYesRect, x, y)) {
+        uiSound("buttons");
+        openExternal(this.updateInfo!.url);
+        this.updateModal = false;
+        this.updateDismissedThisSession = true; // wrócił do gry — nie nagabuj drugi raz w tej sesji
+      } else if (this.updateNoRect && inRect(this.updateNoRect, x, y)) {
+        uiSound("back");
+        this.updateModal = false;
+        this.updateDismissedThisSession = true;
+        dismissUpdate(this.updateInfo!.version); // ta wersja nie wróci; nowsza — tak
       }
       return;
     }
@@ -1827,6 +1874,12 @@ export class Game {
     if (this.logoutModal) {
       uiSound("back");
       this.logoutModal = false; // wstecz = anuluj, jak w reszcie modali
+      return true;
+    }
+    if (this.updateModal) {
+      uiSound("back");
+      this.updateModal = false; // wstecz = „nie teraz", ale bez zapamiętania (jak stuknięcie obok)
+      this.updateDismissedThisSession = true;
       return true;
     }
     if (this.obstacleModal) {
@@ -2500,6 +2553,11 @@ export class Game {
     if (inRect(SET_LOGOUT, x, y)) {
       uiSound("buttons");
       this.logoutModal = true; // potwierdzenie — patrz onPress / drawLogoutModal
+      return;
+    }
+    if (this.updateInfo && inRect(SET_UPDATE, x, y)) {
+      uiSound("buttons");
+      openExternal(this.updateInfo.url);
       return;
     }
     if (inRect(SET_DELETE, x, y)) {
@@ -3725,6 +3783,36 @@ export class Game {
     };
     this.styledBtn(ctx, this.logoutYesRect, "WYLOGUJ SIĘ", "gold");
     this.styledBtn(ctx, this.logoutNoRect, "ANULUJ", "dark-gold");
+  }
+
+  /** „Dostępna jest nowa wersja" — dwa przyciski (jak wylogowanie), tylko
+   *  natywnie (src/appUpdate.ts ustawia updateInfo). „Nie teraz" nie blokuje
+   *  gry — przycisk „Uaktualnij" zostaje dostępny w Ustawieniach. */
+  private drawUpdateModal(ctx: CanvasRenderingContext2D) {
+    if (!this.updateInfo) return;
+    const btnH = MODAL_OK.h;
+    const btnGap = 14;
+    const { py, bodyEnd, gap } = this.drawModalPanel(
+      ctx,
+      "🚀",
+      "DOSTĘPNA AKTUALIZACJA",
+      this.updateInfo.message,
+      btnH * 2 + btnGap,
+    );
+    this.updateYesRect = {
+      x: VW / 2 - MODAL_OK.w / 2,
+      y: py + bodyEnd + gap,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.updateNoRect = {
+      x: this.updateYesRect.x,
+      y: this.updateYesRect.y + btnH + btnGap,
+      w: MODAL_OK.w,
+      h: btnH,
+    };
+    this.styledBtn(ctx, this.updateYesRect, "UAKTUALNIJ", "gold");
+    this.styledBtn(ctx, this.updateNoRect, "NIE TERAZ", "dark-gold");
   }
 
   /** Modal głosowania „Do czego chcesz się pobawić na Poziomie 6?" —
@@ -5001,6 +5089,9 @@ export class Game {
     this.linkRow(ctx, SET_DELETE, "Usuń konto i dane", "#e0d0bd");
     // Wyloguj się — ostatnie, czerwone
     this.linkRow(ctx, SET_LOGOUT, "Wyloguj się", "#ff8a97");
+
+    // „Uaktualnij" — TYLKO gdy jest nowsza wersja (nawet jak modal odrzucony)
+    if (this.updateInfo) this.linkRow(ctx, SET_UPDATE, "🚀  Uaktualnij", "#7dffb0");
 
     // stopka: Impulsywni + kontakt
     text(ctx, "IMPULSYWNI", VW / 2, SET_MAIL.y + 8, {
