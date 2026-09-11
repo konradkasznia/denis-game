@@ -35,7 +35,6 @@ import {
   mergeServerBest,
   myEntry,
   type Period,
-  rankOf,
   refreshBoard,
   serverRank,
   submitScore,
@@ -142,8 +141,14 @@ const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
 const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 
-// pigułka z monetami — lewy górny róg karuzeli (klik → NAGRODY)
+// pigułka z monetami — lewy górny róg (klik → NAGRODY). Używana na ekranie
+// NAGRODY i jako cel animacji „lot monet" po rundzie (drawResults) — tam
+// zostaje w rogu. Na karuzeli WYBIERZ HIT pigułka stoi gdzie indziej, patrz
+// HITS_HEAD_COINS niżej.
 const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
+// karuzela WYBIERZ HIT: rząd nagłówka = [Cześć, X!] ... [monety][zębatka]
+// (Konrad 2026-09-11) — pigułka tuż przy zębatce, nie w rogu.
+const HITS_HEAD_COINS: Rect = { x: HIT_GEAR.x - 16 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
 
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
@@ -725,6 +730,9 @@ export class Game {
   /** dokąd wraca „POWRÓT" z tablicy wyników (zależnie od tego, skąd weszliśmy) */
   private boardFrom: "hits" | "results" = "hits";
   private resultRank = 0;
+  /** true = serwer długo nie odpowiedział (offline / padł request) — przestajemy
+   *  czekać i pokazujemy komunikat zamiast zgadywanego miejsca. */
+  private resultRankFailed = false;
   private resultsSavedBest = false;
   // monety zdobyte w tej rundzie + animacja „lecą w lewy górny róg"
   private coinsEarned = 0;
@@ -2226,7 +2234,7 @@ export class Game {
 
   private handleHitsTap(x: number, y: number) {
     if (x < 0) return;
-    if (inRect(HIT_COINS, x, y)) {
+    if (inRect(HITS_HEAD_COINS, x, y)) {
       uiSound("buttons");
       this.scene = "rewards";
       return;
@@ -2797,11 +2805,15 @@ export class Game {
         }
       }
       const gained = Math.floor(this.starFill());
-      // zapis + wysyłka na serwer (POST -> odświeżenie tablicy z prawdziwym „me.rank")
+      // zapis + wysyłka na serwer (POST -> odświeżenie tablicy z prawdziwym „me.rank").
+      // MIEJSCE zaczyna zawsze od 0 (= „czekamy") — NIE bierzemy tu starego cache
+      // z ewentualnego wcześniejszego wejścia na tablicę wyników, bo pokazałoby
+      // miejsce sprzed TEGO przebiegu (np. „2" chwilę przed tym, jak serwer
+      // potwierdzi, że ten wynik dał już „1"). Prawdziwe miejsce doczytuje się
+      // w drawResults(), z loaderem w tym czasie — patrz tam.
+      this.resultRank = 0;
+      this.resultRankFailed = false;
       submitScore(this.trackId, this.score, gained);
-      // MIEJSCE pokazujemy dopiero gdy serwer odpowie (realni gracze, bez botów-
-      // wypełniaczy). Do tego czasu 0 = ukryte; watchdog niżej dokłada szacunek.
-      this.resultRank = serverRank(this.trackId) ?? 0;
       recordStars(this.trackId, gained);
       // monety za wynik — 1 za każde pełne 10 000 pkt
       this.coinsEarned = coinsFromScore(this.score);
@@ -4588,18 +4600,24 @@ export class Game {
     if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
     else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
 
-    // monety — lewy górny róg (klik → NAGRODY)
-    this.drawCoinPill(ctx, HIT_COINS, coins());
+    // monety — tuż przy zębatce (klik → NAGRODY)
+    this.drawCoinPill(ctx, HITS_HEAD_COINS, coins());
 
-    // powitanie — na środku między monetami a zębatką
+    // powitanie — z lewej strony
     const who = accountLogin();
     if (who) {
       text(
         ctx,
         `Cześć, ${who.length > 15 ? who.slice(0, 14) + "…" : who}!`,
-        (HIT_COINS.x + HIT_COINS.w + HIT_GEAR.x) / 2,
+        HIT_COINS.x,
         HIT_COINS.y + HIT_COINS.h / 2 + 1,
-        { size: 23, weight: "800", color: "#ffe6b0", shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.5)" }] },
+        {
+          size: 23,
+          weight: "800",
+          color: "#ffe6b0",
+          align: "left",
+          shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.5)" }],
+        },
       );
     }
 
@@ -6640,19 +6658,27 @@ export class Game {
     this.drawUiBg(ctx);
 
     const now = performance.now();
-    // MIEJSCE: gdy serwer zdąży odpowiedzieć (realni gracze) — bierzemy jego
-    // rangę; jeśli po 2,5 s wciąż nie ma (offline / wolna sieć) — szacunek
-    // z lokalnej tablicy.
+    // MIEJSCE: TYLKO prawdziwa ranga z serwera (realni gracze, liczona razem
+    // z zapisem wyniku) — bez zgadywania z lokalnej tablicy wypełnionej botami,
+    // bo to właśnie dawało błędne „miejsce" tuż po rundzie (np. 2, choć po
+    // doczytaniu tablicy naprawdę było 1). Dopóki serwer nie odpowie — loader;
+    // po 8 s bez odpowiedzi (offline / padł request) — komunikat zamiast liczby.
     const sr = serverRank(this.trackId);
-    if (sr != null) this.resultRank = sr;
-    else if (this.resultRank === 0 && now - this.resultsAt > 2500) {
-      this.resultRank = rankOf(this.trackId, "all");
+    if (sr != null) {
+      this.resultRank = sr;
+      this.resultRankFailed = false;
+    } else if (this.resultRank === 0 && !this.resultRankFailed && now - this.resultsAt > 8000) {
+      this.resultRankFailed = true;
     }
     const reveal = clamp((now - this.resultsAt) / 1800, 0, 1);
     const eased = 1 - Math.pow(1 - reveal, 3);
     const finalR = this.rating();
-    const shown = clamp(finalR, 0, 1) * eased;
-    const shownStars = this.starsFor(shown);
+    // animujemy DO liczby faktycznie zapisanych gwiazdek (ta sama liczba, którą
+    // widać potem w karuzeli) — nie do surowej oceny. Inaczej blisko progu
+    // (np. 4,97/5) ostatnia gwiazdka wygląda na prawie pełną, choć realnie
+    // zapisuje się o jedną mniej (Math.floor w finish()) i ekrany się rozjeżdżają.
+    const starTarget = Math.floor(this.starFill());
+    const shownStars = starTarget * eased;
     const revealDone = reveal >= 1;
     const passed = finalR >= PASS_RATING;
     const lvlIdx = SONGS.findIndex((s) => s.id === this.trackId);
@@ -6818,6 +6844,16 @@ export class Game {
         letterSpacing: "2px",
         shadows: HEAD_SHADOWS,
       });
+    } else if (this.resultRankFailed || !backendReachable()) {
+      // serwer nie odpowiedział (offline / padł request) — bez zgadywanej
+      // liczby, sam komunikat; „BRAK POŁĄCZENIA" (offlineNotice) już to tłumaczy
+      text(ctx, "Miejsce: niedostępne offline", VW / 2, 876, {
+        size: 18,
+        weight: "700",
+        color: "#a89686",
+      });
+    } else {
+      this.drawSpinner(ctx, VW / 2, 874, 11, false);
     }
 
     // --- monety: pigułka w lewym górnym rogu + „Zdobyłeś X monet" + lot monet ---
