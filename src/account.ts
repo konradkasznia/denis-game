@@ -67,19 +67,22 @@ export function setNick(nick: string) {
 
 /** Klucze URZĄDZENIA (nie konta) — przeżywają wylogowanie, bo dotyczą tego
  *  telefonu/przeglądarki, a nie zalogowanego gracza:
- *   - denis.howto / denis.healthWarn — samouczek i ostrzeżenie o migotaniu,
- *     „raz w życiu instalacji", niezależnie od tego, kto jest zalogowany;
  *   - denis.push.optin — subskrypcja OneSignal jest per-URZĄDZENIE (apka nie
  *     robi OneSignal.login/logout per konto), nie per-konto;
  *   - denis.users — lokalny rejestr kont założonych OFFLINE na tym
  *     urządzeniu (atrapa bez backendu) — trzeba go zachować, żeby dało się
  *     z powrotem zalogować na te konta po wylogowaniu.
+ *  UWAGA: denis.howto / denis.healthWarn (samouczek, ostrzeżenie o migotaniu)
+ *  celowo NIE są tu wymienione — mimo że pierwotnie były pomyślane jako „raz
+ *  w życiu instalacji", Konrad potwierdził, że samouczek ma się pokazywać
+ *  KAŻDEMU nowemu kontu na tym urządzeniu, więc muszą się czyścić przy
+ *  wylogowaniu jak reszta postępu.
  *  WSZYSTKO INNE pod prefiksem „denis." jest traktowane jako przypisane do
  *  KONTA i kasowane — świadomie na zasadzie listy wyjątków (a nie listy
  *  rzeczy do skasowania), żeby nowy klucz dodany w przyszłości domyślnie
  *  też się czyścił, zamiast po cichu „przeciekać" do następnego konta na
  *  tym samym urządzeniu (tak przeciekły kiedyś monety i odblokowania). */
-const DEVICE_KEYS = new Set(["denis.howto", "denis.healthWarn", "denis.push.optin", "denis.users"]);
+const DEVICE_KEYS = new Set(["denis.push.optin", "denis.users"]);
 
 /** Kończy sesję (wylogowanie): usuwa konto i CAŁY lokalny postęp przypisany
  *  do niego na tym urządzeniu (monety, odblokowania, gwiazdki, tablice

@@ -561,7 +561,9 @@ function bestScore(): number {
   return Number(localStorage.getItem("denis.best") || 0);
 }
 
-/** Ostrzeżenie o migotaniu: pokazane raz w życiu instalacji (nie co sesję). */
+/** Ostrzeżenie o migotaniu: pokazane raz na KONTO (nie co sesję logowania).
+ *  Klucz "denis.healthWarn" jest czyszczony przy wylogowaniu (account.ts,
+ *  clearSession) — nowe konto na tym samym urządzeniu widzi je od nowa. */
 function healthWarnSeen(): boolean {
   try {
     return localStorage.getItem("denis.healthWarn") === "1";
@@ -577,7 +579,9 @@ function markHealthWarnSeen(): void {
   }
 }
 
-/** Samouczek „jak grać": pokazany raz w życiu instalacji, przed 1. rundą. */
+/** Samouczek „jak grać": pokazany raz na KONTO, przed 1. rundą. Klucz
+ *  "denis.howto" jest czyszczony przy wylogowaniu (account.ts, clearSession)
+ *  — nowe konto na tym samym urządzeniu ma zobaczyć samouczek od nowa. */
 function howToSeen(): boolean {
   try {
     return localStorage.getItem("denis.howto") === "1";

@@ -71,7 +71,28 @@ export class AudioEngine {
   private loopGain: GainNode | null = null;
   private loopWanted = false; // chcemy, żeby grała (może czekać na kontekst)
   private loopLoading = false;
+  private loopRaw: ArrayBuffer | null = null; // bajty pobrane WCZEŚNIEJ, bez czekania na gest
   private static readonly LOOP_VOL = 0.32;
+
+  constructor() {
+    // Sam fetch (bez tworzenia AudioContextu) nie wymaga gestu użytkownika —
+    // startujemy go od razu przy starcie apki, żeby gdy gest w końcu nastąpi
+    // (pierwszy modal/dowolny tap odblokowujący dźwięk), loadLoopClip() miał
+    // już bajty i musiał tylko zdekodować — bez tego muzyka tła zaczynała
+    // grać z zauważalnym opóźnieniem PO zalogowaniu (pobieranie + dekodowanie
+    // w szeregu, dopiero w geście).
+    void this.prefetchLoopBytes();
+  }
+
+  private async prefetchLoopBytes(): Promise<void> {
+    if (this.loopRaw) return;
+    try {
+      const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
+      if (res.ok) this.loopRaw = await res.arrayBuffer();
+    } catch {
+      /* muzyka tła jest opcjonalna — loadLoopClip() i tak spróbuje sam */
+    }
+  }
   // wszystkie zaplanowane głosy syntezy (całe bary są kolejkowane z góry) —
   // trzymamy referencje, żeby `stop()` NAPRAWDĘ je uciszył (inaczej po pauzie +
   // „OD NOWA" stary podkład wznawia się razem z nowym → podwójny dźwięk).
@@ -217,13 +238,21 @@ export class AudioEngine {
     if (this.loopLoading || !this.ctx || this.loopBuf) return;
     this.loopLoading = true;
     try {
-      const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
-      if (res.ok) {
-        const raw = await this.decode((await res.arrayBuffer()).slice(0));
-        this.loopBuf = this.trimForLoop(raw); // tylko cisza kodera MP3 — bez crossfade
+      // bajty mogły już czekać od `prefetchLoopBytes()` (konstruktor, przed
+      // gestem) — wtedy pomijamy sieć i tylko dekodujemy, znacznie szybciej
+      let raw = this.loopRaw;
+      if (!raw) {
+        const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
+        if (res.ok) raw = await res.arrayBuffer();
+      }
+      if (raw) {
+        const buf = await this.decode(raw.slice(0));
+        this.loopBuf = this.trimForLoop(buf); // tylko cisza kodera MP3 — bez crossfade
       }
     } catch {
       /* muzyka tła jest opcjonalna */
+    } finally {
+      this.loopRaw = null; // zużyte (albo i tak nieprzydatne po błędzie) — zwolnij pamięć
     }
     this.loopLoading = false;
     if (this.loopWanted) this.startLoop(); // scena zdążyła poprosić, zanim był bufor

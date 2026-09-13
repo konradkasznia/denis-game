@@ -297,11 +297,11 @@ localStorage.removeItem("denis.unlocked");
 }
 
 // wylogowanie musi czyścić WSZYSTKO przypisane do konta (monety,
-// odblokowania, gwiazdki, tablice wyników, głosy w ankietach...) — inaczej
-// nowe konto na tym samym urządzeniu "dziedziczy" dane poprzedniego
-// (zgłoszenie: nowe konto miało już monety). Klucze URZĄDZENIA (samouczek,
-// ostrzeżenie o migotaniu, zgoda push, lokalny rejestr kont offline) mają
-// celowo PRZEŻYĆ wylogowanie.
+// odblokowania, gwiazdki, tablice wyników, głosy w ankietach, samouczek,
+// ostrzeżenie o migotaniu...) — inaczej nowe konto na tym samym urządzeniu
+// "dziedziczy" dane poprzedniego (zgłoszenie: nowe konto miało już monety;
+// osobne zgłoszenie: nowe konto nie dostało samouczka). Klucze URZĄDZENIA
+// (zgoda push, lokalny rejestr kont offline) mają celowo PRZEŻYĆ wylogowanie.
 {
   const { addCoins } = await import("../src/coins.ts");
   const { clearSession } = await import("../src/account.ts");
@@ -320,15 +320,14 @@ localStorage.removeItem("denis.unlocked");
       localStorage.getItem("denis.unlocked") === null &&
       localStorage.getItem("denis.stars") === null &&
       localStorage.getItem("denis.board.panna-mloda") === null &&
-      localStorage.getItem("denis.vote.poziom6") === null,
-    "wylogowanie czyści wszystko przypisane do konta (nie zostaje dla następnego konta)",
+      localStorage.getItem("denis.vote.poziom6") === null &&
+      localStorage.getItem("denis.howto") === null &&
+      localStorage.getItem("denis.healthWarn") === null,
+    "wylogowanie czyści wszystko przypisane do konta, w tym samouczek (nie zostaje dla następnego konta)",
   );
   ok(
-    localStorage.getItem("denis.howto") === "1" &&
-      localStorage.getItem("denis.healthWarn") === "1" &&
-      localStorage.getItem("denis.push.optin") === "1" &&
-      localStorage.getItem("denis.users") !== null,
-    "wylogowanie NIE rusza danych urządzenia (samouczek, push, lokalne konta offline)",
+    localStorage.getItem("denis.push.optin") === "1" && localStorage.getItem("denis.users") !== null,
+    "wylogowanie NIE rusza danych urządzenia (zgoda push, lokalne konta offline)",
   );
 }
 
