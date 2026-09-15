@@ -839,6 +839,7 @@ export class AudioEngine {
       /* już zatrzymane */
     }
     this.srcNode = null;
+    this.stopStream(); // podkład ze strumienia też
     this.killScheduled(); // synteza „na żywo" też musi umilknąć
     const ctx = this.ctx;
     if (!ctx) return;
@@ -903,6 +904,21 @@ export class AudioEngine {
     // synchronicznie, zanim gra wyszła z pauzy) — tu tylko restart źródła audio
     // od tej samej pozycji
     const pos = Math.max(0, this.wallElapsed() - this.leadIn);
+    // podkład ze strumienia: wystarczy przestawić pozycję elementu i wznowić
+    if (this.streamEl && this.streamEl.src && !this.mp3Buf) {
+      try {
+        if (Number.isFinite(this.streamEl.duration) && this.streamEl.currentTime >= this.streamEl.duration - 0.1) return;
+        // NIE przewijamy: element pamięta swoją pozycję z chwili pauzy, a to
+        // ON jest zegarem utworu. Seek tylko rozjechałby dźwięk z nutami.
+        void this.streamEl.play().catch(() => {
+          this.streamOk = false;
+        });
+        this.master.gain.setValueAtTime(0.9, this.ctx.currentTime);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
 
     if (this.mp3Buf) {
       const dur = this.mp3Buf.duration;
@@ -939,6 +955,7 @@ export class AudioEngine {
   }
 
   stop() {
+    this.stopStream();
     this._running = false;
     this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
     this.pausedTotalMs = 0;
@@ -966,6 +983,186 @@ export class AudioEngine {
   /** Uruchamia zegar utworu. Priorytet: 1) plik audio, 2) pre-render syntezy
    *  (gra się jak plik — wznowienie po tle działa), 3) synteza na żywo (fallback).
    *  `leadInSec` = ile sekund od TERAZ zacznie grać dźwięk (3 na czas odliczania). */
+
+  // ---- strumieniowanie podkładu -----------------------------------------
+  //
+  // `decodeAudioData` rozpakowuje CAŁY utwór do RAM: 3 minuty 44,1 kHz stereo
+  // to 63 MB, mimo że plik ma 3 MB (mp3 pakuje ok. 20:1). To jest właściwe dla
+  // krótkich efektów, ale nie dla podkładu — na tablecie z 3 GB RAM ta
+  // alokacja po prostu nie przechodzi i „dekodowanie dźwięku" pada.
+  // Element <audio> gra plik w locie, kosztem kilku MB bufora.
+  //
+  // WAŻNE: zegar utworu zostaje BEZ ZMIAN (AudioContext + awaryjny zegar
+  // ścienny, cała logika reanchorResume/clockAlive nietknięta). Element jest
+  // wyłącznie wyjściem dźwięku i to ON jest dociągany do zegara gry, nigdy
+  // odwrotnie. Dzięki temu nie ruszamy najbardziej wrażliwej części kodu.
+  private streamEl: HTMLAudioElement | null = null;
+  private streamNode: MediaElementAudioSourceNode | null = null;
+  private streamStartTimer = 0;
+  private streamSyncTimer = 0;
+  private streamOk = true; // gaśnie po błędzie elementu → wracamy na syntezę
+  private streamWarm = false; // „rozgrzewka" play/pause zakończona
+  private streamLive = false; // utwór NAPRAWDĘ leci (po rozgrzewce, od kotwicy zegara)
+
+  /** Czy w ogóle możemy strumieniować (jest kontekst i element się zbudował). */
+  canStream(): boolean {
+    return this.streamOk && typeof Audio === "function";
+  }
+
+  private ensureStream(): HTMLAudioElement | null {
+    if (!this.ctx || !this.master || !this.streamOk) return null;
+    if (this.streamEl) return this.streamEl;
+    try {
+      const el = new Audio();
+      el.preload = "auto";
+      // jedna sesja audio: element idzie przez TEN SAM AudioContext co reszta
+      // (osobny <audio> obok WebAudio potrafił na iOS uciszyć muzykę)
+      this.streamNode = this.ctx.createMediaElementSource(el);
+      this.streamNode.connect(this.master);
+      this.streamEl = el;
+      return el;
+    } catch {
+      this.streamOk = false;
+      return null;
+    }
+  }
+
+  /** Uruchamia podkład ze strumienia tak, żeby dźwięk ruszył na `songTime = 0`.
+   *  Zwraca false, gdy się nie da — wtedy `start()` leci dalej na syntezę. */
+  private playStream(url: string): boolean {
+    const el = this.ensureStream();
+    if (!el || !this.ctx || !this.master) return false;
+    this.mp3Buf = null;
+    // cisza NA CZAS ROZGRZEWKI i lead-inu — bez tego krotkie play/pause
+    // wymuszone polityka autoodtwarzania slychac jako przyciecie na starcie
+    this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.master.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+    try {
+      const abs = new URL(url, location.href).href;
+      if (el.src !== abs) el.src = abs;
+      el.onerror = () => {
+        this.streamOk = false;
+      };
+      el.currentTime = 0;
+      // „rozgrzewka" w obrębie gestu GRAJ — bez tego późniejsze play() po
+      // 3-sekundowym odliczaniu bywa blokowane polityką autoodtwarzania
+      this.streamWarm = false;
+      this.streamLive = false;
+      void el.play().then(
+        () => {
+          el.pause();
+          try { el.currentTime = 0; } catch { /* ignore */ }
+          this.streamWarm = true;
+        },
+        () => {
+          // zablokowane polityką autoodtwarzania — próba właściwa i tak przed nami
+          this.streamWarm = true;
+        },
+      );
+    } catch {
+      return false;
+    }
+
+
+    clearInterval(this.streamStartTimer);
+    this.streamStartTimer = setInterval(() => {
+      if (!this._running) {
+        clearInterval(this.streamStartTimer);
+        this.streamStartTimer = 0;
+        return;
+      }
+      if (!this.streamWarm) return; // rozgrzewka jeszcze trwa — nie ścigamy się z nią
+      if (this.getSongTime() < -0.03) return;
+      clearInterval(this.streamStartTimer);
+      this.streamStartTimer = 0;
+      try {
+        el.currentTime = Math.max(0, this.getSongTime());
+        const przedStartem = el.currentTime;
+        void el.play().catch(() => {
+          this.streamOk = false;
+        });
+        // KOTWICA — ustawiana DOPIERO gdy odtwarzanie NAPRAWDĘ ruszyło.
+        //
+        // play() jest asynchroniczne: w chwili wywołania element wciąż stoi
+        // na starej pozycji, a dźwięk zaczyna kilkadziesiąt ms później.
+        // Kotwiczenie od razu dawało zegar wyprzedzający muzykę dokładnie o
+        // czas rozruchu odtwarzania — nuty pojawiały się za wcześnie wzgledem
+        // nagrania, mimo że w edytorze siedzą na właściwych sekundach.
+        // Czekamy więc na pierwszą klatkę, w której pozycja elementu drgnęła,
+        // i dopiero wtedy wiążemy pozycję nagrania z czasem AudioContextu.
+        const zakotwicz = () => {
+          if (!this._running || !this.ctx) return;
+          if (el.paused || el.currentTime <= przedStartem) {
+            setTimeout(zakotwicz, 8); // odtwarzanie jeszcze nie ruszyło (rAF bywa wstrzymany)
+            return;
+          }
+          const poz = el.currentTime;
+          const teraz = this.ctx.currentTime;
+          this.startTime = teraz - poz;
+          this.ctxAtStart = teraz - (poz + this.leadIn);
+          this.wallStartMs = performance.now() - (poz + this.leadIn) * 1000;
+          this.pausedTotalMs = 0;
+          this.pauseStartMs = 0;
+          // NIE kasujemy `lastSongT` tutaj (był tu błąd: "kotwica to nowy punkt
+          // odniesienia" -> lastSongT = -Infinity). W trakcie odliczania 3-2-1
+          // `getSongTime()` już zdążył podciągnąć `lastSongT` w górę (do ~0) na
+          // podstawie zegara ściennego. Świeże `poz`/`teraz` policzone tutaj z
+          // POZYCJI ELEMENTU bywają o ułamek milisekundy MNIEJSZE niż ten
+          // ratchet (dwa różne źródła czasu) — przy skasowanym strażniku
+          // następny odczyt getSongTime() akceptował tę mniejszą wartość bez
+          // klamrowania i zegar utworu skakał WSTECZ o te ułamki sekundy: nuty
+          // się cofały, a skok wzmocnienia do 0.9 w tym samym momencie było
+          // słychać jako przycięcie. Zostawiając `lastSongT` nietknięty,
+          // naturalny ratchet w getSongTime() (`if (raw > lastSongT) ...`) sam
+          // pilnuje ciągłości: dopóki świeży `raw` nie dogoni starego punktu,
+          // zegar po prostu stoi (niezauważalnie), zamiast cofać się.
+          this.streamLive = true;
+          this.master?.gain.setValueAtTime(0.9, this.ctx.currentTime);
+        };
+        zakotwicz();
+      } catch {
+        this.streamOk = false;
+      }
+    }, 16) as unknown as number;
+
+    clearInterval(this.streamSyncTimer);
+    return true;
+  }
+
+  /** Dociąga pozycję strumienia do zegara gry, gdy rozjazd przekroczy próg.
+   *  Element bywa dokładny, więc korekty są rzadkie — ale bez nich długi utwór
+   *  mógłby powoli odjechać od nut. */
+  syncStream(tol = 0.35) {
+    const el = this.streamEl;
+    if (!el || !this._running || el.paused || el.seeking) return;
+    const want = this.getSongTime();
+    if (want < 0 || !Number.isFinite(el.duration) || want >= el.duration) return;
+    if (Math.abs(el.currentTime - want) > tol) {
+      try {
+        el.currentTime = want;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /** Czy podkład leci ze strumienia (a nie z bufora / syntezy). */
+  get streaming(): boolean {
+    return this.streamLive && !!this.streamEl && !this.mp3Buf;
+  }
+
+  private stopStream() {
+    this.streamLive = false;
+    clearInterval(this.streamStartTimer);
+    clearInterval(this.streamSyncTimer);
+    this.streamStartTimer = 0;
+    this.streamSyncTimer = 0;
+    try {
+      this.streamEl?.pause();
+    } catch {
+      /* ignore */
+    }
+  }
   start(song: SongDef, leadInSec = 0.25) {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
@@ -997,7 +1194,9 @@ export class AudioEngine {
       this.playBuffer(this.trackBuffers.get(song.audioUrl)!, t0);
       return;
     }
-    // 2) pre-renderowany podkład syntezowany — jeden węzeł, jak plik
+    // 2) STRUMIEŃ z pliku — gra w locie, bez rozpakowywania całości do RAM
+    if (song.audioUrl && this.canStream() && this.playStream(song.audioUrl)) return;
+    // 3) pre-renderowany podkład syntezowany — jeden węzeł, jak plik
     if (this.synthBuf && this.synthBufId === song.id) {
       this.playBuffer(this.synthBuf, t0);
       return;

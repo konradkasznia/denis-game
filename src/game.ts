@@ -2704,7 +2704,21 @@ export class Game {
       // i gracz dostawał „Wczytywanie utknęło..." zamiast rundy. Dlatego cały
       // blok audio dostaje JEDEN twardy budżet — po nim runda startuje na
       // syntezie na żywo (start() ma dokładnie taki fallback).
-      const AUDIO_BUDGET_MS = 10000;
+      // ŚCIEŻKA GŁÓWNA: dekodowanie do bufora (idealna synchronizacja z nutami —
+      // dźwięk i nuty chodzą po TYM SAMYM zegarze AudioContextu). Strumień jest
+      // tylko ratunkiem dla urządzeń, ktore dekodowania nie udźwigną: ma własny
+      // zegar, więc synchronizacja jest gorsza, ale lepsze to niż brak muzyki.
+      // Budżet na dekodowanie. Telefon wyrabia się w ~1 s. Gdy urządzenie nie
+      // wyrobi się w tym czasie (słaby tablet), start() sięga po STRUMIEŃ, więc
+      // gracz i tak dostaje prawdziwą muzykę, tylko bez idealnej synchronizacji.
+      // Podklad leci ze STRUMIENIA: element <audio> jest ZEGAREM utworu, wiec
+      // nuty ida dokladnie za muzyka i rozjazd jest niemozliwy. Nie ma tez
+      // rozpakowywania 3-minutowego utworu do 63 MB w RAM ani czekania na
+      // dekodowanie. Ponizsza sciezka (dekodowanie do bufora) zostaje wylacznie
+      // dla urzadzen bez wsparcia dla elementu audio w AudioContexcie.
+      const strumien = !!song.audioUrl && this.audio.canStream();
+      if (!strumien) {
+      const AUDIO_BUDGET_MS = 4000;
       await Promise.race([
         (async () => {
           if (song.audioUrl) {
@@ -2740,6 +2754,7 @@ export class Game {
         })(),
         new Promise((r) => setTimeout(r, AUDIO_BUDGET_MS)),
       ]);
+}
       if (!guard()) return;
       this.song = song;
     } catch (e) {
