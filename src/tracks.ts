@@ -7,7 +7,6 @@
 // edytor będzie mógł je nadpisywać, a testy czytać przez `fs`.
 
 import { buildSynthSong, LANES, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
-import { isNative } from "./native.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
 
@@ -217,14 +216,17 @@ async function fetchPublishedChart(id: string): Promise<RawChart | null> {
 const MIN_PUBLISHED_NOTES = 12;
 
 export async function loadTrack(id: string): Promise<SongDef> {
-  // 1. beatmapa opublikowana z edytora (Turso) — TYLKO na webie. W apce
-  //    natywnej (Android/iOS) wszystko jest już zaszyte w buildzie (dźwięk,
-  //    grafiki, beatmapy), więc nie ma po co czekać na sieć przy KAŻDYM
-  //    starcie poziomu — na słabszym łączu to właśnie dawało wrażenie
-  //    „zawieszonego" ładowania. Aktualizacje beatmap w apce idą przez nowy
-  //    build/release, nie przez edytor „na żywo" (to zostaje dla webu, gdzie
-  //    Konrad testuje zmiany bez przebudowy).
-  const published = isNative ? null : await fetchPublishedChart(id);
+  // 1. beatmapa opublikowana z edytora (Turso) — sprawdzana na KAŻDEJ
+  //    platformie, też natywnie. Był tu krótki eksperyment z pomijaniem tego
+  //    na Androidzie/iOS (żeby nic nie czekało na sieć przy starcie poziomu),
+  //    ale skutek uboczny okazał się gorszy niż zysk: apka natywna zaczęła
+  //    grać STARĄ mapę zaszytą w buildzie, podczas gdy web (i Konrad w
+  //    edytorze) widział już poprawioną — różne liczby nut, różne bpm, „nutki
+  //    i animacje źle poustawione" w APK. `fetchPublishedChart()` ma i tak
+  //    krótki, własny timeout (4 s) i przy braku sieci ciepło spada na plik
+  //    lokalny (punkt 2. niżej) — to nie jest ten sam, dużo dłuższy problem co
+  //    przy audio (patrz audio.ts AudioLoadError). Świeżość mapy > te ~4 s.
+  const published = await fetchPublishedChart(id);
 
   // 2. plik beatmapy w repo — używany jako fallback ORAZ jako miara, czy
   //    opublikowana mapa nie jest przypadkowo okrojona. To zawsze plik
