@@ -1051,7 +1051,13 @@ export class AudioEngine {
       };
       el.currentTime = 0;
       // „rozgrzewka" w obrębie gestu GRAJ — bez tego późniejsze play() po
-      // 3-sekundowym odliczaniu bywa blokowane polityką autoodtwarzania
+      // 3-sekundowym odliczaniu bywa blokowane polityką autoodtwarzania.
+      // `muted` na czas rozgrzewki to DRUGA, niezależna od gainu warstwa ciszy:
+      // realny dźwięk faktycznie leci przez ułamek sekundy, zanim .then()
+      // zdąży wywołać pause() — samo wyciszenie gainu w grafie Web Audio nie
+      // zawsze wystarcza (na części urządzeń krótkie odpalenie/zatrzymanie
+      // sesji audio słychać jako trzask niezależnie od głośności sygnału).
+      el.muted = true;
       this.streamWarm = false;
       this.streamLive = false;
       void el.play().then(
@@ -1082,6 +1088,7 @@ export class AudioEngine {
       clearInterval(this.streamStartTimer);
       this.streamStartTimer = 0;
       try {
+        el.muted = false;
         el.currentTime = Math.max(0, this.getSongTime());
         const przedStartem = el.currentTime;
         void el.play().catch(() => {
@@ -1173,6 +1180,10 @@ export class AudioEngine {
     this.streamSyncTimer = 0;
     try {
       this.streamEl?.pause();
+      // zabezpieczenie: gdyby pauza trafiła W TRAKCIE rozgrzewki (przed
+      // odmutowaniem przy realnym starcie), kolejne wznowienie NIE MOŻE
+      // zostać ciche na stałe — timer rozgrzewki właśnie skasowaliśmy
+      if (this.streamEl) this.streamEl.muted = false;
     } catch {
       /* ignore */
     }
