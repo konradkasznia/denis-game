@@ -910,10 +910,16 @@ export class AudioEngine {
         if (Number.isFinite(this.streamEl.duration) && this.streamEl.currentTime >= this.streamEl.duration - 0.1) return;
         // NIE przewijamy: element pamięta swoją pozycję z chwili pauzy, a to
         // ON jest zegarem utworu. Seek tylko rozjechałby dźwięk z nutami.
+        // `play()` po `suspend()`/`pause()` bywa słychać jako trzask, gdy wraca
+        // od razu na pełnej głośności — wyciszamy na czas restartu i dojeżdżamy
+        // do docelowej głośności rampą (tak samo jak na starcie rundy).
+        const t = this.ctx.currentTime;
+        this.master.gain.cancelScheduledValues(t);
+        this.master.gain.setValueAtTime(0.0001, t);
         void this.streamEl.play().catch(() => {
           this.streamOk = false;
         });
-        this.master.gain.setValueAtTime(0.9, this.ctx.currentTime);
+        this.master.gain.linearRampToValueAtTime(0.9, t + 0.05);
       } catch {
         /* ignore */
       }
@@ -1117,7 +1123,15 @@ export class AudioEngine {
           // pilnuje ciągłości: dopóki świeży `raw` nie dogoni starego punktu,
           // zegar po prostu stoi (niezauważalnie), zamiast cofać się.
           this.streamLive = true;
-          this.master?.gain.setValueAtTime(0.9, this.ctx.currentTime);
+          // Skok głośności 0 -> 0.9 w jednej klatce (setValueAtTime) słychać jako
+          // trzask, niezależnie od tego, że zegar jest już poprawny — dźwięk
+          // musi dojechać do docelowej głośności płynnie, nie skokiem.
+          if (this.master) {
+            const t = this.ctx.currentTime;
+            this.master.gain.cancelScheduledValues(t);
+            this.master.gain.setValueAtTime(this.master.gain.value, t);
+            this.master.gain.linearRampToValueAtTime(0.9, t + 0.05);
+          }
         };
         zakotwicz();
       } catch {
