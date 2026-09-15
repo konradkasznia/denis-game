@@ -110,6 +110,15 @@ const MARGIN = 40;
 const HORIZON_Y = 330; // punkt zbiegu torów
 const HIT_Y_BASE = 1118; // linia trafienia przy wysokości projektowej (VH); realnie: hitY()
 const APPROACH = 2.15; // s: jak długo nuta jest widoczna zanim dojdzie do linii (przy HIT_Y_BASE)
+// Odstęp linii trafienia od dołu ekranu. Historycznie 162 — testerzy zgłosili, że
+// wygodniej klika się PONIŻEJ obręczy, ale że jest tam za mało miejsca. Zwiększone
+// do 230, żeby dać więcej fizycznego miejsca na kciuk pod linią. `approachSec()`
+// świadomie NIE liczy się z tej wartości (patrz `HIT_Y_BOTTOM_TIMING_REF` niżej) —
+// przesunięcie linii w górę dla wygody dotyku NIE MOŻE zmieniać czasu, w którym
+// nuty się pojawiają (wykalibrowane, nietykalne na wyraźną prośbę).
+const HIT_Y_BOTTOM = 230;
+// ZAMROŻONE na oryginalnej wartości (162) — wyłącznie do liczenia approachSec().
+const HIT_Y_BOTTOM_TIMING_REF = 162;
 const LANE_GAP_HIT = 150; // odstęp środków torów przy linii trafienia
 const RECEPTOR_R = 52; // promień pustego kółka na linii
 const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
@@ -1453,16 +1462,19 @@ export class Game {
 
   /** Linia trafienia (puste kółka) — dosunięta do dołu ekranu. */
   private hitY(): number {
-    return this.sh() - 162;
+    return this.sh() - HIT_Y_BOTTOM;
   }
   /** Dolna krawędź strefy klawiszy. */
   private padBot(): number {
     return this.sh() - 16;
   }
   /** Czas dojścia nuty od horyzontu do linii — skalowany z długością toru,
-   *  żeby prędkość nut w pikselach była stała niezależnie od wysokości ekranu. */
+   *  żeby prędkość nut w pikselach była stała niezależnie od wysokości ekranu.
+   *  Liczony z ZAMROŻONEJ (historycznej) pozycji linii, NIE z `hitY()` — patrz
+   *  komentarz przy `HIT_Y_BOTTOM_TIMING_REF`. */
   private approachSec(): number {
-    return APPROACH * clamp((this.hitY() - HORIZON_Y) / (HIT_Y_BASE - HORIZON_Y), 1, 1.7);
+    const timingHitY = this.sh() - HIT_Y_BOTTOM_TIMING_REF;
+    return APPROACH * clamp((timingHitY - HORIZON_Y) / (HIT_Y_BASE - HORIZON_Y), 1, 1.7);
   }
 
   /** Rect dolnego klastra „WYBIERZ HIT" dosunięty do dolnej krawędzi ekranu. */
