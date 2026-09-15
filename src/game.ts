@@ -6918,16 +6918,20 @@ export class Game {
       const lockedNext = passed && hasNext && !nextUnlocked;
       ctx.save();
       ctx.globalAlpha = vFade;
-      // nagłówek: zaliczone (zielony) / za mało na kolejny poziom (bursztyn) /
-      // niezaliczone (czerwony)
-      const headline = lockedNext ? "NIEWIELE ZABRAKŁO" : passed ? "ZALICZONE!" : "NIEZALICZONE";
-      const headColor = lockedNext ? "#ffb44a" : passed ? "#5ef2a0" : "#ff6b7d";
+      // nagłówek ZAWSZE mówi wprost, czy runda jest zaliczona — czy nie.
+      // Wcześniej przy zaliczonej rundzie z za małą liczbą gwiazdek nagłówek
+      // pokazywał „NIEWIELE ZABRAKŁO", co brzmiało jak porażka (mimo zielonych
+      // gwiazdek obok) i myliło graczy. To, że brakuje gwiazdek na KOLEJNY
+      // poziom, jest osobną, dodatkową informacją w polu niżej — nie zmienia
+      // faktu, że ta runda jest zaliczona.
+      const headline = passed ? "ZALICZONE!" : "NIEZALICZONE";
+      const headColor = passed ? "#5ef2a0" : "#ff6b7d";
       text(ctx, headline, cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
-        size: lockedNext ? 34 : passed ? 42 : 36,
+        size: passed ? 42 : 36,
         weight: "900",
         font: HEAD_FONT,
         color: headColor,
-        glow: lockedNext ? "#ff9f43" : passed ? "#5ef2a0" : "#ff5e7e",
+        glow: passed ? "#5ef2a0" : "#ff5e7e",
         glowBlur: 18,
         letterSpacing: "1px",
       });
