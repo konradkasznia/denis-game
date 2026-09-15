@@ -3335,7 +3335,14 @@ export class Game {
   // torów to proste; wrażenie 3D daje easing czasu w `eForTime`.
 
   private eForTime(t: number): number {
-    const rel = (t - this.songTime) / this.approachSec(); // 1 = świeżo, 0 = na linii
+    // Ocena trafień (pickNote/isMissed) liczy "idealny moment" jako
+    // `n.time + offsetSec()` — offsetSec to opóźnienie wyjścia audio (BT,
+    // bufor OS), wieksze na slabszym sprzecie. Bez tego samego przesuniecia
+    // TUTAJ nuta wizualnie dojezdzala do okregu w chwili `n.time` (zanim
+    // dzwiek naprawde byl slyszalny), a PERFECT wypadalo dopiero kawalek
+    // PO tym, jak wizualnie "minela" okrag - widoczne tym mocniej, im
+    // wieksze opoznienie audio danego urzadzenia.
+    const rel = (t + this.offsetSec() - this.songTime) / this.approachSec(); // 1 = świeżo, 0 = na linii
     const travel = 1 - rel; // 0 daleko, 1 na linii
     if (travel <= 0) return travel * 0.6; // nuta zeszła poniżej linii
     if (travel >= 1) return 1 + (travel - 1) * 1.6;
