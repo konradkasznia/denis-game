@@ -5,6 +5,28 @@ apply plugin: 'com.android.application'
 // zainstalować aplikacji"). Z jednym kluczem aktualizacja działa bez odinstalowania.
 def stableKeystore = file('../keystore/denis-debug.jks')
 
+// Klucz RELEASE (do Google Play) — NIGDY nie trzymamy w repo (w przeciwieństwie
+// do debug keystore'a, który jest jawny i nieważny bezpieczeństwowo). W CI
+// (.github/workflows/android-release.yml) workflow dekoduje sekret
+// RELEASE_KEYSTORE_BASE64 do pliku i podaje ścieżkę/hasła zmiennymi
+// środowiskowymi. Lokalnie / w zwykłym buildzie debug tych zmiennych nie ma —
+// signingConfig „release" po prostu zostaje nieużywany.
+def releaseKeystorePath = System.getenv('RELEASE_KEYSTORE_PATH')
+def hasReleaseSigning = releaseKeystorePath != null && file(releaseKeystorePath).exists()
+
+// versionCode MUSI rosnąć z każdym uploadem do Play Console (też testy
+// wewnętrzne). Liczymy go automatycznie z liczby commitów — nigdy nie trzeba
+// go ręcznie podbijać ani pilnować, żeby się nie cofnął.
+def gitCommitCount = {
+    try {
+        def proc = ['git', 'rev-list', '--count', 'HEAD'].execute(null, rootDir)
+        proc.waitFor()
+        return proc.exitValue() == 0 ? proc.text.trim().toInteger() : 1
+    } catch (ignored) {
+        return 1 // brak git (np. źródło z zipa) — nie wysyłane wtedy na Play i tak
+    }
+}()
+
 android {
     namespace = "pl.impulsywni.denis"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -12,8 +34,11 @@ android {
         applicationId "pl.impulsywni.denis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode gitCommitCount
+        // Synchronizuj ręcznie z APP_VERSION w src/game.ts i VERSION w
+        // api/app-version.ts przy każdym realnym wydaniu (patrz appUpdate.ts —
+        // od tego zależy, czy graczom pokaże się modal "dostępna aktualizacja").
+        versionName "0.9.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -34,6 +59,15 @@ android {
                 keyPassword 'denisdebug'
             }
         }
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseKeystorePath)
+                storeType 'PKCS12'
+                storePassword System.getenv('RELEASE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('RELEASE_KEY_ALIAS')
+                keyPassword System.getenv('RELEASE_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
@@ -41,6 +75,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) signingConfig signingConfigs.release
         }
     }
 }

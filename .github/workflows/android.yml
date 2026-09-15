@@ -24,7 +24,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 — pełna historia, potrzebna do policzenia versionCode
+      # (android/app/build.gradle liczy go z liczby commitów; płytki klon
+      # dawałby za każdym razem inną, niespójną liczbę)
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:

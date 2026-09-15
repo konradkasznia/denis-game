@@ -1,0 +1,88 @@
+name: Android AAB (release, do Google Play)
+
+# Buduje PODPISANY release (klucz z sekretów repo — patrz
+# generate-release-keystore.yml) w formacie AAB, jakiego wymaga Google Play.
+#
+# RĘCZNIE (Actions -> ten workflow -> Run workflow) — release'y idą do Play
+# Console świadomie, nie przy każdym pushu jak build debug (android.yml).
+# Wymaga sekretów repo: RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD,
+# RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD (patrz generate-release-keystore.yml).
+#
+# versionCode liczy się automatycznie z liczby commitów (android/app/build.gradle)
+# — zawsze rośnie, nic nie trzeba ręcznie pilnować. versionName ustaw ręcznie w
+# tym samym pliku (zsynchronizuj z APP_VERSION w src/game.ts / api/app-version.ts).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — patrz komentarz w android.yml (versionCode z liczby commitów)
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      - name: Build web (dist/)
+        run: npm run build
+        env:
+          VITE_API_BASE: https://denis-game.vercel.app
+          VITE_ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Pakiety Android SDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" || \
+            sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" || true
+
+      - name: Dekoduj klucz release z sekretu
+        run: |
+          if [ -z "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "::error::Brak sekretu RELEASE_KEYSTORE_BASE64 — najpierw uruchom generate-release-keystore.yml i dodaj sekrety (patrz komentarz w tym pliku)."
+            exit 1
+          fi
+          mkdir -p android/keystore
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/denis-release.jks
+
+      - name: Capacitor sync
+        run: npx cap sync android
+
+      - name: Build AAB (release, podpisany)
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew bundleRelease --no-daemon --stacktrace
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/android/keystore/denis-release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Nazwa pliku
+        run: cp android/app/build/outputs/bundle/release/app-release.aab denis-impulsywni-live.aab
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: denis-android-release-aab
+          path: denis-impulsywni-live.aab
+          if-no-files-found: error
+          retention-days: 90
