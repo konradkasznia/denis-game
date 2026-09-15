@@ -646,6 +646,27 @@ export class Game {
   private prepId = 0;
   private prepStep = "";
   private prepStart = 0;
+  private prepLog: string[] = []; // czasy kolejnych etapów — do komunikatu błędu
+  private prepStageAt = 0;
+
+  /** Ustawia etap ładowania i zapisuje, ile trwał poprzedni. Bez tego komunikat
+   *  o błędzie mówi TYLKO na czym utknęło, a nie ile zjadły etapy wcześniejsze —
+   *  a to jest jedyna informacja, która pozwala zdiagnozować cudze urządzenie,
+   *  do którego nie mamy konsoli (patrz problem z Galaxy Tab). */
+  private setPrepStep(s: string) {
+    const now = performance.now();
+    if (this.prepStep && this.prepStageAt) {
+      this.prepLog.push(`${this.prepStep} ${Math.round(now - this.prepStageAt)}ms`);
+    }
+    this.prepStep = s;
+    this.prepStageAt = now;
+  }
+
+  /** Rozpiska czasów etapów do komunikatu na ekranie telefonu/tabletu. */
+  private prepDiag(): string {
+    const cur = this.prepStageAt ? `${this.prepStep} ${Math.round(performance.now() - this.prepStageAt)}ms` : "";
+    return [...this.prepLog, cur].filter(Boolean).join(" | ");
+  }
   private loadError = "";
   /** utwór wczytany, czeka na świeży dotyk startu (kluczowe dla audio na iOS) */
   private awaitingStart = false;
@@ -1582,7 +1603,8 @@ export class Game {
       const secs = (performance.now() - this.prepStart) / 1000;
       // watchdog: nie zostawiaj gracza na zawsze na ekranie ładowania
       if (secs > 35) {
-        this.loadError = `Wczytywanie utknęło na etapie: ${this.prepStep}. Sprawdź połączenie z serwerem i spróbuj ponownie.`;
+        this.loadError = `Wczytywanie utknęło na etapie: ${this.prepStep}.
+[${this.prepDiag()}]`;
         this.preparing = false;
         this.prepId++;
       } else {
@@ -1602,10 +1624,21 @@ export class Game {
         text(ctx, "stuknij, aby przerwać", VW / 2, cy + (slow ? 96 : 58), { size: 21, color: "#8a7c6c" });
       }
     } else if (this.loadError && this.scene === "hits") {
-      const lines = this.loadError.split("\n").flatMap((seg) => wrapText(seg, 46));
+      // Komunikat MUSI być czytelny także na tabletach ~4:3, gdzie realna
+      // wysokość widoku bywa mniejsza niż 1280 jednostek projektu — dolna
+      // krawędź (gdzie ten tekst był wcześniej, sh()-150) wypada tam poza
+      // ekran i gracz widzi tylko „loader zniknął i nic się nie stało".
+      const lines = this.loadError.split("\n").flatMap((seg) => wrapText(seg, 40));
+      const cy = this.sh() / 2 - this.vdy;
+      const h = lines.length * 30 + 76;
+      ctx.save();
+      ctx.fillStyle = "rgba(6,6,14,0.93)";
+      ctx.fillRect(0, cy - h / 2, VW, h);
+      ctx.restore();
       lines.forEach((ln, i) =>
-        text(ctx, ln, VW / 2, this.sh() - this.vdy - 150 + i * 24, { size: 16, color: "#ff8a97" }),
+        text(ctx, ln, VW / 2, cy - h / 2 + 34 + i * 30, { size: 20, weight: "700", color: "#ff8a97" }),
       );
+      text(ctx, "stuknij, aby zamknąć", VW / 2, cy + h / 2 - 20, { size: 17, color: "#8a7c6c" });
     }
 
     ctx.restore();
@@ -2311,6 +2344,11 @@ export class Game {
   }
 
   private handleHitsTap(x: number, y: number) {
+    // komunikat błędu ładowania zasłania karuzelę — dowolne stuknięcie go zamyka
+    if (this.loadError) {
+      this.loadError = "";
+      return;
+    }
     if (x < 0) return;
     if (inRect(HITS_HEAD_COINS, x, y)) {
       uiSound("buttons");
@@ -2638,60 +2676,76 @@ export class Game {
     this.audio.stop(); // ucisz ewentualny poprzedni przebieg zanim ruszymy nowy
     const myId = ++this.prepId;
     this.preparing = true;
-    this.prepStep = "przygotowanie";
+    this.prepLog = [];
+    this.prepStep = "";
+    this.prepStageAt = 0;
+    this.setPrepStep("przygotowanie");
     this.prepStart = performance.now();
     this.loadError = "";
 
     const guard = () => myId === this.prepId && this.preparing;
     try {
-      this.prepStep = "odblokowanie dźwięku";
+      this.setPrepStep("odblokowanie dźwięku");
       await this.audio.unlock();
       if (!guard()) return;
 
-      this.prepStep = "wczytywanie beatmapy";
+      this.setPrepStep("wczytywanie beatmapy");
       const song = await loadTrack(this.trackId);
       if (!guard()) return;
       this.loadSongBg(song.bg);
       this.character.load({ character: song.character, characters: song.characters });
 
-      if (song.audioUrl) {
-        try {
-          await this.audio.loadTrack(song.audioUrl, (s) => {
-            if (guard()) this.prepStep = s;
-          });
-        } catch (e) {
-          console.warn("audio.loadTrack (lokalny plik) nieudane:", e);
-          // "decode" = mamy bajty, ale TO URZĄDZENIE nie potrafi ich
-          // zdekodować (np. WebView bez wsparcia dla danego kodeka mp3) —
-          // ponowne pobranie IDENTYCZNYCH bajtów z innego adresu nic nie da,
-          // więc od razu lecimy na syntezowany podkład (patrz AudioLoadError
-          // w audio.ts). Tylko przy "fetch" (pliku faktycznie nie znaleziono)
-          // ma sens próbować wersji wysłanej z edytora.
-          const decodeFailed = e instanceof AudioLoadError && e.phase === "decode";
-          if (!decodeFailed) {
-            const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
+      // AUDIO JEST DODATKIEM — nuty lecą z beatmapy, która jest już wczytana.
+      // Wewnętrzne limity tego etapu sumują się do znacznie więcej niż budżet
+      // 35-sekundowego watchdoga ekranu ładowania (patrz render()):
+      //   fetch lokalny 8 s + decode 15 s + pre-render 20 s = 43 s,
+      //   a przy nieudanym FETCHU jeszcze 15 s + 15 s z serwera = 58 s.
+      // Na słabszym urządzeniu (Galaxy Tab) watchdog zawsze wygrywał ten wyścig
+      // i gracz dostawał „Wczytywanie utknęło..." zamiast rundy. Dlatego cały
+      // blok audio dostaje JEDEN twardy budżet — po nim runda startuje na
+      // syntezie na żywo (start() ma dokładnie taki fallback).
+      const AUDIO_BUDGET_MS = 10000;
+      await Promise.race([
+        (async () => {
+          if (song.audioUrl) {
             try {
-              this.prepStep = "wczytywanie dźwięku";
-              await this.audio.loadTrack(pub);
-              song.audioUrl = pub; // audio.start() użyje tego bufora
-            } catch (e2) {
-              console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
+              await this.audio.loadTrack(song.audioUrl, (s) => {
+                if (guard()) this.setPrepStep(s);
+              });
+            } catch (e) {
+              console.warn("audio.loadTrack (lokalny plik) nieudane:", e);
+              // "decode" = mamy bajty, ale TO URZĄDZENIE nie potrafi ich
+              // zdekodować — pobranie IDENTYCZNYCH bajtów spod innego adresu
+              // nic nie zmieni. Tylko przy "fetch" warto próbować z edytora.
+              const decodeFailed = e instanceof AudioLoadError && e.phase === "decode";
+              if (!decodeFailed) {
+                const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
+                try {
+                  this.setPrepStep("wczytywanie dźwięku");
+                  await this.audio.loadTrack(pub);
+                  song.audioUrl = pub; // audio.start() użyje tego bufora
+                } catch (e2) {
+                  console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
+                }
+              }
             }
           }
-        }
-      }
+          if (!guard()) return;
+          // pre-render podkładu to OPTYMALIZACJA, nie warunek startu rundy —
+          // gdy się nie wyrobi, start() gra syntezę na żywo (patrz renderSynth)
+          if (!song.audioUrl || !this.audio.isTrackLoaded(song.audioUrl)) {
+            this.setPrepStep("przygotowanie podkładu");
+            await this.audio.renderSynth(song);
+          }
+        })(),
+        new Promise((r) => setTimeout(r, AUDIO_BUDGET_MS)),
+      ]);
       if (!guard()) return;
-      // brak grywalnego mp3 → pre-renderuj podkład syntezowany do bufora, żeby
-      // grał się jak plik (wznowienie po powrocie z tła działa tak samo jak dla mp3)
-      if (!song.audioUrl || !this.audio.isTrackLoaded(song.audioUrl)) {
-        this.prepStep = "przygotowanie podkładu";
-        await this.audio.renderSynth(song);
-        if (!guard()) return;
-      }
       this.song = song;
     } catch (e) {
       if (guard()) {
-        this.loadError = `Nie udało się wczytać utworu (${(e as Error).message || e}). Sprawdź połączenie i spróbuj ponownie.`;
+        this.loadError = `Nie udało się wczytać utworu (${(e as Error).message || e}).
+[${this.prepDiag()}]`;
         this.preparing = false;
       }
       console.error(e);

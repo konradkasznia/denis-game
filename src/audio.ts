@@ -759,11 +759,34 @@ export class AudioEngine {
     }
   }
 
+
+  /** Zwalnia zdekodowane audio POZOSTAŁYCH utworów.
+   *
+   *  Jeden zdekodowany utwór to ogromny blok pamięci: 3 minuty stereo 44.1 kHz
+   *  = ok. 60 MB Float32 (pogrzebowka 3,6 MB mp3 -> ~63 MB PCM). `trackBuffers`
+   *  nigdy niczego nie zwalniała — bufory znikały dopiero przy przebudowie
+   *  kontekstu. Po przejściu przez dwa-trzy utwory WebView trzymał więc
+   *  150-180 MB samego audio, do tego zdekodowane PNG-i interfejsu i arkusze
+   *  postaci. Na tablecie z 3 GB RAM (Galaxy Tab A7 Lite) kolejny
+   *  `decodeAudioData` nie ma już skąd wziąć ciągłego bufora: najpierw długo
+   *  się dławi (GC), a potem pada — MIMO ŻE WSZYSTKIE PLIKI SĄ LOKALNE.
+   *  To jest właściwa przyczyna „wczytywania", które trwa dziesiątki sekund
+   *  bez udziału sieci. */
+  private keepOnlyTrack(url: string) {
+    for (const k of [...this.trackBuffers.keys()]) if (k !== url) this.trackBuffers.delete(k);
+    for (const k of [...this.trackRaw.keys()]) if (k !== url) this.trackRaw.delete(k);
+    if (this.synthBufId && this.synthBufId !== this.curSong?.id) {
+      this.synthBuf = null;
+      this.synthBufId = "";
+    }
+  }
   /** Wczytuje i dekoduje plik audio (raz na URL). onStep raportuje etap.
    *  Rzuca `AudioLoadError` z etapem („fetch"/„decode"), żeby wołający mógł
    *  sensownie zdecydować, czy warto próbować gdzie indziej (patrz klasa). */
   async loadTrack(url: string, onStep?: (s: string) => void): Promise<void> {
     await this.unlock();
+    // zwolnij pamiec po poprzednich utworach ZANIM poprosimy o kolejne ~60 MB
+    this.keepOnlyTrack(url);
     if (this.trackBuffers.has(url)) return;
     let arr = this.trackRaw.get(url);
     if (!arr) {

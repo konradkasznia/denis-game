@@ -26,11 +26,36 @@ function resize() {
     window.visualViewport?.height || 0,
   );
 
-  // Wypełniamy CAŁY ekran: skala liczona z szerokości (gra jest w pionie),
-  // a wysokość układu „rozciąga się" — `viewport.vh` >= VH na wyższych telefonach.
-  const scale = availW / VW;
+  // Skala MUSI mieścić cały projekt 720x1280, nie tylko jego szerokość.
+  //
+  // Wcześniej było `scale = availW / VW`, czyli „wypełnij szerokość", a wysokość
+  // układu domykał `Math.max(VH, ...)`. Na telefonie (proporcje ~19.5:9) to
+  // działa, bo ekran jest WYŻSZY niż projekt. Na tablecie jest odwrotnie:
+  // Galaxy Tab A7 lite to 800x1340, czyli 1.675 — mniej niż 1280/720 = 1.778.
+  // Gra rysowała wtedy układ na 1280 jednostek, a widocznych było ~1107:
+  // linia trafienia (hitY 1118) i CAŁA strefa klawiszy (do 1264) lądowały
+  // poniżej dolnej krawędzi ekranu. Karuzela działała (GRAJ kończy się na
+  // 1090), więc objaw wyglądał jak „runda się nie uruchamia", choć runda
+  // startowała — tylko nie było czego dotknąć.
+  //
+  // `Math.min` = dopasuj do węższego wymiaru: na telefonie wychodzi dokładnie
+  // to samo co wcześniej (człon szerokości jest mniejszy), na tablecie gra
+  // skaluje się do wysokości i jest wyśrodkowana w poziomie.
+  // Skala: domyślnie „wypełnij szerokość" (tak było i tak ma zostać na telefonach).
+  // Letterbox (dopasowanie do wysokości + pasy po bokach) włączamy TYLKO gdy
+  // ekranowi realnie brakuje wysokości, bo inaczej strefa klawiszy wypada poza
+  // ekran — tak było na Galaxy Tab: widoczne 1107 jednostek zamiast 1280,
+  // linia trafienia na 1118, klawisze do 1264, czyli poza obrazem.
+  // Mały niedobór (paski Safari na iPhone chowające się przy scrollu) ignorujemy:
+  // ucina nieużywany margines pod klawiszami, a gra nie skacze między skalami.
+  const TOLERANCJA = 90; // jednostek projektu
+  const scaleW = availW / VW;
+  const widoczneNaScaleW = availH / scaleW;
+  const scale = widoczneNaScaleW >= VH - TOLERANCJA ? scaleW : Math.min(scaleW, availH / VH);
   // clamp do rozsądnego zakresu — nawet gdyby availH było absurdalne
   const vh = Math.max(VH, Math.min(VH * 3, Math.round(availH / scale) || VH));
+  // poziome wyśrodkowanie, gdy ekran jest szerszy niż przeskalowany projekt
+  const offsetX = Math.max(0, Math.round((availW - VW * scale) / 2));
 
   canvas.style.width = `${availW}px`;
   canvas.style.height = `${availH}px`;
@@ -38,12 +63,12 @@ function resize() {
   canvas.height = Math.round(availH * dpr);
 
   viewport.scale = scale;
-  viewport.offsetX = 0;
+  viewport.offsetX = offsetX;
   viewport.offsetY = 0;
   viewport.dpr = dpr;
   viewport.vh = vh;
 
-  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, offsetX * dpr, 0);
   // "medium" wygląda w tej stylistyce tak samo, a przy dużych skalowanych
   // bitmapach (postać, tła) na telefonie kosztuje wyraźnie mniej (audyt B7)
   ctx.imageSmoothingQuality = "medium";
@@ -178,6 +203,15 @@ function frame(now: number, gen: number) {
   } catch (e) {
     console.error("game.update() — pominięto klatkę:", e);
   }
+  // Wyczyść CAŁY canvas w pikselach urządzenia. Gra rysuje tylko obszar
+  // projektu (720 jednostek szerokości), a przy ekranie szerszym niż
+  // przeskalowany projekt (tablety, letterbox) zostają pasy po bokach, których
+  // nic nie zamalowuje — bez tego widać w nich śmieci z bufora canvasu.
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#0b0b12";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
   ctx.save();
   try {
     game.render(ctx);
