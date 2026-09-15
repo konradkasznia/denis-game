@@ -60,7 +60,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # packages: '' — patrz komentarz w android.yml (domyślny pakiet "tools"
+      # już nie istnieje w repozytorium Google, psuje ten krok)
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: ''
 
       - name: Pakiety Android SDK
         run: |
