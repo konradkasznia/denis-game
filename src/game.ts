@@ -2705,19 +2705,15 @@ export class Game {
       // blok audio dostaje JEDEN twardy budżet — po nim runda startuje na
       // syntezie na żywo (start() ma dokładnie taki fallback).
       // ŚCIEŻKA GŁÓWNA: dekodowanie do bufora (idealna synchronizacja z nutami —
-      // dźwięk i nuty chodzą po TYM SAMYM zegarze AudioContextu). Strumień jest
-      // tylko ratunkiem dla urządzeń, ktore dekodowania nie udźwigną: ma własny
-      // zegar, więc synchronizacja jest gorsza, ale lepsze to niż brak muzyki.
-      // Budżet na dekodowanie. Telefon wyrabia się w ~1 s. Gdy urządzenie nie
-      // wyrobi się w tym czasie (słaby tablet), start() sięga po STRUMIEŃ, więc
-      // gracz i tak dostaje prawdziwą muzykę, tylko bez idealnej synchronizacji.
-      // Podklad leci ze STRUMIENIA: element <audio> jest ZEGAREM utworu, wiec
-      // nuty ida dokladnie za muzyka i rozjazd jest niemozliwy. Nie ma tez
-      // rozpakowywania 3-minutowego utworu do 63 MB w RAM ani czekania na
-      // dekodowanie. Ponizsza sciezka (dekodowanie do bufora) zostaje wylacznie
-      // dla urzadzen bez wsparcia dla elementu audio w AudioContexcie.
-      const strumien = !!song.audioUrl && this.audio.canStream();
-      if (!strumien) {
+      // dźwięk i nuty chodzą po TYM SAMYM zegarze AudioContextu, bez elementu
+      // <audio>, bez polityki autoodtwarzania, bez osobnej rozgrzewki). Strumień
+      // (`start()`, krok 2) to WYŁĄCZNIE ratunek, gdy TEN blok nie zdąży w budżecie
+      // (słaby tablet) — ma własny zegar (element <audio>), więc synchronizacja
+      // jest gorsza, ale lepsze to niż brak muzyki. Wcześniej ten blok był
+      // pomijany, gdy tylko `canStream()` zwracało true (czyli PRAWIE ZAWSZE,
+      // bo `Audio` istnieje w każdej przeglądarce) — strumień, pomyślany jako
+      // wyjątek dla słabych urządzeń, leciał więc domyślnie u WSZYSTKICH, ze
+      // wszystkimi swoimi problemami (rozgrzewka, trzaski, gorsza synchronizacja).
       const AUDIO_BUDGET_MS = 4000;
       await Promise.race([
         (async () => {
@@ -2754,7 +2750,6 @@ export class Game {
         })(),
         new Promise((r) => setTimeout(r, AUDIO_BUDGET_MS)),
       ]);
-}
       if (!guard()) return;
       this.song = song;
     } catch (e) {
