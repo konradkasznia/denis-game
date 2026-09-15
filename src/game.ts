@@ -124,6 +124,15 @@ const MAX_FLOW_TIER = 4; // mnożnik x1..x5
 // gdy ocena >= STAR_MARKS[i]. 3. gwiazdka = próg zaliczenia rundy.
 const STAR_MARKS = [0.22, 0.44, 0.7, 0.86, 0.97];
 const PASS_RATING = 0.7;
+// Ręczny „par" dla utworów, gdzie auto-liczony próg (computeParScore —
+// zależny od AKTUALNEJ liczby nut w beatmapie, więc rusza się przy każdej
+// edycji w edytorze) ma dawać inny konkretny wynik niż to, co Konrad uznaje
+// za zaliczone. score / PAR_SCORE_OVERRIDE >= PASS_RATING (0.7) => zaliczone
+// (i to samo „score" = próg 3. gwiazdki, patrz STAR_MARKS). byAccuracy
+// (rating()) zostaje jako dodatkowa siatka bezpieczeństwa — patrz niżej.
+const PAR_SCORE_OVERRIDE: Record<string, number> = {
+  "ksiaze-z-bajki": 500_000, // 350 000 pkt ma wystarczyć do zaliczenia (350 000 / 0,7)
+};
 
 // --- strefy dotyku ---
 const BACK: Rect = { x: 16, y: 36, w: 170, h: 62 };
@@ -2731,6 +2740,8 @@ export class Game {
   /** „Par" — punkty za solidny przebieg (same SUPER, mnożnik do x3). Ocena
    *  rundy = wynik / par, więc bardzo czysty przebieg przebija 100%. */
   private computeParScore(): number {
+    const override = PAR_SCORE_OVERRIDE[this.trackId];
+    if (override) return override;
     let s = 0;
     let combo = 0;
     for (const n of this.song.notes) {
