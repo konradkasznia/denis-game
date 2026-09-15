@@ -141,6 +141,7 @@ const PASS_RATING = 0.7;
 // (rating()) zostaje jako dodatkowa siatka bezpieczeństwa — patrz niżej.
 const PAR_SCORE_OVERRIDE: Record<string, number> = {
   "ksiaze-z-bajki": 500_000, // 350 000 pkt ma wystarczyć do zaliczenia (350 000 / 0,7)
+  "panna-mloda": 85_714, // 60 000 pkt ma wystarczyć do zaliczenia (60 000 / 0,7)
 };
 
 // --- strefy dotyku ---
