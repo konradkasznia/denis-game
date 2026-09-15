@@ -3040,7 +3040,26 @@ export class Game {
       return;
     }
     const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
-    if (!picked) return;
+    if (!picked) {
+      // za wczesny tap (poza oknem GOOD, nic do trafienia) — spal najbliższą
+      // nadchodzącą nutę w tym torze, żeby nie dało się bezkarnie spamować
+      // i czekać, aż coś wejdzie w okno (bomby wyłączone — wczesny tap nie
+      // może być sposobem na uniknięcie kary za bombę)
+      let next: Note | null = null;
+      for (const n of this.song.notes) {
+        if (n.lane !== lane || n.judged || n.holding || n.bomb) continue;
+        if (!next || n.time < next.time) next = n;
+      }
+      if (next) {
+        next.judged = true;
+        next.hit = false;
+        next.headJ = "miss";
+        next.judgedAt = this.songTime;
+        if (next.fire && !next.fireOut) this.apply("miss", lane, "SKUCIE!", "#ff7a2c");
+        else this.apply("miss", lane);
+      }
+      return;
+    }
     const { note, absDt } = picked;
     if (note.bomb) {
       this.triggerBomb(note, lane);
