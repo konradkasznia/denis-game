@@ -179,12 +179,13 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "stop";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   pogrzebowka: ["bomb", "vodka", "flashlight"],
   "pan-strazak": ["fire"],
   "byleby-nie-byla-ciepla": ["ice"],
+  "pani-policjantko": ["stop"],
 };
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
@@ -206,6 +207,10 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   ice: {
     title: "UWAŻAJ NA LÓD",
     body: "Ekran nagle zamarza w taflę lodu. Trzeba ją szybko rozbić serią stuknięć, zanim gra pójdzie dalej — nuty w tym czasie i tak są nie do zagrania.",
+  },
+  stop: {
+    title: "UWAŻAJ NA STOP",
+    body: "Żółte „UWAGA!” — zaraz nie wolno klikać. Czerwono-niebieskie „STOP!” — ani jednego dotknięcia, inaczej -10 000 pkt. Zielone „GRAJ!” — można znów tapować.",
   },
 };
 
@@ -742,6 +747,7 @@ export class Game {
   private drunkUntil = -10; // songTime końca
   private stopStart = -10; // songTime początku okna STOP (nic nie wolno kliknąć)
   private stopUntil = -10; // songTime końca okna STOP
+  private stopGoFired = true; // czy haptyk „GRAJ!" już poleciał dla bieżącego okna
   private noteAlphaMul = 1; // mnożnik krycia nut (do „ducha" przy pijanym ekranie)
   private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
@@ -1031,10 +1037,17 @@ export class Game {
             // okno z chartu, nietknięte
             this.stopStart = e.at;
             this.stopUntil = e.at + (e.dur ?? 1.5);
+            this.stopGoFired = false; // to okno jeszcze nie dostało haptyka „GRAJ!"
             this.shake = Math.max(this.shake, 5);
             haptic("flowUp"); // wibracja OSTRZEGAWCZA — już w fazie zapowiedzi
           }
         }
+      }
+      // koniec okna STOP — osobny, WYRAŹNIE inny haptyk "już można klikać",
+      // bez tego okno po prostu gasło i nie było czuć/widać kiedy wolno wznowić
+      if (!this.stopGoFired && this.songTime >= this.stopUntil) {
+        this.stopGoFired = true;
+        haptic("tick");
       }
       this.checkMisses();
       this.refreshFireLanes();
@@ -2929,6 +2942,7 @@ export class Game {
     this.drunkUntil = -10;
     this.stopStart = -10;
     this.stopUntil = -10;
+    this.stopGoFired = true;
     this.noteAlphaMul = 1;
     this.bombLockMs = 0;
     this.fireLanes = [null, null, null, null];
@@ -3062,6 +3076,9 @@ export class Game {
   /** Ile sekund PRZED oknem kary zaczyna się zapowiedź (syrena narasta, wibracja
    *  ostrzegawcza) — bez tego gracz nie ma jak wiedzieć, KIEDY ma przestać klikać. */
   private static readonly STOP_WARN_LEAD = 0.7;
+  /** Ile sekund po końcu kary trzyma się zielony błysk „GRAJ!" — bez tego okno
+   *  po prostu gasło i nie było wiadomo, kiedy znów wolno klikać. */
+  private static readonly STOP_GO_HOLD = 0.35;
 
   /** Kara za złamanie STOP: -10 000 pkt, zbite combo, mocna wibracja, syrena
    *  na pełnym ekranie (patrz drawStopSiren). Każdy tap w oknie liczy się osobno. */
@@ -4258,6 +4275,7 @@ export class Game {
     flashlight: "LATARKA",
     fire: "OGIEŃ",
     ice: "LÓD",
+    stop: "STOP", // brak gotowej grafiki — rysowany zapasowo (patrz drawWarnSign)
   };
 
   private drawWarnSign(
@@ -4343,6 +4361,16 @@ export class Game {
       ctx.lineTo(-0.06 * s, 1.05 * s);
       ctx.closePath();
       ctx.fill();
+    } else if (kind === "stop") {
+      // dłoń „stop" nie mieści się czytelnie w tym rozmiarze — sam napis,
+      // ten sam skrót co w rundzie
+      text(ctx, "STOP", 0, 0.04 * s, {
+        size: s * 1.15,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#e5342f",
+        letterSpacing: "0.5px",
+      });
     } else {
       // latarka pod skosem + snop światła
       ctx.save();
@@ -4600,6 +4628,147 @@ export class Game {
         font: HEAD_FONT,
         color: "rgba(255,206,138,0.9)",
       });
+    } else if (kind === "fire") {
+      const cyc = 3.2;
+      const c = t % cyc;
+      const p = clamp(c / 1.15, 0, 1); // dojazd do linii
+      const extinguishAt = 0.6; // ułamek dojazdu, gdy tap gasi ogień
+      const lit = p > 0 && p < extinguishAt;
+      const justOut = p >= extinguishAt && p < extinguishAt + 0.12;
+      field(false, []);
+      const bx = lanesX[2];
+      const x = vx + (bx - vx) * (0.05 + 0.95 * p);
+      const y = vy + (hitY - vy) * p;
+      const rr = 3 + 9 * p;
+      if (c < 1.15) {
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffd24c";
+        ctx.fill();
+        if (lit) {
+          const fl = 0.7 + 0.3 * Math.sin(t * 24);
+          const g = ctx.createRadialGradient(x, y - rr, 1, x, y - rr * 0.4, rr * 2.4 * fl);
+          g.addColorStop(0, "rgba(255,214,110,0.95)");
+          g.addColorStop(0.55, "rgba(255,110,40,0.55)");
+          g.addColorStop(1, "rgba(255,60,20,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x, y - rr * 1.2, rr * 2.4 * fl, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (justOut) {
+          const k = (p - extinguishAt) / 0.12;
+          ctx.strokeStyle = `rgba(190,225,255,${0.8 * (1 - k)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(x, y - rr, rr * (1 + k * 1.6), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      if (c >= 1.15 && c < 1.45) {
+        const k = (c - 1.15) / 0.3;
+        ctx.beginPath();
+        ctx.arc(vx + (bx - vx) * 1, hitY, 11 + k * 14, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(138,255,193,${0.9 * (1 - k)})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      text(ctx, c < 1.0 ? "OGIEŃ · zgaś stuknięciem w tor" : "...potem trafiasz normalnie", ox + ow / 2, oy + 17, {
+        size: 12.5,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "rgba(255,180,120,0.9)",
+      });
+    } else if (kind === "ice") {
+      const cyc = 4.4;
+      const c = t % cyc;
+      field(false, [
+        { lane: 0, off: 0.15 },
+        { lane: 3, off: 0.55 },
+      ]);
+      const freezeStart = 1.3;
+      const freezeFull = 1.7;
+      const shatterAt = 3.3;
+      const clearAt = 3.7;
+      let frost = 0;
+      if (c >= freezeStart && c < freezeFull) frost = (c - freezeStart) / (freezeFull - freezeStart);
+      else if (c >= freezeFull && c < shatterAt) frost = 1;
+      else if (c >= shatterAt && c < clearAt) frost = 1 - (c - shatterAt) / (clearAt - shatterAt);
+      if (frost > 0.001) {
+        const g = ctx.createLinearGradient(ox, oy, ox, oy + oh);
+        g.addColorStop(0, `rgba(190,230,255,${(0.06 + 0.22 * frost).toFixed(3)})`);
+        g.addColorStop(1, `rgba(140,200,255,${(0.1 + 0.3 * frost).toFixed(3)})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(ox, oy, ow, oh);
+        if (frost > 0.35) {
+          ctx.strokeStyle = `rgba(255,255,255,${0.5 * frost})`;
+          ctx.lineWidth = 1.4;
+          const cx = ox + ow / 2;
+          const cy = oy + oh / 2;
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + 0.4;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(a) * ow * 0.42 * frost, cy + Math.sin(a) * oh * 0.42 * frost);
+            ctx.stroke();
+          }
+        }
+      }
+      const showTaps = c >= freezeFull && c < shatterAt;
+      text(ctx, showTaps ? "ZAMARZNIĘTE · rozbij tapnięciami!" : "LÓD · ekran nagle zamarza", ox + ow / 2, oy + 17, {
+        size: 12.5,
+        weight: "900",
+        font: HEAD_FONT,
+        color: `rgba(190,230,255,${(0.6 + 0.4 * frost).toFixed(3)})`,
+      });
+    } else if (kind === "stop") {
+      // te same 3 fazy co w rundzie (drawStopSiren), skrócone do pętli podglądu
+      const warnDur = 0.8;
+      const stopDur = 1.0;
+      const goDur = 0.4;
+      const pauseDur = 0.6;
+      const cyc = warnDur + stopDur + goDur + pauseDur;
+      const c = t % cyc;
+      field(false, []);
+      let rgb = "";
+      let alpha = 0;
+      let label = "";
+      let glow = "#ffbe32";
+      if (c < warnDur) {
+        rgb = "255,190,50";
+        alpha = 0.1 + 0.18 * (c / warnDur);
+        label = "UWAGA!";
+        glow = "#ffbe32";
+      } else if (c < warnDur + stopDur) {
+        const blink = Math.sin(t * 26) > 0;
+        rgb = blink ? "255,59,74" : "63,134,255";
+        alpha = 0.4;
+        label = "STOP!";
+        glow = blink ? "#ff3b4a" : "#3f86ff";
+      } else if (c < warnDur + stopDur + goDur) {
+        const k = 1 - (c - warnDur - stopDur) / goDur;
+        rgb = "94,230,168";
+        alpha = 0.35 * k;
+        label = "GRAJ!";
+        glow = "#5ef2a0";
+      }
+      if (alpha > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
+        ctx.fillRect(ox, oy, ow, oh);
+        ctx.restore();
+      }
+      if (label) {
+        text(ctx, label, ox + ow / 2, oy + oh / 2, {
+          size: 26,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#fff",
+          glow,
+          glowBlur: 14,
+          letterSpacing: "2px",
+        });
+      }
     } else {
       const cyc = 4.2;
       const c = t % cyc;
@@ -6591,45 +6760,101 @@ export class Game {
     ctx.restore();
   }
 
-  /** STOP (przeszkoda „gwizdek"): syrena radiowozu na całym ekranie — szybkie
-   *  miganie czerwień/niebieski. Klikanie w tym oknie karane w `triggerStopPenalty`. */
+  /** STOP (przeszkoda „gwizdek") — 3 WYRAŹNIE różne fazy, żeby nie trzeba było
+   *  zgadywać kiedy przestać i kiedy znów wolno klikać:
+   *   1) OSTRZEŻENIE (żółte, stałe, rosnące) — „zaraz będzie STOP"
+   *   2) STOP (czerwono-niebieska migająca syrena) — nic nie wolno kliknąć,
+   *      kara w `triggerStopPenalty`
+   *   3) GRAJ (zielony błysk) — wyraźny sygnał „już można", jak zielone
+   *      światło; bez tego okno po prostu gasło i nie było wiadomo, kiedy
+   *      można znów bezpiecznie klikać. */
   private drawStopSiren(ctx: CanvasRenderingContext2D) {
     const warnFrom = this.stopStart - Game.STOP_WARN_LEAD;
-    const left = this.stopUntil - this.songTime;
-    if (left <= 0 || this.songTime < warnFrom) return;
-
-    const inPenalty = this.songTime >= this.stopStart;
-    // faza zapowiedzi: syrena narasta (wolniejsze miganie -> szybsze), niska
-    // krycie -> pełne dokładnie w chwili, gdy zaczyna się kara
-    const warnT = clamp((this.songTime - warnFrom) / Game.STOP_WARN_LEAD, 0, 1);
-    const fadeOut = clamp(left / 0.15, 0, 1);
-    const m = inPenalty ? fadeOut : warnT;
-    if (m <= 0.001) return;
-
-    const blinkHz = inPenalty ? 26 : lerp(5, 15, warnT); // przyspiesza w miarę zbliżania się
-    const blink = Math.sin(this.songTime * blinkHz) > 0;
-    const rgb = blink ? "255,59,74" : "63,134,255";
-    const alpha = inPenalty ? 0.34 : 0.09 + 0.12 * warnT;
-
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    this.fillViewport(ctx, `rgba(${rgb},${alpha * m})`);
-    ctx.restore();
+    const goUntil = this.stopUntil + Game.STOP_GO_HOLD;
+    if (this.songTime < warnFrom || this.songTime >= goUntil) return;
 
     const cx = VW / 2;
     const cy = HORIZON_Y + (this.hitY() - HORIZON_Y) * 0.34;
-    const scalePop = inPenalty ? 1 + (1 - m) * 0.25 : 0.72 + warnT * 0.28;
+
+    if (this.songTime >= this.stopUntil) {
+      // FAZA 3 — GRAJ (zielony błysk, krótki i wyraźny, potem gaśnie)
+      const k = clamp((this.songTime - this.stopUntil) / Game.STOP_GO_HOLD, 0, 1);
+      const m = 1 - k;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      this.fillViewport(ctx, `rgba(94,230,168,${(0.3 * m).toFixed(3)})`);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = m;
+      ctx.translate(cx, cy);
+      ctx.scale(1 + k * 0.3, 1 + k * 0.3);
+      text(ctx, "GRAJ!", 0, 0, {
+        size: 46,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff",
+        glow: "#5ef2a0",
+        glowBlur: 24,
+        letterSpacing: "3px",
+      });
+      ctx.restore();
+      return;
+    }
+
+    const inPenalty = this.songTime >= this.stopStart;
+    if (inPenalty) {
+      // FAZA 2 — STOP (czerwono-niebieska migająca syrena)
+      const left = this.stopUntil - this.songTime;
+      const fadeOut = clamp(left / 0.15, 0, 1);
+      if (fadeOut <= 0.001) return;
+      const blink = Math.sin(this.songTime * 26) > 0;
+      const rgb = blink ? "255,59,74" : "63,134,255";
+
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      this.fillViewport(ctx, `rgba(${rgb},${(0.34 * fadeOut).toFixed(3)})`);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = fadeOut;
+      ctx.translate(cx, cy);
+      ctx.scale(1 + (1 - fadeOut) * 0.25, 1 + (1 - fadeOut) * 0.25);
+      text(ctx, "STOP!", 0, 0, {
+        size: 52,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff",
+        glow: blink ? "#ff3b4a" : "#3f86ff",
+        glowBlur: 26,
+        letterSpacing: "3px",
+      });
+      ctx.restore();
+      return;
+    }
+
+    // FAZA 1 — OSTRZEŻENIE (żółte, jedna stała barwa — celowo INNA niż
+    // czerwono-niebieska syrena kary, żeby faz nie dało się pomylić)
+    const warnT = clamp((this.songTime - warnFrom) / Game.STOP_WARN_LEAD, 0, 1);
+    const pulse = 0.6 + 0.4 * Math.sin(this.songTime * lerp(6, 16, warnT));
+    const alpha = (0.08 + 0.16 * warnT) * pulse;
+
     ctx.save();
-    ctx.globalAlpha = inPenalty ? m : 0.55 + 0.45 * warnT;
+    ctx.globalCompositeOperation = "lighter";
+    this.fillViewport(ctx, `rgba(255,190,50,${alpha.toFixed(3)})`);
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.5 + 0.5 * warnT;
     ctx.translate(cx, cy);
-    ctx.scale(scalePop, scalePop);
-    text(ctx, inPenalty ? "STOP!" : "UWAGA!", 0, 0, {
-      size: inPenalty ? 52 : 40,
+    ctx.scale(0.72 + warnT * 0.28, 0.72 + warnT * 0.28);
+    text(ctx, "UWAGA!", 0, 0, {
+      size: 38,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff",
-      glow: blink ? "#ff3b4a" : "#3f86ff",
-      glowBlur: inPenalty ? 26 : 16,
+      glow: "#ffbe32",
+      glowBlur: 16,
       letterSpacing: "3px",
     });
     ctx.restore();
