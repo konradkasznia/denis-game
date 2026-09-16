@@ -730,6 +730,8 @@ export class Game {
   private spotlightUntil = -10; // songTime końca reflektora
   private drunkStart = -10; // songTime początku „pijanego ekranu"
   private drunkUntil = -10; // songTime końca
+  private stopStart = -10; // songTime początku okna STOP (nic nie wolno kliknąć)
+  private stopUntil = -10; // songTime końca okna STOP
   private noteAlphaMul = 1; // mnożnik krycia nut (do „ducha" przy pijanym ekranie)
   private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
@@ -1007,6 +1009,11 @@ export class Game {
           } else if (e.type === "drunk") {
             this.drunkStart = this.songTime;
             this.drunkUntil = this.songTime + (e.dur ?? 5);
+            this.shake = Math.max(this.shake, 5);
+            haptic("flowUp");
+          } else if (e.type === "stop") {
+            this.stopStart = this.songTime;
+            this.stopUntil = this.songTime + (e.dur ?? 1.5);
             this.shake = Math.max(this.shake, 5);
             haptic("flowUp");
           }
@@ -2903,6 +2910,8 @@ export class Game {
     this.spotlightUntil = -10;
     this.drunkStart = -10;
     this.drunkUntil = -10;
+    this.stopStart = -10;
+    this.stopUntil = -10;
     this.noteAlphaMul = 1;
     this.bombLockMs = 0;
     this.fireLanes = [null, null, null, null];
@@ -3028,8 +3037,35 @@ export class Game {
     return performance.now() < this.bombLockMs;
   }
 
+  /** Czy trwa okno STOP (przeszkoda „gwizdek") — przez ten czas NIC nie wolno kliknąć. */
+  private isStopActive(): boolean {
+    return this.songTime >= this.stopStart && this.songTime < this.stopUntil;
+  }
+
+  /** Kara za złamanie STOP: -10 000 pkt, zbite combo, mocna wibracja, syrena
+   *  na pełnym ekranie (patrz drawStopSiren). Każdy tap w oknie liczy się osobno. */
+  private static readonly STOP_PENALTY = 10_000;
+  private triggerStopPenalty(lane: number) {
+    this.score = Math.max(0, this.score - Game.STOP_PENALTY);
+    this.combo = 0;
+    this.flow = 0;
+    this.flowTier = 0;
+    this.health = clamp(this.health - 0.12, 0, 1);
+    this.denisMissAt = this.songTime;
+    this.shake = Math.max(this.shake, 20);
+    this.audio.sfx("miss");
+    haptic("fail");
+    this.pushPopup(`-${Game.STOP_PENALTY.toLocaleString("pl-PL")}`, "#ff3b4a", lane);
+  }
+
   private pressLane(lane: number) {
     this.lanePress[lane] = 1;
+    // STOP — nic nie wolno kliknąć, sprawdzane PRZED wszystkim innym (bombą,
+    // ogniem, nutami) — każdy tap w oknie jest karany, niezależnie od reszty
+    if (this.isStopActive()) {
+      this.triggerStopPenalty(lane);
+      return;
+    }
     // ogłuszenie po bombie — tapy nie działają przez 3 s (zegar ścienny, żeby
     // skoki zegara audio nie skróciły blokady); nuty lecą dalej (kara)
     if (this.bombLocked()) return;
@@ -5541,6 +5577,7 @@ export class Game {
     this.drawJudgePopups(ctx);
     this.drawIce(ctx); // tafla lodu — pod HUD (gracz widzi spadające życie)
     this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
+    this.drawStopSiren(ctx); // syrena czerwono-niebieska w oknie STOP
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
 
@@ -6523,6 +6560,43 @@ export class Game {
     gl.addColorStop(1, "rgba(255,220,160,0)");
     ctx.fillStyle = gl;
     ctx.fillRect(0, top, VW, H);
+    ctx.restore();
+  }
+
+  /** STOP (przeszkoda „gwizdek"): syrena radiowozu na całym ekranie — szybkie
+   *  miganie czerwień/niebieski. Klikanie w tym oknie karane w `triggerStopPenalty`. */
+  private drawStopSiren(ctx: CanvasRenderingContext2D) {
+    const left = this.stopUntil - this.songTime;
+    if (left <= 0 || this.songTime < this.stopStart) return;
+    const fadeIn = clamp((this.songTime - this.stopStart) / 0.15, 0, 1);
+    const fadeOut = clamp(left / 0.15, 0, 1);
+    const m = Math.min(fadeIn, fadeOut);
+    if (m <= 0.001) return;
+
+    const blink = Math.sin(this.songTime * 26) > 0; // szybkie miganie, jak sygnalizacja radiowozu
+    const rgb = blink ? "255,59,74" : "63,134,255";
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    this.fillViewport(ctx, `rgba(${rgb},${0.34 * m})`);
+    ctx.restore();
+
+    const cx = VW / 2;
+    const cy = HORIZON_Y + (this.hitY() - HORIZON_Y) * 0.34;
+    const scalePop = 1 + (1 - m) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = m;
+    ctx.translate(cx, cy);
+    ctx.scale(scalePop, scalePop);
+    text(ctx, "STOP!", 0, 0, {
+      size: 52,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff",
+      glow: blink ? "#ff3b4a" : "#3f86ff",
+      glowBlur: 26,
+      letterSpacing: "3px",
+    });
     ctx.restore();
   }
 

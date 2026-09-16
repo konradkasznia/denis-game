@@ -92,6 +92,12 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     bpm: 130, // tymczasowe, do potwierdzenia z mp3
     bars: 30,
     // brak jeszcze grafik postaci — placeholder do testów mechaniki/efektu tła
+    // STOP — przykładowy układ do testów (nic nie wolno kliknąć przez 1,5 s)
+    events: [
+      { type: "stop", at: 14, dur: 1.5 },
+      { type: "stop", at: 30, dur: 1.5 },
+      { type: "stop", at: 44, dur: 1.5 },
+    ],
   },
   "byleby-nie-byla-ciepla": {
     title: "Byleby nie była ciepła",
