@@ -4308,6 +4308,49 @@ export class Game {
       ctx.lineTo(-0.06 * s, 1.05 * s);
       ctx.closePath();
       ctx.fill();
+    } else if (kind === "fire") {
+      // płomień — zewnętrzny (pomarańcz) + jaśniejszy rdzeń
+      ctx.fillStyle = "#ff6b1a";
+      ctx.beginPath();
+      ctx.moveTo(0, -1.1 * s);
+      ctx.bezierCurveTo(0.55 * s, -0.6 * s, 0.5 * s, -0.05 * s, 0.2 * s, 0.15 * s);
+      ctx.bezierCurveTo(0.5 * s, 0.1 * s, 0.62 * s, 0.55 * s, 0, 1.05 * s);
+      ctx.bezierCurveTo(-0.62 * s, 0.55 * s, -0.5 * s, 0.1 * s, -0.2 * s, 0.15 * s);
+      ctx.bezierCurveTo(-0.5 * s, -0.05 * s, -0.55 * s, -0.6 * s, 0, -1.1 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ffd24c";
+      ctx.beginPath();
+      ctx.moveTo(0, -0.48 * s);
+      ctx.bezierCurveTo(0.26 * s, -0.18 * s, 0.2 * s, 0.16 * s, 0, 0.55 * s);
+      ctx.bezierCurveTo(-0.2 * s, 0.16 * s, -0.26 * s, -0.18 * s, 0, -0.48 * s);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === "ice") {
+      // śnieżynka — 3 przekątne linie przez środek + krótkie „ząbki" na końcach
+      ctx.strokeStyle = "#9fd8ff";
+      ctx.lineWidth = Math.max(1.5, 0.15 * s);
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI) / 3;
+        const dx = Math.cos(a) * s;
+        const dy = Math.sin(a) * s;
+        ctx.beginPath();
+        ctx.moveTo(-dx, -dy);
+        ctx.lineTo(dx, dy);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        const bx = Math.cos(a) * 0.78 * s;
+        const by = Math.sin(a) * 0.78 * s;
+        const perp = a + Math.PI / 2;
+        const px = Math.cos(perp) * 0.18 * s;
+        const py = Math.sin(perp) * 0.18 * s;
+        ctx.beginPath();
+        ctx.moveTo(bx - px, by - py);
+        ctx.lineTo(bx + px, by + py);
+        ctx.stroke();
+      }
     } else {
       // latarka pod skosem + snop światła
       ctx.save();
