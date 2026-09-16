@@ -3125,16 +3125,26 @@ export class Game {
 
   /** Odświeża cache „płonąca nuta w drodze per tor" (raz na klatkę). Gaśnica w
    *  okręgu i logika gaszenia czytają tylko ten cache — bez pętli po nutach przy
-   *  każdym tapnięciu i przy rysowaniu. */
+   *  każdym tapnięciu i przy rysowaniu.
+   *  Gaśnica pokazuje się TYLKO gdy płonąca nuta jest NAJBLIŻSZĄ nieocenioną
+   *  nutą w tym torze — jeśli przed nią czeka jeszcze zwykła nuta, gaśnica
+   *  czeka, żeby nie kusić do gaszenia „za wcześnie" (zanim w ogóle przyjdzie
+   *  kolej na tę nutę). */
   private refreshFireLanes() {
     for (let l = 0; l < LANES; l++) this.fireLanes[l] = null;
     if (!this.songHasFire) return;
+    const nextInLane: (Note | null)[] = [null, null, null, null];
+    for (const n of this.song.notes) {
+      if (n.judged || n.holding) continue;
+      const cur = nextInLane[n.lane];
+      if (!cur || n.time < cur.time) nextInLane[n.lane] = n;
+    }
     for (const n of this.song.notes) {
       if (!n.fire || n.fireOut || n.judged || n.holding) continue;
+      if (nextInLane[n.lane] !== n) continue; // przed nią jeszcze inna nuta w kolejce
       const e = this.eForTime(n.time);
       if (e >= 1 || e < -0.1) continue; // tylko nad linią trafienia
-      const cur = this.fireLanes[n.lane];
-      if (!cur || e > this.eForTime(cur.time)) this.fireLanes[n.lane] = n;
+      this.fireLanes[n.lane] = n;
     }
   }
 
