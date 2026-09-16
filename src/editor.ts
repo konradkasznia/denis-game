@@ -181,7 +181,17 @@ async function fetchSongAudio(id: string): Promise<Blob | null> {
     `/api/song-audio?id=${encodeURIComponent(id)}`,
   ]) {
     try {
-      const r = await fetch(url);
+      // bez timeoutu potrafiło wisieć bez końca na słabej sieci (telefon) —
+      // openProject() czeka na to PRZED decodeInto(), więc audioBuffer zostawał
+      // null i „graj" cicho nic nie robił (ani dźwięku, ani ruchu paska)
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 6000);
+      let r: Response;
+      try {
+        r = await fetch(url, { signal: ctrl.signal });
+      } finally {
+        clearTimeout(to);
+      }
       if (!r.ok) {
         console.warn("[audio]", url, "→", r.status);
         continue;
@@ -455,7 +465,14 @@ function computePeaks() {
   }
 }
 async function play() {
-  if (!audioBuffer || playing) return;
+  if (playing) return;
+  if (!audioBuffer) {
+    // wcześniej ciche nic-nie-robienie — na telefonie (wolniejsza sieć) wyglądało
+    // jak „graj nie działa", bo wczytywanie audio projektu jeszcze trwało w tle
+    drop.style.display = "flex";
+    drop.textContent = "dźwięk jeszcze się wczytuje (albo go nie ma) — chwilę poczekaj i spróbuj ► graj ponownie";
+    return;
+  }
   // KLUCZOWE na telefonie: kontekst trzeba wznowić PRZED odpaleniem źródła,
   // nie po. Powstał (`new AudioContext()`) poza gestem użytkownika, więc na
   // starcie jest „suspended" — jeśli źródło ruszy zanim kontekst faktycznie
