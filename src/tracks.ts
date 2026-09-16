@@ -86,6 +86,13 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
       { lane: 3, time: 45.0 },
     ],
   },
+  "pani-policjantko": {
+    title: "Pani policjantko",
+    artist: "Denis",
+    bpm: 130, // tymczasowe, do potwierdzenia z mp3
+    bars: 30,
+    // brak jeszcze grafik postaci — placeholder do testów mechaniki/efektu tła
+  },
   "byleby-nie-byla-ciepla": {
     title: "Byleby nie była ciepła",
     artist: "Denis",

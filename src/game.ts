@@ -3396,6 +3396,11 @@ export class Game {
     g.addColorStop(1, `rgba(5,5,12,${0.75 + darken * 0.2})`);
     this.fillViewport(ctx, g);
 
+    if (this.trackId === "pani-policjantko") {
+      this.drawFlyingSpotlights(ctx, pulse);
+      return;
+    }
+
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     const lightY = top + this.sh() * 0.32;
@@ -3411,6 +3416,146 @@ export class Game {
       ctx.fillStyle = rg;
       ctx.beginPath();
       ctx.arc(lx, ly, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ---- „latające reflektory" — bajer tła dla Pani Policjantko (bez wpływu
+  // na nuty/tory). Strojone ręcznie przez Konrada w osobnym podglądzie:
+  // 5 reflektorów, 1.5x prędkość, 85% poświaty, 105% szerokości, paleta
+  // radiowóz (czerwień/niebieski), puls do rytmu, pył w świetle.
+  private policeBeams: {
+    originT: number;
+    baseAngle: number;
+    swaySpeed: number;
+    swayAmp: number;
+    phase: number;
+    colorIdx: number;
+  }[] | null = null;
+  private policeDust: { x: number; y: number; r: number; vy: number; phase: number }[] | null = null;
+
+  private ensurePoliceFx() {
+    if (this.policeBeams) return;
+    const COUNT = 5;
+    const beams = [];
+    for (let i = 0; i < COUNT; i++) {
+      beams.push({
+        originT: (i + 0.5) / COUNT + (Math.random() - 0.5) * 0.06,
+        baseAngle: -0.35 + (i / Math.max(1, COUNT - 1)) * 0.7,
+        swaySpeed: 0.18 + Math.random() * 0.16,
+        swayAmp: 0.55 + Math.random() * 0.35,
+        phase: Math.random() * Math.PI * 2,
+        colorIdx: i % 2, // naprzemiennie czerwień/niebieski
+      });
+    }
+    this.policeBeams = beams;
+    this.policeDust = Array.from({ length: 40 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.6 + Math.random() * 1.4,
+      vy: 0.004 + Math.random() * 0.006,
+      phase: Math.random() * Math.PI * 2,
+    }));
+  }
+
+  private drawFlyingSpotlights(ctx: CanvasRenderingContext2D, pulse: number) {
+    this.ensurePoliceFx();
+    const top = -this.vdy;
+    const w = VW;
+    const h = this.sh();
+    const t = Math.max(this.songTime, 0);
+
+    const SPEED = 1.5;
+    const GLOW = 0.85;
+    const WIDTH_MUL = 1.05;
+    const COLORS: [number, number, number][] = [
+      [255, 59, 74], // czerwień radiowozu
+      [63, 134, 255], // niebieski radiowozu
+    ];
+    // puls do rytmu — ten sam zegar co reszta HUD-u (beatPulse), nie osobne 120 bpm
+    const beatP = 0.75 + 0.25 * pulse;
+
+    const bgg = ctx.createLinearGradient(0, top, 0, top + h);
+    bgg.addColorStop(0, "#050308");
+    bgg.addColorStop(0.55, "#0b0712");
+    bgg.addColorStop(1, "#120a14");
+    this.fillViewport(ctx, bgg);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.filter = `blur(${Math.max(2, h * 0.012)}px)`;
+
+    const originY = top - h * 0.06;
+    const beamLen = h * 1.25;
+
+    for (const b of this.policeBeams!) {
+      const originX = b.originT * w;
+      const sway = Math.sin(t * b.swaySpeed * SPEED * 2 + b.phase) * b.swayAmp;
+      const angle = b.baseAngle + sway * 0.9 + Math.PI / 2;
+      const halfAngle = 0.11 * WIDTH_MUL;
+
+      const dx1 = Math.cos(angle - halfAngle) * beamLen;
+      const dy1 = Math.sin(angle - halfAngle) * beamLen;
+      const dx2 = Math.cos(angle + halfAngle) * beamLen;
+      const dy2 = Math.sin(angle + halfAngle) * beamLen;
+
+      const [r, g, bl] = COLORS[b.colorIdx];
+      const grad = ctx.createLinearGradient(
+        originX,
+        originY,
+        originX + Math.cos(angle) * beamLen,
+        originY + Math.sin(angle) * beamLen,
+      );
+      const a0 = 0.3 * GLOW * beatP;
+      grad.addColorStop(0, `rgba(${r},${g},${bl},${a0})`);
+      grad.addColorStop(0.35, `rgba(${r},${g},${bl},${a0 * 0.55})`);
+      grad.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.lineTo(originX + dx1, originY + dy1);
+      ctx.lineTo(originX + dx2, originY + dy2);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${0.5 * GLOW * beatP})`;
+      ctx.lineWidth = Math.max(1, w * 0.006);
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.lineTo(originX + Math.cos(angle) * beamLen, originY + Math.sin(angle) * beamLen);
+      ctx.stroke();
+
+      const fg = ctx.createRadialGradient(
+        originX,
+        originY + h * 0.015,
+        0,
+        originX,
+        originY + h * 0.015,
+        w * 0.05,
+      );
+      fg.addColorStop(0, `rgba(${r},${g},${bl},${0.6 * beatP})`);
+      fg.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.arc(originX, originY + h * 0.015, w * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.filter = "none";
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const d of this.policeDust!) {
+      d.y -= d.vy * 0.4;
+      if (d.y < -0.02) d.y = 1.02;
+      const px = d.x * w;
+      const py = top + d.y * h;
+      const tw = 0.5 + 0.5 * Math.sin(t * 1.6 + d.phase);
+      ctx.beginPath();
+      ctx.arc(px, py, d.r * (w / 380), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,240,210,${0.1 + 0.12 * tw})`;
       ctx.fill();
     }
     ctx.restore();

@@ -57,7 +57,8 @@ export const SONGS: SongMeta[] = [
     artist: "Denis",
     accent: "#8ab6ff",
     spotifyUrl: "https://open.spotify.com/track/1aIjxCDYeK0oECqNYMk9Cx",
-    playable: false, // wkrótce
+    playable: true,
+    devOnly: true, // w testach — bez mp3/chartu/postaci, na razie tylko konto Konrad
   },
   {
     id: "byleby-nie-byla-ciepla",
