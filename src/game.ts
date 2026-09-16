@@ -201,7 +201,7 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   },
   fire: {
     title: "UWAŻAJ NA OGIEŃ",
-    body: "Płonącą nutkę najpierw gasisz — dowolne stuknięcie w jej tor, zanim dojedzie do linii. Potem wciąż trzeba trafić ją normalnie, na czas. Nie zgasisz na czas — poparzenie i kara punktowa.",
+    body: "Gdy nutka się pali, przy linii trafienia pojawia się gaśnica — dowolne stuknięcie w ten tor gasi ogień, zanim nutka dojedzie do linii. Potem wciąż trzeba trafić ją normalnie, na czas. Nie zgasisz na czas — poparzenie i kara punktowa.",
   },
   ice: {
     title: "UWAŻAJ NA LÓD",
@@ -4478,6 +4478,31 @@ export class Game {
       const justOut = p >= extinguishAt && p < extinguishAt + 0.12;
       field(false, []);
       const bx = lanesX[2];
+      const recX = vx + (bx - vx) * 1;
+      // gaśnica przy linii trafienia — DOKŁADNIE ten sam sygnał co w realnej
+      // rozgrywce (drawPlayfield): pulsujący pierścień + ikonka, dopóki nutka
+      // się pali. Bez tego podgląd nie tłumaczył, CO właściwie trzeba kliknąć.
+      if (lit) {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 7);
+        ctx.save();
+        ctx.globalAlpha = 0.55 + 0.35 * pulse;
+        ctx.strokeStyle = "#ff8a1e";
+        ctx.lineWidth = 3 + 2 * pulse;
+        ctx.beginPath();
+        ctx.arc(recX, hitY, 15, 0, Math.PI * 2);
+        ctx.stroke();
+        const spr = this.extSprite();
+        const d = 26;
+        ctx.globalAlpha = 1;
+        ctx.drawImage(spr, recX - d / 2, hitY - d / 2, d, d);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(recX, hitY, 11, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       const x = vx + (bx - vx) * (0.05 + 0.95 * p);
       const y = vy + (hitY - vy) * p;
       const rr = 3 + 9 * p;
@@ -4508,17 +4533,23 @@ export class Game {
       if (c >= 1.15 && c < 1.45) {
         const k = (c - 1.15) / 0.3;
         ctx.beginPath();
-        ctx.arc(vx + (bx - vx) * 1, hitY, 11 + k * 14, 0, Math.PI * 2);
+        ctx.arc(recX, hitY, 11 + k * 14, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(138,255,193,${0.9 * (1 - k)})`;
         ctx.lineWidth = 3;
         ctx.stroke();
       }
-      text(ctx, c < 1.0 ? "OGIEŃ · zgaś stuknięciem w tor" : "...potem trafiasz normalnie", ox + ow / 2, oy + 17, {
-        size: 12.5,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "rgba(255,180,120,0.9)",
-      });
+      text(
+        ctx,
+        lit ? "OGIEŃ · gaśnica = stuknij w tor" : c < 1.0 ? "zgaszone" : "...potem trafiasz normalnie",
+        ox + ow / 2,
+        oy + 17,
+        {
+          size: 12.5,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "rgba(255,180,120,0.9)",
+        },
+      );
     } else if (kind === "ice") {
       const cyc = 4.4;
       const c = t % cyc;
