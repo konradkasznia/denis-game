@@ -179,13 +179,12 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "stop";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   pogrzebowka: ["bomb", "vodka", "flashlight"],
   "pan-strazak": ["fire"],
   "byleby-nie-byla-ciepla": ["ice"],
-  "pani-policjantko": ["stop"],
 };
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
@@ -207,10 +206,6 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   ice: {
     title: "UWAŻAJ NA LÓD",
     body: "Ekran nagle zamarza w taflę lodu. Trzeba ją szybko rozbić serią stuknięć, zanim gra pójdzie dalej — nuty w tym czasie i tak są nie do zagrania.",
-  },
-  stop: {
-    title: "UWAŻAJ NA STOP",
-    body: "Żółte „UWAGA!” — zaraz nie wolno klikać. Czerwono-niebieskie „STOP!” — ani jednego dotknięcia, inaczej -10 000 pkt. Zielone „GRAJ!” — można znów tapować.",
   },
 };
 
@@ -745,9 +740,6 @@ export class Game {
   private spotlightUntil = -10; // songTime końca reflektora
   private drunkStart = -10; // songTime początku „pijanego ekranu"
   private drunkUntil = -10; // songTime końca
-  private stopStart = -10; // songTime początku okna STOP (nic nie wolno kliknąć)
-  private stopUntil = -10; // songTime końca okna STOP
-  private stopGoFired = true; // czy haptyk „GRAJ!" już poleciał dla bieżącego okna
   private noteAlphaMul = 1; // mnożnik krycia nut (do „ducha" przy pijanym ekranie)
   private bombLockMs = 0; // performance.now() końca blokady tapów + animacji po bombie (3 s)
   private bombLane = 0; // tor, w którym wybuchła bomba (środek animacji)
@@ -1014,10 +1006,7 @@ export class Game {
       if (evs) {
         for (let i = 0; i < evs.length; i++) {
           const e = evs[i];
-          // STOP dostaje zapowiedź PRZED właściwym oknem kary (patrz
-          // STOP_WARN_LEAD) — reszta zdarzeń odpala się dokładnie na `at`
-          const fireAt = e.type === "stop" ? e.at - Game.STOP_WARN_LEAD : e.at;
-          if (this.evFired.has(i) || this.songTime < fireAt) continue;
+          if (this.evFired.has(i) || this.songTime < e.at) continue;
           this.evFired.add(i);
           if (e.type === "ice") this.triggerIce(e.taps ?? 20);
           else if (e.type === "spotlight") {
@@ -1030,24 +1019,8 @@ export class Game {
             this.drunkUntil = this.songTime + (e.dur ?? 5);
             this.shake = Math.max(this.shake, 5);
             haptic("flowUp");
-          } else if (e.type === "stop") {
-            // zdarzenie odpala się WCZEŚNIEJ niż samo okno kary (patrz warunek
-            // pętli niżej) — dzięki temu jest czas na zapowiedź (drawStopSiren)
-            // zanim tap zacznie być karany; `stopStart/stopUntil` to dokładnie
-            // okno z chartu, nietknięte
-            this.stopStart = e.at;
-            this.stopUntil = e.at + (e.dur ?? 1.5);
-            this.stopGoFired = false; // to okno jeszcze nie dostało haptyka „GRAJ!"
-            this.shake = Math.max(this.shake, 5);
-            haptic("flowUp"); // wibracja OSTRZEGAWCZA — już w fazie zapowiedzi
           }
         }
-      }
-      // koniec okna STOP — osobny, WYRAŹNIE inny haptyk "już można klikać",
-      // bez tego okno po prostu gasło i nie było czuć/widać kiedy wolno wznowić
-      if (!this.stopGoFired && this.songTime >= this.stopUntil) {
-        this.stopGoFired = true;
-        haptic("tick");
       }
       this.checkMisses();
       this.refreshFireLanes();
@@ -2940,9 +2913,6 @@ export class Game {
     this.spotlightUntil = -10;
     this.drunkStart = -10;
     this.drunkUntil = -10;
-    this.stopStart = -10;
-    this.stopUntil = -10;
-    this.stopGoFired = true;
     this.noteAlphaMul = 1;
     this.bombLockMs = 0;
     this.fireLanes = [null, null, null, null];
@@ -3068,42 +3038,8 @@ export class Game {
     return performance.now() < this.bombLockMs;
   }
 
-  /** Czy trwa okno STOP (przeszkoda „gwizdek") — przez ten czas NIC nie wolno kliknąć. */
-  private isStopActive(): boolean {
-    return this.songTime >= this.stopStart && this.songTime < this.stopUntil;
-  }
-
-  /** Ile sekund PRZED oknem kary zaczyna się zapowiedź (syrena narasta, wibracja
-   *  ostrzegawcza) — bez tego gracz nie ma jak wiedzieć, KIEDY ma przestać klikać. */
-  private static readonly STOP_WARN_LEAD = 0.7;
-  /** Ile sekund po końcu kary trzyma się zielony błysk „GRAJ!" — bez tego okno
-   *  po prostu gasło i nie było wiadomo, kiedy znów wolno klikać. */
-  private static readonly STOP_GO_HOLD = 0.35;
-
-  /** Kara za złamanie STOP: -10 000 pkt, zbite combo, mocna wibracja, syrena
-   *  na pełnym ekranie (patrz drawStopSiren). Każdy tap w oknie liczy się osobno. */
-  private static readonly STOP_PENALTY = 10_000;
-  private triggerStopPenalty(lane: number) {
-    this.score = Math.max(0, this.score - Game.STOP_PENALTY);
-    this.combo = 0;
-    this.flow = 0;
-    this.flowTier = 0;
-    this.health = clamp(this.health - 0.12, 0, 1);
-    this.denisMissAt = this.songTime;
-    this.shake = Math.max(this.shake, 20);
-    this.audio.sfx("miss");
-    haptic("fail");
-    this.pushPopup(`-${Game.STOP_PENALTY.toLocaleString("pl-PL")}`, "#ff3b4a", lane);
-  }
-
   private pressLane(lane: number) {
     this.lanePress[lane] = 1;
-    // STOP — nic nie wolno kliknąć, sprawdzane PRZED wszystkim innym (bombą,
-    // ogniem, nutami) — każdy tap w oknie jest karany, niezależnie od reszty
-    if (this.isStopActive()) {
-      this.triggerStopPenalty(lane);
-      return;
-    }
     // ogłuszenie po bombie — tapy nie działają przez 3 s (zegar ścienny, żeby
     // skoki zegara audio nie skróciły blokady); nuty lecą dalej (kara)
     if (this.bombLocked()) return;
@@ -3283,7 +3219,6 @@ export class Game {
 
   private checkMisses() {
     const off = this.offsetSec();
-    const stopSilent = this.isStopActive(); // patrz komentarz w apply()
     for (const n of this.song.notes) {
       if (!isMissed(n, this.songTime, off)) continue;
       if (n.bomb) {
@@ -3298,12 +3233,12 @@ export class Game {
       n.hit = false;
       n.headJ = "miss";
       n.judgedAt = n.time + 0.145;
-      if (n.fire && !n.fireOut) this.apply("miss", n.lane, "SKUCIE!", "#ff7a2c", stopSilent);
-      else this.apply("miss", n.lane, undefined, undefined, stopSilent);
+      if (n.fire && !n.fireOut) this.apply("miss", n.lane, "SKUCIE!", "#ff7a2c");
+      else this.apply("miss", n.lane);
     }
   }
 
-  private apply(j: Judgement, lane: number, missLabel?: string, missColor?: string, silent = false) {
+  private apply(j: Judgement, lane: number, missLabel?: string, missColor?: string) {
     this.counts[j]++;
     this.judgedCount++;
     this.accSum += ACC_WEIGHT[j];
@@ -3315,14 +3250,10 @@ export class Game {
       if (this.flowTier > 0) this.flowTier = Math.max(0, this.flowTier - 1);
       this.health = clamp(this.health - 0.07, 0, 1);
       this.denisMissAt = t;
-      // W OKNIE STOP nuty i tak nie da się dotknąć bez kary — osobny popup
-      // "PUDŁO" nakładający się na syrenę tylko myli; wynik/combo bez zmian.
-      if (!silent) {
-        this.shake = Math.max(this.shake, 9);
-        this.audio.sfx("miss");
-        haptic("miss");
-        this.pushPopup(missLabel ?? JUDGE_LABEL.miss, missColor ?? JUDGE_COLOR.miss, lane);
-      }
+      this.shake = Math.max(this.shake, 9);
+      this.audio.sfx("miss");
+      haptic("miss");
+      this.pushPopup(missLabel ?? JUDGE_LABEL.miss, missColor ?? JUDGE_COLOR.miss, lane);
       return;
     }
 
@@ -4275,7 +4206,6 @@ export class Game {
     flashlight: "LATARKA",
     fire: "OGIEŃ",
     ice: "LÓD",
-    stop: "STOP", // brak gotowej grafiki — rysowany zapasowo (patrz drawWarnSign)
   };
 
   private drawWarnSign(
@@ -4361,16 +4291,6 @@ export class Game {
       ctx.lineTo(-0.06 * s, 1.05 * s);
       ctx.closePath();
       ctx.fill();
-    } else if (kind === "stop") {
-      // dłoń „stop" nie mieści się czytelnie w tym rozmiarze — sam napis,
-      // ten sam skrót co w rundzie
-      text(ctx, "STOP", 0, 0.04 * s, {
-        size: s * 1.15,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#e5342f",
-        letterSpacing: "0.5px",
-      });
     } else {
       // latarka pod skosem + snop światła
       ctx.save();
@@ -4720,55 +4640,6 @@ export class Game {
         font: HEAD_FONT,
         color: `rgba(190,230,255,${(0.6 + 0.4 * frost).toFixed(3)})`,
       });
-    } else if (kind === "stop") {
-      // te same 3 fazy co w rundzie (drawStopSiren), skrócone do pętli podglądu
-      const warnDur = 0.8;
-      const stopDur = 1.0;
-      const goDur = 0.4;
-      const pauseDur = 0.6;
-      const cyc = warnDur + stopDur + goDur + pauseDur;
-      const c = t % cyc;
-      field(false, []);
-      let rgb = "";
-      let alpha = 0;
-      let label = "";
-      let glow = "#ffbe32";
-      if (c < warnDur) {
-        rgb = "255,190,50";
-        alpha = 0.1 + 0.18 * (c / warnDur);
-        label = "UWAGA!";
-        glow = "#ffbe32";
-      } else if (c < warnDur + stopDur) {
-        const blink = Math.sin(t * 26) > 0;
-        rgb = blink ? "255,59,74" : "63,134,255";
-        alpha = 0.4;
-        label = "STOP!";
-        glow = blink ? "#ff3b4a" : "#3f86ff";
-      } else if (c < warnDur + stopDur + goDur) {
-        const k = 1 - (c - warnDur - stopDur) / goDur;
-        rgb = "94,230,168";
-        alpha = 0.35 * k;
-        label = "GRAJ!";
-        glow = "#5ef2a0";
-      }
-      if (alpha > 0) {
-        ctx.save();
-        ctx.globalCompositeOperation = "lighter";
-        ctx.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
-        ctx.fillRect(ox, oy, ow, oh);
-        ctx.restore();
-      }
-      if (label) {
-        text(ctx, label, ox + ow / 2, oy + oh / 2, {
-          size: 26,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#fff",
-          glow,
-          glowBlur: 14,
-          letterSpacing: "2px",
-        });
-      }
     } else {
       const cyc = 4.2;
       const c = t % cyc;
@@ -5774,7 +5645,6 @@ export class Game {
     this.drawJudgePopups(ctx);
     this.drawIce(ctx); // tafla lodu — pod HUD (gracz widzi spadające życie)
     this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
-    this.drawStopSiren(ctx); // syrena czerwono-niebieska w oknie STOP
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
 
@@ -6757,106 +6627,6 @@ export class Game {
     gl.addColorStop(1, "rgba(255,220,160,0)");
     ctx.fillStyle = gl;
     ctx.fillRect(0, top, VW, H);
-    ctx.restore();
-  }
-
-  /** STOP (przeszkoda „gwizdek") — 3 WYRAŹNIE różne fazy, żeby nie trzeba było
-   *  zgadywać kiedy przestać i kiedy znów wolno klikać:
-   *   1) OSTRZEŻENIE (żółte, stałe, rosnące) — „zaraz będzie STOP"
-   *   2) STOP (czerwono-niebieska migająca syrena) — nic nie wolno kliknąć,
-   *      kara w `triggerStopPenalty`
-   *   3) GRAJ (zielony błysk) — wyraźny sygnał „już można", jak zielone
-   *      światło; bez tego okno po prostu gasło i nie było wiadomo, kiedy
-   *      można znów bezpiecznie klikać. */
-  private drawStopSiren(ctx: CanvasRenderingContext2D) {
-    const warnFrom = this.stopStart - Game.STOP_WARN_LEAD;
-    const goUntil = this.stopUntil + Game.STOP_GO_HOLD;
-    if (this.songTime < warnFrom || this.songTime >= goUntil) return;
-
-    const cx = VW / 2;
-    const cy = HORIZON_Y + (this.hitY() - HORIZON_Y) * 0.34;
-
-    if (this.songTime >= this.stopUntil) {
-      // FAZA 3 — GRAJ (zielony błysk, krótki i wyraźny, potem gaśnie)
-      const k = clamp((this.songTime - this.stopUntil) / Game.STOP_GO_HOLD, 0, 1);
-      const m = 1 - k;
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      this.fillViewport(ctx, `rgba(94,230,168,${(0.3 * m).toFixed(3)})`);
-      ctx.restore();
-
-      ctx.save();
-      ctx.globalAlpha = m;
-      ctx.translate(cx, cy);
-      ctx.scale(1 + k * 0.3, 1 + k * 0.3);
-      text(ctx, "GRAJ!", 0, 0, {
-        size: 46,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#fff",
-        glow: "#5ef2a0",
-        glowBlur: 24,
-        letterSpacing: "3px",
-      });
-      ctx.restore();
-      return;
-    }
-
-    const inPenalty = this.songTime >= this.stopStart;
-    if (inPenalty) {
-      // FAZA 2 — STOP (czerwono-niebieska migająca syrena)
-      const left = this.stopUntil - this.songTime;
-      const fadeOut = clamp(left / 0.15, 0, 1);
-      if (fadeOut <= 0.001) return;
-      const blink = Math.sin(this.songTime * 26) > 0;
-      const rgb = blink ? "255,59,74" : "63,134,255";
-
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      this.fillViewport(ctx, `rgba(${rgb},${(0.34 * fadeOut).toFixed(3)})`);
-      ctx.restore();
-
-      ctx.save();
-      ctx.globalAlpha = fadeOut;
-      ctx.translate(cx, cy);
-      ctx.scale(1 + (1 - fadeOut) * 0.25, 1 + (1 - fadeOut) * 0.25);
-      text(ctx, "STOP!", 0, 0, {
-        size: 52,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#fff",
-        glow: blink ? "#ff3b4a" : "#3f86ff",
-        glowBlur: 26,
-        letterSpacing: "3px",
-      });
-      ctx.restore();
-      return;
-    }
-
-    // FAZA 1 — OSTRZEŻENIE (żółte, jedna stała barwa — celowo INNA niż
-    // czerwono-niebieska syrena kary, żeby faz nie dało się pomylić)
-    const warnT = clamp((this.songTime - warnFrom) / Game.STOP_WARN_LEAD, 0, 1);
-    const pulse = 0.6 + 0.4 * Math.sin(this.songTime * lerp(6, 16, warnT));
-    const alpha = (0.08 + 0.16 * warnT) * pulse;
-
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    this.fillViewport(ctx, `rgba(255,190,50,${alpha.toFixed(3)})`);
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.5 + 0.5 * warnT;
-    ctx.translate(cx, cy);
-    ctx.scale(0.72 + warnT * 0.28, 0.72 + warnT * 0.28);
-    text(ctx, "UWAGA!", 0, 0, {
-      size: 38,
-      weight: "900",
-      font: HEAD_FONT,
-      color: "#fff",
-      glow: "#ffbe32",
-      glowBlur: 16,
-      letterSpacing: "3px",
-    });
     ctx.restore();
   }
 

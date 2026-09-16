@@ -35,12 +35,12 @@ export interface Note {
 
 /** Zdarzenie na osi czasu utworu (poza nutami) — „przeszkoda" z edytora. */
 export interface SongEvent {
-  type: "ice" | "spotlight" | "drunk" | "stop";
+  type: "ice" | "spotlight" | "drunk";
   /** sekunda utworu, w której się uruchamia */
   at: number;
   /** LÓD: ile tapnięć trzeba, by rozbić lód */
   taps?: number;
-  /** REFLEKTOR / PIJANY EKRAN / STOP: ile sekund trwa efekt (STOP domyślnie 1,5 s) */
+  /** REFLEKTOR / PIJANY EKRAN: ile sekund trwa efekt */
   dur?: number;
 }
 
