@@ -4232,158 +4232,19 @@ export class Game {
     r: number,
     kind: ObstacleKind,
   ) {
-    // gotowa grafika znaku (białe koło + czerwony rant + ikona), inaczej rysowana zapasowo
+    // Wszystkie znaki są zaszyte w buildzie (bez sieci), więc opóźnienie to co
+    // najwyżej pierwsza klatka po wejściu na ekran — zamiast pokazywać
+    // tymczasową zapasową ikonę (myliła: raz było widać latarkę zamiast
+    // ognia/lodu), po prostu nic nie rysujemy, dopóki prawdziwa grafika się
+    // nie doczyta — pojawia się czysto, bez migawki.
     const img = this.uiImg(`Warning/${Game.WARN_SIGN_FILE[kind]}.png`);
-    if (imgReady(img)) {
-      const d = r * 2.14; // grafika ma ~7% przezroczystego marginesu wokół koła
-      ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.45)";
-      ctx.shadowBlur = r * 0.3;
-      ctx.shadowOffsetY = r * 0.12;
-      ctx.drawImage(img, cx - d / 2, cy - d / 2, d, d);
-      ctx.restore();
-      return;
-    }
-
+    if (!imgReady(img)) return;
+    const d = r * 2.14; // grafika ma ~7% przezroczystego marginesu wokół koła
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "#fbfbfb";
-    ctx.fill();
-    ctx.lineWidth = Math.max(3, r * 0.2);
-    ctx.strokeStyle = "#e5342f";
-    ctx.stroke();
-
-    ctx.translate(cx, cy);
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    const dark = "#15121c";
-    const s = r * 0.52;
-
-    if (kind === "bomb") {
-      ctx.fillStyle = dark;
-      ctx.beginPath();
-      ctx.arc(-0.12 * s, 0.24 * s, 0.78 * s, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(-0.2 * s, -0.62 * s, 0.34 * s, 0.34 * s);
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 0.18 * s;
-      ctx.beginPath();
-      ctx.moveTo(0.06 * s, -0.56 * s);
-      ctx.quadraticCurveTo(0.82 * s, -0.78 * s, 0.66 * s, -1.18 * s);
-      ctx.stroke();
-      ctx.fillStyle = "#ff7a2f";
-      ctx.beginPath();
-      ctx.arc(0.66 * s, -1.2 * s, 0.2 * s, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.22)";
-      ctx.beginPath();
-      ctx.arc(-0.42 * s, -0.06 * s, 0.2 * s, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (kind === "vodka") {
-      // przechylona butelka wódki + kieliszek
-      ctx.save();
-      ctx.rotate(-0.42);
-      ctx.fillStyle = dark;
-      roundRect(ctx, -1.0 * s, -0.28 * s, 0.66 * s, 1.2 * s, 0.12 * s);
-      ctx.fill();
-      ctx.fillRect(-0.78 * s, -0.66 * s, 0.22 * s, 0.42 * s);
-      ctx.fillRect(-0.82 * s, -0.82 * s, 0.3 * s, 0.18 * s);
-      ctx.fillStyle = "#fbfbfb";
-      ctx.fillRect(-0.96 * s, 0.08 * s, 0.58 * s, 0.44 * s);
-      ctx.restore();
-      // strużka
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 0.12 * s;
-      ctx.beginPath();
-      ctx.moveTo(-0.2 * s, -0.1 * s);
-      ctx.lineTo(0.06 * s, 0.44 * s);
-      ctx.stroke();
-      // kieliszek
-      ctx.fillStyle = dark;
-      ctx.beginPath();
-      ctx.moveTo(-0.24 * s, 0.5 * s);
-      ctx.lineTo(0.4 * s, 0.5 * s);
-      ctx.lineTo(0.22 * s, 1.05 * s);
-      ctx.lineTo(-0.06 * s, 1.05 * s);
-      ctx.closePath();
-      ctx.fill();
-    } else if (kind === "fire") {
-      // płomień — zewnętrzny (pomarańcz) + jaśniejszy rdzeń
-      ctx.fillStyle = "#ff6b1a";
-      ctx.beginPath();
-      ctx.moveTo(0, -1.1 * s);
-      ctx.bezierCurveTo(0.55 * s, -0.6 * s, 0.5 * s, -0.05 * s, 0.2 * s, 0.15 * s);
-      ctx.bezierCurveTo(0.5 * s, 0.1 * s, 0.62 * s, 0.55 * s, 0, 1.05 * s);
-      ctx.bezierCurveTo(-0.62 * s, 0.55 * s, -0.5 * s, 0.1 * s, -0.2 * s, 0.15 * s);
-      ctx.bezierCurveTo(-0.5 * s, -0.05 * s, -0.55 * s, -0.6 * s, 0, -1.1 * s);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#ffd24c";
-      ctx.beginPath();
-      ctx.moveTo(0, -0.48 * s);
-      ctx.bezierCurveTo(0.26 * s, -0.18 * s, 0.2 * s, 0.16 * s, 0, 0.55 * s);
-      ctx.bezierCurveTo(-0.2 * s, 0.16 * s, -0.26 * s, -0.18 * s, 0, -0.48 * s);
-      ctx.closePath();
-      ctx.fill();
-    } else if (kind === "ice") {
-      // śnieżynka — 3 przekątne linie przez środek + krótkie „ząbki" na końcach
-      ctx.strokeStyle = "#9fd8ff";
-      ctx.lineWidth = Math.max(1.5, 0.15 * s);
-      for (let i = 0; i < 3; i++) {
-        const a = (i * Math.PI) / 3;
-        const dx = Math.cos(a) * s;
-        const dy = Math.sin(a) * s;
-        ctx.beginPath();
-        ctx.moveTo(-dx, -dy);
-        ctx.lineTo(dx, dy);
-        ctx.stroke();
-      }
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3;
-        const bx = Math.cos(a) * 0.78 * s;
-        const by = Math.sin(a) * 0.78 * s;
-        const perp = a + Math.PI / 2;
-        const px = Math.cos(perp) * 0.18 * s;
-        const py = Math.sin(perp) * 0.18 * s;
-        ctx.beginPath();
-        ctx.moveTo(bx - px, by - py);
-        ctx.lineTo(bx + px, by + py);
-        ctx.stroke();
-      }
-    } else {
-      // latarka pod skosem + snop światła
-      ctx.save();
-      ctx.rotate(-0.5);
-      ctx.translate(0.15 * s, 0);
-      ctx.fillStyle = dark;
-      roundRect(ctx, -0.1 * s, -0.26 * s, 0.9 * s, 0.52 * s, 0.1 * s);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-0.1 * s, -0.4 * s);
-      ctx.lineTo(-0.1 * s, 0.4 * s);
-      ctx.lineTo(-0.44 * s, 0.26 * s);
-      ctx.lineTo(-0.44 * s, -0.26 * s);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#ffce3a";
-      ctx.beginPath();
-      ctx.moveTo(-0.44 * s, -0.24 * s);
-      ctx.lineTo(-1.15 * s, -0.62 * s);
-      ctx.lineTo(-1.15 * s, 0.62 * s);
-      ctx.lineTo(-0.44 * s, 0.24 * s);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "#ffce3a";
-      ctx.lineWidth = 0.11 * s;
-      [-0.42, 0, 0.42].forEach((o) => {
-        ctx.beginPath();
-        ctx.moveTo(-1.22 * s, o * s);
-        ctx.lineTo(-1.44 * s, o * s);
-        ctx.stroke();
-      });
-      ctx.restore();
-    }
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = r * 0.3;
+    ctx.shadowOffsetY = r * 0.12;
+    ctx.drawImage(img, cx - d / 2, cy - d / 2, d, d);
     ctx.restore();
   }
 
