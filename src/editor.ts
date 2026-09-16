@@ -1522,6 +1522,20 @@ async function startup() {
     realAudio: true, // jest już prawdziwe mp3 w public/assets/songs/ — użyj go zamiast cichego "tik"
   });
   await persistSeed({ id: "byleby-nie-byla-ciepla", title: "Byleby nie była ciepła", bpm: 140, ujecia: [1, 2, 3, 4] });
+  await persistSeed({
+    id: "pani-policjantko",
+    title: "Pani policjantko",
+    bpm: 130,
+    ujecia: [1, 2, 3, 4],
+    realAudio: true, // brak mp3 na razie — dociągnie się samo, gdy się pojawi
+  });
+  await persistSeed({
+    id: "pan-strazak",
+    title: "Pan strażak",
+    bpm: 140,
+    ujecia: [1, 2, 3, 4],
+    realAudio: true,
+  });
 
   refreshProjectList();
   const last = localStorage.getItem(LAST_KEY);

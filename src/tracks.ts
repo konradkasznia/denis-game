@@ -108,11 +108,18 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     characters: rotateShots("assets/char/byleby-nie-byla-ciepla", [1, 2, 3, 4], 52),
     characterScale: 0.95,
     characterY: 704,
-    // poziom 5 — mechanika lodu: ekran zamarza, trzeba rozbić 20 tapnięć
+    // poziom 4 — mechanika lodu: ekran zamarza, trzeba rozbić 20 tapnięć
     events: [
       { type: "ice", at: 20, taps: 20 },
       { type: "ice", at: 46, taps: 24 },
     ],
+  },
+  "pan-strazak": {
+    title: "Pan strażak",
+    artist: "Denis",
+    bpm: 140, // tymczasowe, do potwierdzenia z mp3
+    bars: 30,
+    // brak jeszcze grafik postaci/chartu — placeholder do wspólnej pracy w edytorze
   },
 };
 

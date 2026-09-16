@@ -66,7 +66,15 @@ export const SONGS: SongMeta[] = [
     artist: "Denis",
     accent: "#7fd4ff",
     playable: true,
-    devOnly: true, // poziom 5 — test mechaniki lodu, tylko konto Konrad
+    devOnly: true, // poziom 4 — test mechaniki lodu, tylko konto Konrad
+  },
+  {
+    id: "pan-strazak",
+    title: "Pan strażak",
+    artist: "Denis",
+    accent: "#ff9f43",
+    playable: true,
+    devOnly: true, // poziom 5 — w testach, tylko konto Konrad
   },
 ];
 
