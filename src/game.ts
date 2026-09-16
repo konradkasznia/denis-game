@@ -998,7 +998,10 @@ export class Game {
       if (evs) {
         for (let i = 0; i < evs.length; i++) {
           const e = evs[i];
-          if (this.evFired.has(i) || this.songTime < e.at) continue;
+          // STOP dostaje zapowiedź PRZED właściwym oknem kary (patrz
+          // STOP_WARN_LEAD) — reszta zdarzeń odpala się dokładnie na `at`
+          const fireAt = e.type === "stop" ? e.at - Game.STOP_WARN_LEAD : e.at;
+          if (this.evFired.has(i) || this.songTime < fireAt) continue;
           this.evFired.add(i);
           if (e.type === "ice") this.triggerIce(e.taps ?? 20);
           else if (e.type === "spotlight") {
@@ -1012,10 +1015,14 @@ export class Game {
             this.shake = Math.max(this.shake, 5);
             haptic("flowUp");
           } else if (e.type === "stop") {
-            this.stopStart = this.songTime;
-            this.stopUntil = this.songTime + (e.dur ?? 1.5);
+            // zdarzenie odpala się WCZEŚNIEJ niż samo okno kary (patrz warunek
+            // pętli niżej) — dzięki temu jest czas na zapowiedź (drawStopSiren)
+            // zanim tap zacznie być karany; `stopStart/stopUntil` to dokładnie
+            // okno z chartu, nietknięte
+            this.stopStart = e.at;
+            this.stopUntil = e.at + (e.dur ?? 1.5);
             this.shake = Math.max(this.shake, 5);
-            haptic("flowUp");
+            haptic("flowUp"); // wibracja OSTRZEGAWCZA — już w fazie zapowiedzi
           }
         }
       }
@@ -3041,6 +3048,10 @@ export class Game {
   private isStopActive(): boolean {
     return this.songTime >= this.stopStart && this.songTime < this.stopUntil;
   }
+
+  /** Ile sekund PRZED oknem kary zaczyna się zapowiedź (syrena narasta, wibracja
+   *  ostrzegawcza) — bez tego gracz nie ma jak wiedzieć, KIEDY ma przestać klikać. */
+  private static readonly STOP_WARN_LEAD = 0.7;
 
   /** Kara za złamanie STOP: -10 000 pkt, zbite combo, mocna wibracja, syrena
    *  na pełnym ekranie (patrz drawStopSiren). Każdy tap w oknie liczy się osobno. */
@@ -6566,35 +6577,42 @@ export class Game {
   /** STOP (przeszkoda „gwizdek"): syrena radiowozu na całym ekranie — szybkie
    *  miganie czerwień/niebieski. Klikanie w tym oknie karane w `triggerStopPenalty`. */
   private drawStopSiren(ctx: CanvasRenderingContext2D) {
+    const warnFrom = this.stopStart - Game.STOP_WARN_LEAD;
     const left = this.stopUntil - this.songTime;
-    if (left <= 0 || this.songTime < this.stopStart) return;
-    const fadeIn = clamp((this.songTime - this.stopStart) / 0.15, 0, 1);
+    if (left <= 0 || this.songTime < warnFrom) return;
+
+    const inPenalty = this.songTime >= this.stopStart;
+    // faza zapowiedzi: syrena narasta (wolniejsze miganie -> szybsze), niska
+    // krycie -> pełne dokładnie w chwili, gdy zaczyna się kara
+    const warnT = clamp((this.songTime - warnFrom) / Game.STOP_WARN_LEAD, 0, 1);
     const fadeOut = clamp(left / 0.15, 0, 1);
-    const m = Math.min(fadeIn, fadeOut);
+    const m = inPenalty ? fadeOut : warnT;
     if (m <= 0.001) return;
 
-    const blink = Math.sin(this.songTime * 26) > 0; // szybkie miganie, jak sygnalizacja radiowozu
+    const blinkHz = inPenalty ? 26 : lerp(5, 15, warnT); // przyspiesza w miarę zbliżania się
+    const blink = Math.sin(this.songTime * blinkHz) > 0;
     const rgb = blink ? "255,59,74" : "63,134,255";
+    const alpha = inPenalty ? 0.34 : 0.09 + 0.12 * warnT;
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    this.fillViewport(ctx, `rgba(${rgb},${0.34 * m})`);
+    this.fillViewport(ctx, `rgba(${rgb},${alpha * m})`);
     ctx.restore();
 
     const cx = VW / 2;
     const cy = HORIZON_Y + (this.hitY() - HORIZON_Y) * 0.34;
-    const scalePop = 1 + (1 - m) * 0.25;
+    const scalePop = inPenalty ? 1 + (1 - m) * 0.25 : 0.72 + warnT * 0.28;
     ctx.save();
-    ctx.globalAlpha = m;
+    ctx.globalAlpha = inPenalty ? m : 0.55 + 0.45 * warnT;
     ctx.translate(cx, cy);
     ctx.scale(scalePop, scalePop);
-    text(ctx, "STOP!", 0, 0, {
-      size: 52,
+    text(ctx, inPenalty ? "STOP!" : "UWAGA!", 0, 0, {
+      size: inPenalty ? 52 : 40,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff",
       glow: blink ? "#ff3b4a" : "#3f86ff",
-      glowBlur: 26,
+      glowBlur: inPenalty ? 26 : 16,
       letterSpacing: "3px",
     });
     ctx.restore();
