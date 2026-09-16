@@ -179,10 +179,12 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   pogrzebowka: ["bomb", "vodka", "flashlight"],
+  "pan-strazak": ["fire"],
+  "byleby-nie-byla-ciepla": ["ice"],
 };
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
@@ -196,6 +198,14 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   flashlight: {
     title: "UWAŻAJ NA CIEMNOŚĆ",
     body: "Światło gaśnie i zostaje wąski snop nad linią trafienia. Resztę toru grasz z pamięci.",
+  },
+  fire: {
+    title: "UWAŻAJ NA OGIEŃ",
+    body: "Płonącą nutkę najpierw gasisz — dowolne stuknięcie w jej tor, zanim dojedzie do linii. Potem wciąż trzeba trafić ją normalnie, na czas. Nie zgasisz na czas — poparzenie i kara punktowa.",
+  },
+  ice: {
+    title: "UWAŻAJ NA LÓD",
+    body: "Ekran nagle zamarza w taflę lodu. Trzeba ją szybko rozbić serią stuknięć, zanim gra pójdzie dalej — nuty w tym czasie i tak są nie do zagrania.",
   },
 };
 
@@ -3256,6 +3266,7 @@ export class Game {
 
   private checkMisses() {
     const off = this.offsetSec();
+    const stopSilent = this.isStopActive(); // patrz komentarz w apply()
     for (const n of this.song.notes) {
       if (!isMissed(n, this.songTime, off)) continue;
       if (n.bomb) {
@@ -3270,12 +3281,12 @@ export class Game {
       n.hit = false;
       n.headJ = "miss";
       n.judgedAt = n.time + 0.145;
-      if (n.fire && !n.fireOut) this.apply("miss", n.lane, "SKUCIE!", "#ff7a2c");
-      else this.apply("miss", n.lane);
+      if (n.fire && !n.fireOut) this.apply("miss", n.lane, "SKUCIE!", "#ff7a2c", stopSilent);
+      else this.apply("miss", n.lane, undefined, undefined, stopSilent);
     }
   }
 
-  private apply(j: Judgement, lane: number, missLabel?: string, missColor?: string) {
+  private apply(j: Judgement, lane: number, missLabel?: string, missColor?: string, silent = false) {
     this.counts[j]++;
     this.judgedCount++;
     this.accSum += ACC_WEIGHT[j];
@@ -3287,10 +3298,14 @@ export class Game {
       if (this.flowTier > 0) this.flowTier = Math.max(0, this.flowTier - 1);
       this.health = clamp(this.health - 0.07, 0, 1);
       this.denisMissAt = t;
-      this.shake = Math.max(this.shake, 9);
-      this.audio.sfx("miss");
-      haptic("miss");
-      this.pushPopup(missLabel ?? JUDGE_LABEL.miss, missColor ?? JUDGE_COLOR.miss, lane);
+      // W OKNIE STOP nuty i tak nie da się dotknąć bez kary — osobny popup
+      // "PUDŁO" nakładający się na syrenę tylko myli; wynik/combo bez zmian.
+      if (!silent) {
+        this.shake = Math.max(this.shake, 9);
+        this.audio.sfx("miss");
+        haptic("miss");
+        this.pushPopup(missLabel ?? JUDGE_LABEL.miss, missColor ?? JUDGE_COLOR.miss, lane);
+      }
       return;
     }
 
@@ -4241,6 +4256,8 @@ export class Game {
     bomb: "BOMBA",
     vodka: "FLASZKA",
     flashlight: "LATARKA",
+    fire: "OGIEŃ",
+    ice: "LÓD",
   };
 
   private drawWarnSign(

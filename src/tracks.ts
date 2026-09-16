@@ -120,6 +120,13 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
     bpm: 140, // tymczasowe, do potwierdzenia z mp3
     bars: 30,
     // brak jeszcze grafik postaci/chartu — placeholder do wspólnej pracy w edytorze
+    // OGIEŃ — przykładowy układ do testów (zgasić w torze, potem trafić normalnie)
+    fires: [
+      { lane: 1, time: 12 },
+      { lane: 2, time: 20 },
+      { lane: 0, time: 28 },
+      { lane: 3, time: 36 },
+    ],
   },
 };
 
