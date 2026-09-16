@@ -2737,7 +2737,14 @@ export class Game {
       // bo `Audio` istnieje w każdej przeglądarce) — strumień, pomyślany jako
       // wyjątek dla słabych urządzeń, leciał więc domyślnie u WSZYSTKICH, ze
       // wszystkimi swoimi problemami (rozgrzewka, trzaski, gorsza synchronizacja).
-      const AUDIO_BUDGET_MS = 4000;
+      // 4 s wystarcza na lokalny plik (bundle), ale utwory bez lokalnego mp3
+      // (testowe rundy wysłane z edytora — Pan Strażak i inne) najpierw robią
+      // nieudaną próbę lokalną (404, szybka), a DOPIERO POTEM pobierają
+      // prawdziwe audio z /api/song-audio — realny plik kilka MB przez sieć.
+      // Przy 4 s ten fallback prawie zawsze nie zdążał i runda cicho lądowała
+      // na syntezie zamiast na wgranym utworze. 12 s daje realny zapas na
+      // pobranie + dekodowanie, wciąż daleko od 35 s zewnętrznego watchdoga.
+      const AUDIO_BUDGET_MS = 12000;
       await Promise.race([
         (async () => {
           if (song.audioUrl) {
