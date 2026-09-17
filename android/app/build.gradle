@@ -16,7 +16,11 @@ def hasReleaseSigning = releaseKeystorePath != null && file(releaseKeystorePath)
 
 // versionCode MUSI rosnąć z każdym uploadem do Play Console (też testy
 // wewnętrzne). Liczymy go automatycznie z liczby commitów — nigdy nie trzeba
-// go ręcznie podbijać ani pilnować, żeby się nie cofnął.
+// go ręcznie podbijać ani pilnować, żeby się nie cofnął. Uwaga: to dotyczy
+// WSZYSTKICH ścieżek naraz (Test wewnętrzny, Test zamknięty, produkcja) — ten
+// sam commit = ten sam kod wersji, więc upload tego samego builda na DRUGĄ
+// ścieżkę też wymaga nowego commita, inaczej Play Console odrzuci go jako
+// duplikat kodu wersji.
 def gitCommitCount = {
     try {
         def proc = ['git', 'rev-list', '--count', 'HEAD'].execute(null, rootDir)
