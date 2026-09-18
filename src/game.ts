@@ -1037,14 +1037,18 @@ export class Game {
       this.resolveHeldHolds();
       this.pulseHoldHaptics();
       // koniec: albo minął `duration`, albo wszystkie nuty rozliczone i minęły
-      // 2,5 s od ostatniej (beatmapa z edytora bywa krótsza niż `duration`)
+      // 2,5 s od ostatniej (beatmapa z edytora bywa krótsza niż `duration`).
+      // `.every()` skanuje CAŁĄ tablicę nut — && z krótkim spięciem trzyma go
+      // poza gorącą ścieżką (liczy się tylko w rzadkich klatkach blisko końca
+      // utworu), zamiast robić to co klatkę przez całą rozgrywkę.
       const lastNote = this.song.notes.length
         ? this.song.notes[this.song.notes.length - 1].time
         : 0;
-      const allDone = this.song.notes.every((n) => n.judged);
       if (
         this.songTime > this.song.duration + 0.6 ||
-        (allDone && this.song.notes.length > 0 && this.songTime > lastNote + 2.5)
+        (this.song.notes.length > 0 &&
+          this.songTime > lastNote + 2.5 &&
+          this.song.notes.every((n) => n.judged))
       ) {
         // koniec utworu: cokolwiek zostało nierozliczone = pudło (np. zegar
         // audio się zaciął i nuty nie zdążyły przelecieć — bez tego wynik
