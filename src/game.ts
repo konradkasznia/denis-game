@@ -755,12 +755,14 @@ export class Game {
   private lootCache = new Map<string, HTMLCanvasElement>(); // nuty-łupy (Książę z bajki)
   private puffCache = new Map<string, HTMLCanvasElement>(); // miękka kulka dymu (raz na kolor)
   private noteHeadCache = new Map<string, HTMLCanvasElement>(); // główki nut (kolor × stan)
-  // Perf: shadowBlur na żywo jest jednym z najdroższych efektów w Canvas 2D
-  // (nierzadko liczony programowo, bez akceleracji GPU) — na linii trafienia i
-  // receptorach leciał NON-STOP co klatkę przez całą rozgrywkę. Zamiast tego
-  // wypalamy poświatę raz na sprite i tylko ją blitujemy (drawImage).
-  private hitLineGlowCache: HTMLCanvasElement | null = null;
-  private receptorGlowCache = new Map<string, HTMLCanvasElement>(); // poświata receptora (raz na kolor toru)
+  // Perf: gradienty (createLinearGradient/createRadialGradient) tworzone od
+  // nowa co klatkę są zmierzonym, realnym kosztem (patrz commit) — cache'ujemy
+  // te o stałej geometrii/kolorach zamiast liczyć je 60x/s. UWAGA: shadowBlur
+  // NIE jest tu winowajcą — zmierzone bezpośrednio: zamiana na sprite+drawImage
+  // wypadła WOLNIEJ niż żywy shadowBlur na tym silniku Canvas, więc go nie ruszamy.
+  private hudProgressGrad: CanvasGradient | null = null; // pasek postępu utworu (stały)
+  private hudHealthGrad = new Map<boolean, CanvasGradient>(); // pasek życia (normalny/low)
+  private flowMeterGrad: CanvasGradient | null = null; // pionowy miernik flow (stały)
   private playfieldBgGrad: { key: string; grad: CanvasGradient } | null = null; // tło toru (cache gradientu)
   private laneGradCache = new Map<string, CanvasGradient>(); // wypełnienie toru (parzystość × held)
   private resultStarSeen = 0;
@@ -5816,16 +5818,14 @@ export class Game {
     }
 
     // linia trafienia
-    const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
-    const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
-    const glowH = 46 + pulse * 34; // poświata skaluje się z pulsem zamiast liczyć blur na żywo
-    ctx.drawImage(this.hitLineGlowSprite(), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
     ctx.save();
     ctx.strokeStyle = "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
+    ctx.shadowColor = "rgba(255,200,120,0.9)";
+    ctx.shadowBlur = 16 + pulse * 12;
     ctx.beginPath();
-    ctx.moveTo(hlx0, hitY);
-    ctx.lineTo(hlx1, hitY);
+    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, hitY);
+    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, hitY);
     ctx.stroke();
     ctx.restore();
 
@@ -5875,19 +5875,12 @@ export class Game {
         const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
         const held = !!this.held[l];
         const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
-        const glowAmt = clamp(flash + (held ? 0.55 : 0), 0, 1);
-        if (glowAmt > 0.02) {
-          const spr = this.receptorGlowSprite(LANE_COLORS[l]);
-          const gd = (r + 14 + glowAmt * 26) * 2;
-          ctx.save();
-          ctx.globalAlpha = recAlpha * (0.3 + glowAmt * 0.7);
-          ctx.drawImage(spr, x - gd / 2, hitY - gd / 2, gd, gd);
-          ctx.restore();
-        }
         ctx.save();
         ctx.globalAlpha = recAlpha;
         ctx.lineWidth = 5 + (held ? 3 : 0);
         ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
+        ctx.shadowColor = LANE_COLORS[l];
+        ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
         ctx.beginPath();
         ctx.arc(x, hitY, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -5916,47 +5909,6 @@ export class Game {
         }
       }
     }
-  }
-
-  /** Poświata linii trafienia, wypalona raz (patrz komentarz przy cache'ach pól). */
-  private hitLineGlowSprite(): HTMLCanvasElement {
-    if (this.hitLineGlowCache) return this.hitLineGlowCache;
-    const H = 96;
-    const cv = document.createElement("canvas");
-    cv.width = 4;
-    cv.height = H;
-    const c = cv.getContext("2d");
-    if (c) {
-      const g = c.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "rgba(255,200,120,0)");
-      g.addColorStop(0.5, "rgba(255,200,120,0.55)");
-      g.addColorStop(1, "rgba(255,200,120,0)");
-      c.fillStyle = g;
-      c.fillRect(0, 0, 4, H);
-    }
-    this.hitLineGlowCache = cv;
-    return cv;
-  }
-
-  /** Poświata receptora, wypalona raz na kolor toru. */
-  private receptorGlowSprite(color: string): HTMLCanvasElement {
-    const hit = this.receptorGlowCache.get(color);
-    if (hit) return hit;
-    const S = 160;
-    const cv = document.createElement("canvas");
-    cv.width = S;
-    cv.height = S;
-    const c = cv.getContext("2d");
-    if (c) {
-      const g = c.createRadialGradient(S / 2, S / 2, S * 0.14, S / 2, S / 2, S / 2);
-      g.addColorStop(0, color);
-      g.addColorStop(0.5, color);
-      g.addColorStop(1, "transparent");
-      c.fillStyle = g;
-      c.fillRect(0, 0, S, S);
-    }
-    this.receptorGlowCache.set(color, cv);
-    return cv;
   }
 
   private drawNotes(ctx: CanvasRenderingContext2D) {
@@ -6979,10 +6931,13 @@ export class Game {
     const p = clamp(this.songTime / this.song.duration, 0, 1);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     ctx.fillRect(0, 0, VW, 5);
-    const pg = ctx.createLinearGradient(0, 0, VW, 0);
-    pg.addColorStop(0, "#ff9f43");
-    pg.addColorStop(1, "#ff5e7e");
-    ctx.fillStyle = pg;
+    if (!this.hudProgressGrad) {
+      const pg = ctx.createLinearGradient(0, 0, VW, 0);
+      pg.addColorStop(0, "#ff9f43");
+      pg.addColorStop(1, "#ff5e7e");
+      this.hudProgressGrad = pg;
+    }
+    ctx.fillStyle = this.hudProgressGrad;
     ctx.fillRect(0, 0, VW * p, 5);
 
     // pauza
@@ -7012,9 +6967,13 @@ export class Game {
     roundRect(ctx, bx - 3, by - 3, bw + 6, 20, 10);
     ctx.fill();
     const low = this.health < 0.25;
-    const hg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
-    hg.addColorStop(0, low ? "#ff5e5e" : "#43d67a");
-    hg.addColorStop(1, low ? "#ff9f43" : "#8affc1");
+    let hg = this.hudHealthGrad.get(low);
+    if (!hg) {
+      hg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+      hg.addColorStop(0, low ? "#ff5e5e" : "#43d67a");
+      hg.addColorStop(1, low ? "#ff9f43" : "#8affc1");
+      this.hudHealthGrad.set(low, hg);
+    }
     ctx.fillStyle = hg;
     roundRect(ctx, bx, by, Math.max(6, bw * this.health), 14, 7);
     ctx.fill();
@@ -7131,10 +7090,13 @@ export class Game {
     roundRect(ctx, x - w / 2, top, w, bot - top, w / 2);
     ctx.fill();
     const h = (bot - top) * prog;
-    const mg = ctx.createLinearGradient(0, bot, 0, top);
-    mg.addColorStop(0, "#ff6b3d");
-    mg.addColorStop(1, "#ffd24c");
-    ctx.fillStyle = mg;
+    if (!this.flowMeterGrad) {
+      const mg = ctx.createLinearGradient(0, bot, 0, top);
+      mg.addColorStop(0, "#ff6b3d");
+      mg.addColorStop(1, "#ffd24c");
+      this.flowMeterGrad = mg;
+    }
+    ctx.fillStyle = this.flowMeterGrad;
     if (full || justUp) {
       ctx.shadowColor = "#ffd24c";
       ctx.shadowBlur = 20;
