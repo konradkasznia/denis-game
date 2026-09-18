@@ -755,6 +755,14 @@ export class Game {
   private lootCache = new Map<string, HTMLCanvasElement>(); // nuty-łupy (Książę z bajki)
   private puffCache = new Map<string, HTMLCanvasElement>(); // miękka kulka dymu (raz na kolor)
   private noteHeadCache = new Map<string, HTMLCanvasElement>(); // główki nut (kolor × stan)
+  // Perf: shadowBlur na żywo jest jednym z najdroższych efektów w Canvas 2D
+  // (nierzadko liczony programowo, bez akceleracji GPU) — na linii trafienia i
+  // receptorach leciał NON-STOP co klatkę przez całą rozgrywkę. Zamiast tego
+  // wypalamy poświatę raz na sprite i tylko ją blitujemy (drawImage).
+  private hitLineGlowCache: HTMLCanvasElement | null = null;
+  private receptorGlowCache = new Map<string, HTMLCanvasElement>(); // poświata receptora (raz na kolor toru)
+  private playfieldBgGrad: { key: string; grad: CanvasGradient } | null = null; // tło toru (cache gradientu)
+  private laneGradCache = new Map<string, CanvasGradient>(); // wypełnienie toru (parzystość × held)
   private resultStarSeen = 0;
   private lastStarPopAt = 0;
   private authMode: "login" | "register" = "register";
@@ -5750,15 +5758,21 @@ export class Game {
   private drawPlayfield(ctx: CanvasRenderingContext2D, pulse: number) {
     const hitY = this.hitY();
     const padBot = this.padBot();
-    const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, this.sh());
-    grad.addColorStop(0, "rgba(6,3,10,0)");
-    grad.addColorStop(0.4, "rgba(6,3,10,0.5)");
-    grad.addColorStop(1, "rgba(6,3,10,0.86)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, HORIZON_Y, VW, this.sh() - HORIZON_Y);
+    const shR = Math.round(this.sh());
+    const bgKey = `${shR}`;
+    if (!this.playfieldBgGrad || this.playfieldBgGrad.key !== bgKey) {
+      const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, shR);
+      grad.addColorStop(0, "rgba(6,3,10,0)");
+      grad.addColorStop(0.4, "rgba(6,3,10,0.5)");
+      grad.addColorStop(1, "rgba(6,3,10,0.86)");
+      this.playfieldBgGrad = { key: bgKey, grad };
+    }
+    ctx.fillStyle = this.playfieldBgGrad.grad;
+    ctx.fillRect(0, HORIZON_Y, VW, shR - HORIZON_Y);
 
     const eBot = 1 + (padBot - hitY) / (hitY - HORIZON_Y);
     const stripHW = (e: number) => lerp(2, LANE_GAP_HIT * 0.46, e);
+    const padBotR = Math.round(padBot);
 
     // tory
     for (let l = 0; l < LANES; l++) {
@@ -5777,12 +5791,17 @@ export class Game {
       ctx.lineTo(cBotE + hwB, yBot);
       ctx.lineTo(cTop + hwT, yTop);
       ctx.closePath();
-      const lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
-      lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
-      lg.addColorStop(
-        1,
-        held ? "rgba(255,170,90,0.30)" : l % 2 ? "rgba(150,25,35,0.34)" : "rgba(120,20,30,0.40)",
-      );
+      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}`;
+      let lg = this.laneGradCache.get(laneKey);
+      if (!lg) {
+        lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
+        lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
+        lg.addColorStop(
+          1,
+          held ? "rgba(255,170,90,0.30)" : l % 2 ? "rgba(150,25,35,0.34)" : "rgba(120,20,30,0.40)",
+        );
+        this.laneGradCache.set(laneKey, lg);
+      }
       ctx.fillStyle = lg;
       ctx.fill();
 
@@ -5797,14 +5816,16 @@ export class Game {
     }
 
     // linia trafienia
+    const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
+    const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
+    const glowH = 46 + pulse * 34; // poświata skaluje się z pulsem zamiast liczyć blur na żywo
+    ctx.drawImage(this.hitLineGlowSprite(), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
     ctx.save();
     ctx.strokeStyle = "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
-    ctx.shadowColor = "rgba(255,200,120,0.9)";
-    ctx.shadowBlur = 16 + pulse * 12;
     ctx.beginPath();
-    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, hitY);
-    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, hitY);
+    ctx.moveTo(hlx0, hitY);
+    ctx.lineTo(hlx1, hitY);
     ctx.stroke();
     ctx.restore();
 
@@ -5854,12 +5875,19 @@ export class Game {
         const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
         const held = !!this.held[l];
         const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
+        const glowAmt = clamp(flash + (held ? 0.55 : 0), 0, 1);
+        if (glowAmt > 0.02) {
+          const spr = this.receptorGlowSprite(LANE_COLORS[l]);
+          const gd = (r + 14 + glowAmt * 26) * 2;
+          ctx.save();
+          ctx.globalAlpha = recAlpha * (0.3 + glowAmt * 0.7);
+          ctx.drawImage(spr, x - gd / 2, hitY - gd / 2, gd, gd);
+          ctx.restore();
+        }
         ctx.save();
         ctx.globalAlpha = recAlpha;
         ctx.lineWidth = 5 + (held ? 3 : 0);
         ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
-        ctx.shadowColor = LANE_COLORS[l];
-        ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
         ctx.beginPath();
         ctx.arc(x, hitY, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -5888,6 +5916,47 @@ export class Game {
         }
       }
     }
+  }
+
+  /** Poświata linii trafienia, wypalona raz (patrz komentarz przy cache'ach pól). */
+  private hitLineGlowSprite(): HTMLCanvasElement {
+    if (this.hitLineGlowCache) return this.hitLineGlowCache;
+    const H = 96;
+    const cv = document.createElement("canvas");
+    cv.width = 4;
+    cv.height = H;
+    const c = cv.getContext("2d");
+    if (c) {
+      const g = c.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "rgba(255,200,120,0)");
+      g.addColorStop(0.5, "rgba(255,200,120,0.55)");
+      g.addColorStop(1, "rgba(255,200,120,0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, 4, H);
+    }
+    this.hitLineGlowCache = cv;
+    return cv;
+  }
+
+  /** Poświata receptora, wypalona raz na kolor toru. */
+  private receptorGlowSprite(color: string): HTMLCanvasElement {
+    const hit = this.receptorGlowCache.get(color);
+    if (hit) return hit;
+    const S = 160;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      const g = c.createRadialGradient(S / 2, S / 2, S * 0.14, S / 2, S / 2, S / 2);
+      g.addColorStop(0, color);
+      g.addColorStop(0.5, color);
+      g.addColorStop(1, "transparent");
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+    }
+    this.receptorGlowCache.set(color, cv);
+    return cv;
   }
 
   private drawNotes(ctx: CanvasRenderingContext2D) {
