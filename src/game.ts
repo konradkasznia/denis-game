@@ -2916,6 +2916,7 @@ export class Game {
   private handlePauseTap(x: number, y: number) {
     y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
+      this.audio.ensureMainCtx(); // Android: kontekst muzyki był zniszczony przy pauzie
       this.audio.countdownCue(); // „3-2-1 + winyl" jak na starcie rundy
       // odliczanie trwa DOKŁADNIE tyle co klip 321.mp3 → muzyka wraca gdy winyl
       // się kończy, bez przeskoku nut do przodu

@@ -195,7 +195,7 @@ export class AudioEngine {
     // 346 ms (= zgubiona paczka, słyszalny zgrzyt). Ciągła muzyka waży więcej niż
     // szybszy winyl pauzy, więc zostaje tryb domyślny.
     this.ctx = new Ctx();
-    this.buildSfxCtx(Ctx);
+    if (!this.sfxCtx) this.buildSfxCtx(Ctx);
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     const comp = this.ctx.createDynamicsCompressor();
@@ -315,6 +315,7 @@ export class AudioEngine {
    *  Przed odblokowaniem audio zapamiętuje tylko chęć — ruszy po `unlock()`. */
   startLoop() {
     this.loopWanted = true;
+    if (!this.ctx && this.sfxCtx) this.ensureMainCtx(); // zniszczony przy pauzie
     if (!this.ctx || !this.loopGain) return; // kontekstu jeszcze nie ma
     // Po wyjściu z pauzy rundy kontekst bywa zawieszony (pauza go zawiesza).
     // Wcześniej wznawiał go przy okazji dźwięk "wróć"; teraz ten dźwięk idzie
@@ -435,7 +436,9 @@ export class AudioEngine {
   /** Krótki dźwięk interfejsu (GRAJ / cofnij / przycisk). No-op, gdy kontekst
    *  jeszcze nie istnieje (pierwsze stuknięcia przed modalem „włącz dźwięk"). */
   uiSfx(kind: UiKind) {
-    if (!this._uiOn || !this.ctx || !this.uiGain) return;
+    if (!this._uiOn) return;
+    if (!this.ctx && !(this.sfxCtx && this.sfxUiOut)) return;
+    if (this.ctx && !this.uiGain) return;
     const buf = this.uiBuffers.get(kind);
     if (!buf) {
       void this.loadUiClips();
@@ -458,6 +461,7 @@ export class AudioEngine {
       }
       return;
     }
+    if (!this.ctx || !this.uiGain) return;
     // NIE wznawiamy kontekstu, gdy gra jest w PAUZIE (pauseStartMs != 0) —
     // inaczej klik „GRAJ" w menu pauzy wznawiał muzykę pod odliczaniem 3-2-1
     if ((this.ctx.state as string) !== "running") {
@@ -999,6 +1003,14 @@ export class AudioEngine {
     this.killScheduled(); // synteza „na żywo" też musi umilknąć
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this._running && this.sfxCtx && this.mp3Buf && !this.streamLive) {
+      // Android: zniszcz strumień muzyki. Dźwięk już wysłany do głośnika (~0.5 s)
+      // albo dogrywa się po pauzie, albo czeka w buforze i wychodzi przy
+      // wznowieniu ("urwany kawałek gry"). Zamknięcie kontekstu wyrzuca bufor:
+      // muzyka milknie od razu, a przy wznowieniu startuje świeży strumień.
+      this.discardMainCtx();
+      return;
+    }
     if (stingSec > 0) {
       // Kontekst musi jeszcze chwilę chodzić, żeby wybrzmiał dźwięk pauzy —
       // suspend zamroziłby go w pół dźwięku. O tyle, o ile `currentTime`
@@ -1045,6 +1057,52 @@ export class AudioEngine {
    *  sekundy utworu (przechował ją zegar ścienny). Dotyczy i mp3, i pre-renderu
    *  syntezy (oba w `mp3Buf`); dla syntezy „na żywo" (fallback bez OfflineAudioContext)
    *  przekładamy aranż od bieżącej sekundy. */
+  private discardMainCtx() {
+    const old = this.ctx;
+    this.ctx = null;
+    this.master = null;
+    this.sfxGain = null;
+    this.uiGain = null;
+    this.loopGain = null;
+    this.loopSrc = null;
+    this.keepAlive = null;
+    this.noiseBuffer = null;
+    try {
+      void old?.close();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Buduje świeży kontekst muzyki BEZ ruszania zdekodowanych buforów (są niezależne
+   *  od kontekstu) — używane po zniszczeniu go przy pauzie. No-op, gdy kontekst jest. */
+  ensureMainCtx() {
+    if (this.ctx) return;
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx: AudioContext = new Ctx();
+    this.ctx = ctx;
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.9;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.ratio.value = 4;
+    this.master.connect(comp).connect(ctx.destination);
+    this.noiseBuffer = this.makeNoise(ctx);
+    this.sfxGain = ctx.createGain();
+    this.sfxGain.gain.value = 0.22;
+    this.sfxGain.connect(this.master);
+    this.uiGain = ctx.createGain();
+    this.uiGain.gain.value = 0.5;
+    this.uiGain.connect(ctx.destination);
+    this.loopGain = ctx.createGain();
+    this.loopGain.gain.value = 0.0001;
+    this.loopGain.connect(ctx.destination);
+    this.loopSrc = null;
+    this.keepAlive = null;
+    if ((ctx.state as string) !== "running") void ctx.resume().catch(() => {});
+    this.startKeepAlive();
+  }
+
   // Wznowienie muzyki po pauzie z wyprzedzeniem o opóźnienie wyjścia. Zegar nut i
   // muzyka wracały w tej samej chwili, ale muzyka dociera do głośnika ~0.5 s
   // później niż nuty (opóźnienie audio telefonu) — nuty leciały, a przez chwilę
