@@ -3055,10 +3055,28 @@ export class Game {
   // ---- logika rytmiczna -------------------------------------------
 
   /** Automatyczna kalibracja: opóźnienie wyjścia audio (BT, bufor OS). Bez ręcznego ustawiania. */
+  // `outputLatency` bywa niestały (zmierzone na A41 z latencyHint 0: rośnie z 32
+  // do 200 ms przez pierwsze sekundy, ~100 zmian w 10 s), a offsetSec() wchodzi w
+  // pozycję KAŻDEJ nuty — surowa wartość przesuwała wszystkie nuty naraz w tył i
+  // w przód. Śledzimy ją więc powoli (max 8%/s), żeby fluktuacje były niewidoczne.
+  private offLat = -1;
+  private offLatAt = 0;
   private offsetSec() {
-    const c = this.audio.ctx as (AudioContext & { outputLatency?: number }) | null;
-    const l = c?.outputLatency ?? c?.baseLatency ?? 0.03;
-    return typeof l === "number" && isFinite(l) ? clamp(l, 0, 0.4) : 0.03;
+    const now = performance.now();
+    if (this.offLat < 0 || now - this.offLatAt >= 16) {
+      const c = this.audio.ctx as (AudioContext & { outputLatency?: number }) | null;
+      const l = c?.outputLatency ?? c?.baseLatency ?? 0.03;
+      const raw = typeof l === "number" && isFinite(l) ? clamp(l, 0, 0.4) : 0.03;
+      if (this.offLat < 0) {
+        this.offLat = raw;
+      } else {
+        const dt = Math.min(0.1, (now - this.offLatAt) / 1000);
+        const maxStep = 0.08 * dt;
+        this.offLat += clamp(raw - this.offLat, -maxStep, maxStep);
+      }
+      this.offLatAt = now;
+    }
+    return this.offLat;
   }
 
   private bombLocked(): boolean {
