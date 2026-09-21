@@ -908,11 +908,15 @@ export class AudioEngine {
       // suspend zamroziłby go w pół dźwięku. O tyle, o ile `currentTime`
       // pobiegnie, przesuwamy `startTime`, żeby zegar utworu stał w miejscu.
       const at = ctx.currentTime;
+      // Do czasu klipu dodajemy opóźnienie wyjścia audio: suspend tuż po
+      // wyrenderowaniu ostatniej próbki ucinał dźwięk, zanim dotarł do głośnika
+      // (Galaxy A41: outputLatency 0.52 s > cały klip pauzy ~0.5 s → cisza).
+      const lat = Math.min(1, (ctx.outputLatency || 0) + (ctx.baseLatency || 0));
       setTimeout(() => {
         if (seq !== this.pauseSeq || !this.pauseStartMs) return; // wznowiono / nowy przebieg
         this.startTime += ctx.currentTime - at;
         if ((ctx.state as string) === "running") void ctx.suspend();
-      }, stingSec * 1000);
+      }, (stingSec + lat) * 1000);
       return;
     }
     if ((ctx.state as string) === "running") void ctx.suspend();

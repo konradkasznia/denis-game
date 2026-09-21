@@ -3032,6 +3032,12 @@ export class Game {
   }
 
   /** Sceny wymagające pełnych ~60 kl./s (rozgrywka + animacja licznika wyniku). */
+  /** Runda faktycznie leci (po ładowaniu i odliczaniu, bez pauzy) — tylko wtedy
+   *  wolne klatki świadczą o wydajności rysowania, a nie o dekodowaniu audio. */
+  isRoundRunning(): boolean {
+    return this.scene === "play" && !this.preparing && !this.awaitingStart && !this.paused && !this.rolling;
+  }
+
   highFps(): boolean {
     if (this.scene === "play") return true;
     if (this.scene === "results") {
@@ -5821,15 +5827,21 @@ export class Game {
       ctx.stroke();
     }
 
-    // linia trafienia
+    // Poświaty linii trafienia, klawiszy i receptorów to sprite'y (drawImage), NIE
+    // ctx.shadowBlur. Zmierzone na Galaxy A41 (Mali-G52) w żywej rundzie: to
+    // wyłącznie shadowBlur z drawPlayfield zabijał klatki (13% wolnych nawet przy
+    // canvasie 1x), a poświaty HUD/nut/reszty nie kosztowały nic. Blur na GPU
+    // jest drogi, blit gotowej tekstury — nie.
+    const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
+    const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
+    const glowH = 46 + pulse * 34;
+    ctx.drawImage(this.hitLineGlowSprite(), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
     ctx.save();
     ctx.strokeStyle = "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
-    ctx.shadowColor = "rgba(255,200,120,0.9)";
-    ctx.shadowBlur = 16 + pulse * 12;
     ctx.beginPath();
-    ctx.moveTo(this.hitX(0) - LANE_GAP_HIT * 0.62, hitY);
-    ctx.lineTo(this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62, hitY);
+    ctx.moveTo(hlx0, hitY);
+    ctx.lineTo(hlx1, hitY);
     ctx.stroke();
     ctx.restore();
 
@@ -5849,6 +5861,14 @@ export class Game {
         0,
         1,
       );
+      if (lit > 0.3) {
+        const gw = (wT + wB) * 1.15 + 70;
+        const gh = yB - yT + 90;
+        ctx.save();
+        ctx.globalAlpha = clamp((lit - 0.3) / 0.7, 0, 1) * 0.85;
+        ctx.drawImage(this.laneGlowSprite(LANE_COLORS[l]), (xT + xB) / 2 - gw / 2, (yT + yB) / 2 - gh / 2 - 10, gw, gh);
+        ctx.restore();
+      }
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(xT - wT, yT);
@@ -5858,10 +5878,6 @@ export class Game {
       ctx.lineTo(xB - wB, yB);
       ctx.closePath();
       ctx.fillStyle = `rgba(255,255,255,${0.07 + lit * 0.8})`;
-      if (lit > 0.3) {
-        ctx.shadowColor = LANE_COLORS[l];
-        ctx.shadowBlur = lit * 26;
-      }
       ctx.fill();
       ctx.restore();
     }
@@ -5879,12 +5895,17 @@ export class Game {
         const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
         const held = !!this.held[l];
         const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
+        const glowAmt = clamp(flash + (held ? 0.55 : 0), 0, 1);
+        const gs = (r / RECEPTOR_R) * (1 + glowAmt * 0.4);
+        const gd = 2 * 96 * gs;
+        ctx.save();
+        ctx.globalAlpha = recAlpha * (0.5 + glowAmt * 0.5);
+        ctx.drawImage(this.receptorGlowSprite(LANE_COLORS[l]), x - gd / 2, hitY - gd / 2, gd, gd);
+        ctx.restore();
         ctx.save();
         ctx.globalAlpha = recAlpha;
         ctx.lineWidth = 5 + (held ? 3 : 0);
         ctx.strokeStyle = `rgba(255,255,255,${0.4 + flash * 0.5 + this.lanePress[l] * 0.2})`;
-        ctx.shadowColor = LANE_COLORS[l];
-        ctx.shadowBlur = 8 + flash * 30 + (held ? 18 : 0);
         ctx.beginPath();
         ctx.arc(x, hitY, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -5913,6 +5934,84 @@ export class Game {
         }
       }
     }
+  }
+
+  private glowSpriteCache = new Map<string, HTMLCanvasElement>();
+  private hitLineGlowCache: HTMLCanvasElement | null = null;
+
+  private static rgbOf(hex: string): string {
+    const n = parseInt(hex.slice(1), 16);
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  }
+
+  /** Pozioma poświata linii trafienia (pionowy gradient, rozciągany na szerokość). */
+  private hitLineGlowSprite(): HTMLCanvasElement {
+    if (this.hitLineGlowCache) return this.hitLineGlowCache;
+    const H = 96;
+    const cv = document.createElement("canvas");
+    cv.width = 4;
+    cv.height = H;
+    const c = cv.getContext("2d");
+    if (c) {
+      const g = c.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "rgba(255,200,120,0)");
+      g.addColorStop(0.5, "rgba(255,200,120,0.55)");
+      g.addColorStop(1, "rgba(255,200,120,0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, 4, H);
+    }
+    this.hitLineGlowCache = cv;
+    return cv;
+  }
+
+  /** Poświata pierścienia receptora (bazowy promień pierścienia = RECEPTOR_R w sprite 192x192). */
+  private receptorGlowSprite(color: string): HTMLCanvasElement {
+    const key = `r|${color}`;
+    const hit = this.glowSpriteCache.get(key);
+    if (hit) return hit;
+    const S = 192;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      const rgb = Game.rgbOf(color);
+      const R = S / 2;
+      const ring = RECEPTOR_R / R;
+      const g = c.createRadialGradient(R, R, 0, R, R, R);
+      g.addColorStop(0, `rgba(${rgb},0.18)`);
+      g.addColorStop(Math.max(0, ring - 0.16), `rgba(${rgb},0.42)`);
+      g.addColorStop(ring, `rgba(${rgb},0.85)`);
+      g.addColorStop(Math.min(1, ring + 0.2), `rgba(${rgb},0.3)`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+    }
+    this.glowSpriteCache.set(key, cv);
+    return cv;
+  }
+
+  /** Miękka owalna poświata pod klawiszem toru (rozciągana do rozmiaru klawisza). */
+  private laneGlowSprite(color: string): HTMLCanvasElement {
+    const key = `l|${color}`;
+    const hit = this.glowSpriteCache.get(key);
+    if (hit) return hit;
+    const S = 128;
+    const cv = document.createElement("canvas");
+    cv.width = S;
+    cv.height = S;
+    const c = cv.getContext("2d");
+    if (c) {
+      const rgb = Game.rgbOf(color);
+      const g = c.createRadialGradient(S / 2, S / 2, S * 0.08, S / 2, S / 2, S / 2);
+      g.addColorStop(0, `rgba(${rgb},0.85)`);
+      g.addColorStop(0.55, `rgba(${rgb},0.45)`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+    }
+    this.glowSpriteCache.set(key, cv);
+    return cv;
   }
 
   private drawNotes(ctx: CanvasRenderingContext2D) {

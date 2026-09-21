@@ -197,7 +197,7 @@ document.addEventListener("visibilitychange", () => {
 // niż 25 ms (GPU nie wyrabia — vsync zbija 60 → 30 fps), schodzimy o stopień
 // rozdzielczości. Liczymy tylko gdy gra i tak rysuje pełnym tempem (highFps),
 // z krótką rozgrzewką na start (ładowanie obrazków to nie wina rozdzielczości).
-const ADAPT_WARMUP = 45;
+const ADAPT_WARMUP = 90;
 const ADAPT_WINDOW = 90;
 let adaptSeen = 0;
 let adaptSlow = 0;
@@ -211,7 +211,7 @@ function adaptQuality(elapsedMs: number, full: boolean) {
   if (adaptSeen <= ADAPT_WARMUP) return;
   if (elapsedMs > 25) adaptSlow++;
   if (adaptSeen - ADAPT_WARMUP < ADAPT_WINDOW) return;
-  const bad = adaptSlow / ADAPT_WINDOW >= 0.2;
+  const bad = adaptSlow / ADAPT_WINDOW >= 0.25;
   adaptSeen = ADAPT_WARMUP;
   adaptSlow = 0;
   if (!bad) return;
@@ -243,7 +243,7 @@ function frame(now: number, gen: number) {
 
   const dt = Math.min(elapsed, 0.05);
   last = now;
-  adaptQuality(elapsed * 1000, full);
+  adaptQuality(elapsed * 1000, full && game.isRoundRunning());
   // Siatka bezpieczeństwa: cała gra to tysiące linii rysujących co klatkę —
   // jeden nieprzewidziany brzegowy przypadek (np. dostęp do jeszcze
   // niewczytanego obrazka, indeks poza tablicą) rzucony BEZ tego try/catch
