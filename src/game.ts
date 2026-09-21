@@ -2920,7 +2920,12 @@ export class Game {
       // odliczanie trwa DOKŁADNIE tyle co klip 321.mp3 → muzyka wraca gdy winyl
       // się kończy, bez przeskoku nut do przodu
       this.rollSec = this.audio.countdownSeconds();
-      this.resumeAt = performance.now() + this.rollSec * 1000;
+      // Klip i muzyka idą torem z opóźnieniem sprzętowym (A41: ~0.5 s), więc
+      // usłyszany koniec winyla i start muzyki wypadają `lat` po ich renderze.
+      // Nuty muszą ruszyć dokładnie wtedy, inaczej lecą przez chwilę w ciszy.
+      const lat = this.audio.musicLatencySec();
+      this.resumeAt = performance.now() + (this.rollSec + lat) * 1000;
+      this.audio.scheduleMusicResume(this.rollSec, lat);
       return;
     }
     if (inRect(PZ_RESTART, x, y)) {

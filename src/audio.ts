@@ -982,6 +982,8 @@ export class AudioEngine {
   /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime).
    *  Zapisujemy moment pauzy, żeby awaryjny zegar ścienny odjął ten czas. */
   pause(stingSec = 0) {
+    clearTimeout(this.resumeMusicTimer); // pauza w trakcie odliczania po wznowieniu
+    this.resumeMusicDone = false;
     if (this._running && !this.pauseStartMs) this.pauseStartMs = performance.now();
     const seq = ++this.pauseSeq;
     // Podkład milknie NATYCHMIAST, niezależnie od tego, kiedy zawiesimy kontekst.
@@ -1043,9 +1045,69 @@ export class AudioEngine {
    *  sekundy utworu (przechował ją zegar ścienny). Dotyczy i mp3, i pre-renderu
    *  syntezy (oba w `mp3Buf`); dla syntezy „na żywo" (fallback bez OfflineAudioContext)
    *  przekładamy aranż od bieżącej sekundy. */
+  // Wznowienie muzyki po pauzie z wyprzedzeniem o opóźnienie wyjścia. Zegar nut i
+  // muzyka wracały w tej samej chwili, ale muzyka dociera do głośnika ~0.5 s
+  // później niż nuty (opóźnienie audio telefonu) — nuty leciały, a przez chwilę
+  // była cisza. Startujemy więc podkład `latSec` przed powrotem zegara, od pozycji
+  // o tyle wcześniejszej: usłyszana muzyka zgrywa się z nutami w chwili ich ruszenia
+  // (i jest ciągła z tym, co gracz słyszał przy pauzie).
+  private resumeMusicTimer = 0;
+  private resumeMusicDone = false;
+
+  /** Realne opóźnienie wyjścia toru muzyki (A41: ~0.52 s), przycięte do 0..0.6 s. */
+  musicLatencySec(): number {
+    const c = this.ctx;
+    const l = c ? c.outputLatency || c.baseLatency || 0 : 0;
+    return Math.max(0, Math.min(0.6, l));
+  }
+
+  scheduleMusicResume(inSec: number, latSec: number) {
+    clearTimeout(this.resumeMusicTimer);
+    this.resumeMusicDone = false;
+    if (!this.mp3Buf) return; // strumień/synteza: zostaje wznowienie w chwili powrotu zegara
+    const lat = Math.max(0, Math.min(0.6, latSec));
+    // start podkładu (render) tuż po końcu klipu odliczania; usłyszany będzie
+    // `lat` później — dokładnie wtedy, gdy gra (opóźniona o `lat`) wznowi nuty
+    const delayMs = Math.max(0, inSec * 1000);
+    this.resumeMusicTimer = setTimeout(() => {
+      this.resumeMusicTimer = 0;
+      if (!this.ctx || !this.master || !this._running || !this.mp3Buf || !this.pauseStartMs) return;
+      const dur = this.mp3Buf.duration;
+      const pos = Math.max(0, this.wallElapsed() - this.leadIn); // w pauzie zamrożone
+      if (pos >= dur - 0.1) return;
+      try {
+        this.srcNode?.stop();
+      } catch {
+        /* ignore */
+      }
+      try {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.mp3Buf;
+        src.connect(this.master);
+        src.start(0, Math.max(0, Math.min(pos - lat, dur - 0.05)));
+        this.srcNode = src;
+        this.resumeMusicDone = true;
+      } catch {
+        /* ignore */
+      }
+    }, delayMs) as unknown as number;
+  }
+
   async resumeFromBackground() {
     await this.resumePlayback();
     if (!this.ctx || !this.master || !this._running) return;
+    if (this.resumeMusicDone) {
+      // podkład już wystartował wcześniej (scheduleMusicResume) — tylko keep-alive
+      this.resumeMusicDone = false;
+      try {
+        this.keepAlive?.stop();
+      } catch {
+        /* już zatrzymany */
+      }
+      this.keepAlive = null;
+      this.startKeepAlive();
+      return;
+    }
     // keep-alive mógł zostać zakończony przez iOS — daj świeży
     try {
       this.keepAlive?.stop();
@@ -1122,6 +1184,8 @@ export class AudioEngine {
   }
 
   stop() {
+    clearTimeout(this.resumeMusicTimer);
+    this.resumeMusicDone = false;
     this.stopStream();
     this._running = false;
     this.pauseStartMs = 0; // czysty stan — po stop() nie jesteśmy „w pauzie"
