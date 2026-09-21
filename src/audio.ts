@@ -149,19 +149,25 @@ export class AudioEngine {
   private sfxCtx: AudioContext | null = null;
   private sfxOut: GainNode | null = null;
   private sfxNoise: AudioBuffer | null = null;
+  private sfxUiOut: GainNode | null = null;
 
   private buildSfxCtx(Ctx: typeof AudioContext) {
     this.sfxCtx = null;
     this.sfxOut = null;
     this.sfxNoise = null;
+    this.sfxUiOut = null;
     if (!/Android/i.test(navigator.userAgent)) return;
     try {
       const c = new Ctx({ latencyHint: 0 });
       const out = c.createGain();
       out.gain.value = 0.2; // 0.22 (sfxGain) x 0.9 (master) jak na torze muzyki
       out.connect(c.destination);
+      const ui = c.createGain();
+      ui.gain.value = 0.5; // jak uiGain na torze muzyki
+      ui.connect(c.destination);
       this.sfxCtx = c;
       this.sfxOut = out;
+      this.sfxUiOut = ui;
       this.sfxNoise = this.makeNoise(c);
     } catch {
       this.sfxCtx = null;
@@ -297,6 +303,12 @@ export class AudioEngine {
   startLoop() {
     this.loopWanted = true;
     if (!this.ctx || !this.loopGain) return; // kontekstu jeszcze nie ma
+    // Po wyjściu z pauzy rundy kontekst bywa zawieszony (pauza go zawiesza).
+    // Wcześniej wznawiał go przy okazji dźwięk "wróć"; teraz ten dźwięk idzie
+    // osobnym torem, więc muzyka menu musi wznowić kontekst sama (poza pauzą gry).
+    if ((this.ctx.state as string) !== "running" && !this.pauseStartMs) {
+      void this.ctx.resume().catch(() => {});
+    }
     if (!this.loopBuf) {
       void this.loadLoopClip();
       return;
@@ -346,7 +358,9 @@ export class AudioEngine {
   pauseWithSting() {
     const d = this._uiOn ? (this.uiBuffers.get("pauza")?.duration ?? 0) : 0;
     if (d > 0) this.uiSfx("pauza"); // MUSI polecieć przed pause() (patrz guard w uiSfx)
-    this.pause(Math.min(d, 2));
+    // Na szybkim torze (Android) klip gra osobnym kontekstem, więc główny można
+    // zawiesić od razu; bez niego kontekst musi jeszcze chwilę chodzić.
+    this.pause(this.sfxCtx && this.sfxUiOut ? 0 : Math.min(d, 2));
   }
   setUiEnabled(on: boolean) {
     this._uiOn = on;
@@ -410,6 +424,23 @@ export class AudioEngine {
     const buf = this.uiBuffers.get(kind);
     if (!buf) {
       void this.loadUiClips();
+      return;
+    }
+    // Szybki tor (Android): dźwięk interfejsu bez opóźnienia wyjścia toru muzyki.
+    // AudioBuffer nie jest przypięty do kontekstu, więc bufory z głównego
+    // dekodowania grają tu bez zmian. Nie dotyka zegara/muzyki, więc nie ma
+    // ryzyka wznowienia jej pod pauzą — gra także w menu pauzy.
+    if (this.sfxCtx && this.sfxUiOut) {
+      const c = this.sfxCtx;
+      if ((c.state as string) !== "running") void c.resume().catch(() => {});
+      try {
+        const s = c.createBufferSource();
+        s.buffer = buf;
+        s.connect(this.sfxUiOut);
+        s.start();
+      } catch {
+        /* ignore */
+      }
       return;
     }
     // NIE wznawiamy kontekstu, gdy gra jest w PAUZIE (pauseStartMs != 0) —
@@ -481,6 +512,7 @@ export class AudioEngine {
     this.sfxCtx = null;
     this.sfxOut = null;
     this.sfxNoise = null;
+    this.sfxUiOut = null;
     try {
       await old?.close();
     } catch {
