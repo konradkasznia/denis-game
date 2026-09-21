@@ -142,7 +142,17 @@ export class AudioEngine {
 
   private buildCtx() {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    this.ctx = new Ctx();
+    // Android: domyślny tryb daje ogromne opóźnienie wyjścia (zmierzone na
+    // Galaxy A41: baseLatency 171 ms, outputLatency 536 ms), więc winyl pauzy
+    // słychać z opóźnieniem, a kompensacja offsetSec() (clamp 0.4 s) nie
+    // dosięga realnego opóźnienia. latencyHint 0 daje ~3 ms / ~200 ms.
+    // Tylko Android — iOS zostaje przy domyślnym (wrażliwy silnik audio).
+    const android = /Android/i.test(navigator.userAgent);
+    try {
+      this.ctx = android ? new Ctx({ latencyHint: 0 }) : new Ctx();
+    } catch {
+      this.ctx = new Ctx();
+    }
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     const comp = this.ctx.createDynamicsCompressor();
