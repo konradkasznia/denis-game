@@ -10,8 +10,23 @@ initSplash();
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
+// Adaptacyjna rozdzielczość canvasu. Na słabszych GPU (zmierzone na Galaxy A41,
+// Mali-G52: 45 fps przy 2.0x, 59.5 fps przy 1.5x) wąskim gardłem jest
+// rasteryzacja dużego canvasu (m.in. shadowBlur), nie JavaScript — główny wątek
+// stoi wtedy w ~65% bezczynny. Startujemy w pełnej jakości, a gdy klatki
+// regularnie się spóźniają, schodzimy o stopień niżej i pamiętamy wybór.
+const DPR_STEPS = [2, 1.5, 1.25, 1];
+const DPR_KEY = "denis.dprStep";
+let dprStep = 0;
+try {
+  const saved = Number(localStorage.getItem(DPR_KEY));
+  if (Number.isInteger(saved) && saved >= 0 && saved < DPR_STEPS.length) dprStep = saved;
+} catch {
+  /* brak localStorage — zostajemy przy pełnej jakości */
+}
+
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, DPR_STEPS[dprStep]);
   // fallbacki na wypadek dziwnego momentu cyklu życia (0 / undefined) —
   // bez nich `scale` może wyjść 0/NaN i cały render się wywala co klatkę
   const availW = Math.max(1, window.innerWidth || document.documentElement.clientWidth || VW);
@@ -178,6 +193,42 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// Okno pomiarowe: ~90 klatek pełnej płynności. Jeśli >= 20% z nich trwa dłużej
+// niż 25 ms (GPU nie wyrabia — vsync zbija 60 → 30 fps), schodzimy o stopień
+// rozdzielczości. Liczymy tylko gdy gra i tak rysuje pełnym tempem (highFps),
+// z krótką rozgrzewką na start (ładowanie obrazków to nie wina rozdzielczości).
+const ADAPT_WARMUP = 45;
+const ADAPT_WINDOW = 90;
+let adaptSeen = 0;
+let adaptSlow = 0;
+function adaptQuality(elapsedMs: number, full: boolean) {
+  if (!full || elapsedMs > 250) {
+    adaptSeen = 0;
+    adaptSlow = 0;
+    return;
+  }
+  adaptSeen++;
+  if (adaptSeen <= ADAPT_WARMUP) return;
+  if (elapsedMs > 25) adaptSlow++;
+  if (adaptSeen - ADAPT_WARMUP < ADAPT_WINDOW) return;
+  const bad = adaptSlow / ADAPT_WINDOW >= 0.2;
+  adaptSeen = ADAPT_WARMUP;
+  adaptSlow = 0;
+  if (!bad) return;
+  const cur = Math.min(window.devicePixelRatio || 1, DPR_STEPS[dprStep]);
+  let next = dprStep + 1;
+  while (next < DPR_STEPS.length && DPR_STEPS[next] >= cur) next++;
+  if (next >= DPR_STEPS.length) return; // niżej się nie da
+  dprStep = next;
+  try {
+    localStorage.setItem(DPR_KEY, String(dprStep));
+  } catch {
+    /* ignoruj */
+  }
+  resize();
+  game.repositionFields();
+}
+
 let last = performance.now();
 let firstFrame = true;
 function frame(now: number, gen: number) {
@@ -186,11 +237,13 @@ function frame(now: number, gen: number) {
 
   const elapsed = (now - last) / 1000;
   // poza grą ograniczamy do ~30 kl./s (mniej pracy GPU/CPU, telefon się nie grzeje)
-  const minStep = game.highFps() ? 0 : 0.031;
+  const full = game.highFps();
+  const minStep = full ? 0 : 0.031;
   if (elapsed < minStep) return;
 
   const dt = Math.min(elapsed, 0.05);
   last = now;
+  adaptQuality(elapsed * 1000, full);
   // Siatka bezpieczeństwa: cała gra to tysiące linii rysujących co klatkę —
   // jeden nieprzewidziany brzegowy przypadek (np. dostęp do jeszcze
   // niewczytanego obrazka, indeks poza tablicą) rzucony BEZ tego try/catch
