@@ -15,7 +15,7 @@ const ctx = canvas.getContext("2d")!;
 // rasteryzacja dużego canvasu (m.in. shadowBlur), nie JavaScript — główny wątek
 // stoi wtedy w ~65% bezczynny. Startujemy w pełnej jakości, a gdy klatki
 // regularnie się spóźniają, schodzimy o stopień niżej i pamiętamy wybór.
-const DPR_STEPS = [2, 1.5, 1.25, 1];
+const DPR_STEPS = [2, 1.75, 1.5, 1.25, 1];
 const DPR_KEY = "denis.dprStep";
 let dprStep = 0;
 try {
