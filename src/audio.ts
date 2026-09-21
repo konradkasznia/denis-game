@@ -554,6 +554,66 @@ export class AudioEngine {
    *  Preferuje zegar AudioContextu; gdy ten NIE nadąża (błąd iOS —
    *  `currentTime` zamiera), przechodzi na performance.now().
    *  MONOTONICZNY — nigdy nie zwraca mniej niż poprzednio (nuty się nie cofają). */
+  // Wygładzony zegar audio. `AudioContext.currentTime` przesuwa się SKOKAMI co
+  // rozmiar bufora wyjściowego — zmierzone na Galaxy A41: co 170 ms (baseLatency
+  // 0.17 s), więc przez ~10 klatek z rzędu odczyt jest identyczny, a potem skacze
+  // o 170 ms. Nuty liczone wprost z tego zegara stoją i szarpią zamiast płynąć,
+  // choć render ma 60 fps. Interpolujemy więc między skokami przez performance.now():
+  // (currentTime - now) jest stałe z dokładnością do "nieświeżości" odczytu, a jego
+  // środek okna [min,max] zachowuje średnie wyrównanie z dźwiękiem (kalibracja
+  // opóźnienia się nie rozjeżdża). Duży rozjazd (pauza/wznowienie) resetuje okno.
+  private smMaxCur = -Infinity;
+  private smMinCur = Infinity;
+  private smMaxPrev = -Infinity;
+  private smMinPrev = Infinity;
+  private smBucketAt = 0;
+  private smLastNow = 0;
+  private smEst = NaN;
+
+  private smoothReset() {
+    this.smEst = NaN;
+    this.smMaxCur = -Infinity;
+    this.smMinCur = Infinity;
+    this.smMaxPrev = -Infinity;
+    this.smMinPrev = Infinity;
+  }
+
+  private ctxNow(): number {
+    const ctx = this.ctx!;
+    const now = performance.now() / 1000;
+    const s = ctx.currentTime - now;
+    if (!Number.isFinite(this.smEst) || Math.abs(s - this.smEst) > 0.6) {
+      this.smMaxPrev = -Infinity;
+      this.smMinPrev = Infinity;
+      this.smMaxCur = s;
+      this.smMinCur = s;
+      this.smBucketAt = now;
+      this.smEst = s;
+      this.smLastNow = now;
+      return ctx.currentTime;
+    }
+    if (now - this.smBucketAt > 1) {
+      this.smMaxPrev = this.smMaxCur;
+      this.smMinPrev = this.smMinCur;
+      this.smMaxCur = s;
+      this.smMinCur = s;
+      this.smBucketAt = now;
+    } else {
+      if (s > this.smMaxCur) this.smMaxCur = s;
+      if (s < this.smMinCur) this.smMinCur = s;
+    }
+    const hi = Math.max(this.smMaxCur, this.smMaxPrev);
+    const lo = Math.min(this.smMinCur, this.smMinPrev);
+    const target = (hi + lo) / 2;
+    // korekta wolna: max ±7% prędkości zegara, żeby zbieganie okna pomiarowego
+    // nie dało widocznego szarpnięcia nut
+    const dt = Math.min(0.1, Math.max(0, now - this.smLastNow));
+    const maxStep = 0.07 * dt;
+    this.smEst += Math.max(-maxStep, Math.min(maxStep, target - this.smEst));
+    this.smLastNow = now;
+    return now + this.smEst;
+  }
+
   getSongTime(): number {
     if (!this.ctx || !this._running) return this.lastSongT === -Infinity ? 0 : this.lastSongT;
     let raw: number;
@@ -564,17 +624,17 @@ export class AudioEngine {
       } else {
         // koniec „dosiadania": przeklej zegar ctx tak, by kontynuował PŁYNNIE
         // od miejsca, w którym skończył zegar ścienny (bez skoku)
-        this.startTime = this.ctx.currentTime - this.lastSongT;
+        this.smoothReset();
+        const cn = this.ctxNow();
+        this.startTime = cn - this.lastSongT;
         this.ctxAtStart = this.ctx.currentTime - (this.lastSongT + this.leadIn);
         this.resumeSettleUntil = 0;
-        raw = this.ctx.currentTime - this.startTime;
+        raw = cn - this.startTime;
       }
     } else if (!this.wallStartMs) {
-      raw = this.ctx.currentTime - this.startTime;
+      raw = this.ctxNow() - this.startTime;
     } else {
-      raw = this.clockAlive()
-        ? this.ctx.currentTime - this.startTime
-        : this.wallElapsed() - this.leadIn;
+      raw = this.clockAlive() ? this.ctxNow() - this.startTime : this.wallElapsed() - this.leadIn;
     }
     if (raw > this.lastSongT) this.lastSongT = raw;
     return this.lastSongT;
