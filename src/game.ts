@@ -886,6 +886,7 @@ export class Game {
 
   /** Wejście do karuzeli od zera — z modalem „włącz dźwięk". */
   private enterHitsFresh() {
+    this.primeAudioAndroid(false);
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
     this.scene = "hits";
     this.preloadHitAudio();
@@ -1689,7 +1690,25 @@ export class Game {
     return clamp(Math.floor(x / (VW / LANES)), 0, LANES - 1);
   }
 
+  // Android: silnik audio powstawał dopiero przy pierwszym GRAJ (modal "włącz
+  // dźwięk" pokazuje się tylko przy wyciszonym telefonie), więc do pierwszej
+  // rundy slider był bez muzyki w tle, a strzałki i przyciski bez dźwięku
+  // (uiSfx wychodzi, gdy nie ma kontekstu). Budujemy go od razu przy starcie i
+  // jeszcze raz przy pierwszym dotknięciu (gest — wznawia kontekst, gdyby
+  // polityka autoodtwarzania zostawiła go zawieszonego). Tylko Android; iOS
+  // zostaje przy odblokowaniu w geście modala/GRAJ.
+  private audioPrimed = false;
+  private primeAudioAndroid(fromTouch: boolean) {
+    if (!/Android/i.test(navigator.userAgent)) return;
+    if (fromTouch) {
+      if (this.audioPrimed) return;
+      this.audioPrimed = true;
+    }
+    void this.audio.unlock();
+  }
+
   onPress(lane: number, x: number, y: number) {
+    this.primeAudioAndroid(true);
     // przelicz Y z układu ekranu na układ UI (ramka bywa przesunięta w pionie)
     y -= this.frameDY();
     if (this.preparing) return this.cancelPrepare();
