@@ -165,6 +165,19 @@ export class AudioEngine {
       const ui = c.createGain();
       ui.gain.value = 0.5; // jak uiGain na torze muzyki
       ui.connect(c.destination);
+      // Strumień wyjściowy telefonu usypia, gdy długo nic nie gra (w menu między
+      // kliknięciami), a budząc się połyka początek krótkiego dźwięku — strzałki
+      // i GRAJ były w ogóle niesłyszalne, mimo że kod je odtwarzał (w rundzie
+      // trafienia trzymają strumień rozbudzony). Niesłyszalny szum (~ -70 dBFS,
+      // 10 LSB 16-bit — cyfrowa cisza mogłaby nadal uśpić strumień) to zapobiega.
+      const kb = c.createBuffer(1, c.sampleRate, c.sampleRate);
+      const kd = kb.getChannelData(0);
+      for (let i = 0; i < kd.length; i++) kd[i] = (Math.random() * 2 - 1) * 0.0003;
+      const ks = c.createBufferSource();
+      ks.buffer = kb;
+      ks.loop = true;
+      ks.connect(c.destination);
+      ks.start();
       this.sfxCtx = c;
       this.sfxOut = out;
       this.sfxUiOut = ui;
@@ -358,9 +371,11 @@ export class AudioEngine {
   pauseWithSting() {
     const d = this._uiOn ? (this.uiBuffers.get("pauza")?.duration ?? 0) : 0;
     if (d > 0) this.uiSfx("pauza"); // MUSI polecieć przed pause() (patrz guard w uiSfx)
-    // Na szybkim torze (Android) klip gra osobnym kontekstem, więc główny można
-    // zawiesić od razu; bez niego kontekst musi jeszcze chwilę chodzić.
-    this.pause(this.sfxCtx && this.sfxUiOut ? 0 : Math.min(d, 2));
+    // Główny kontekst musi jeszcze chwilę chodzić (pause() dolicza rezerwę na
+    // opóźnienie wyjścia): w sprzętowym buforze zostaje ~0.5 s już wysłanej
+    // muzyki, a zawieszony od razu kontekst wypluwał ten ogon przy wznowieniu
+    // ("ułamek piosenki, zerwanie"). Klip pauzy na szybkim torze i tak gra od razu.
+    this.pause(this.sfxCtx && this.sfxUiOut ? 0.01 : Math.min(d, 2));
   }
   setUiEnabled(on: boolean) {
     this._uiOn = on;
