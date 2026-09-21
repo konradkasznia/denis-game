@@ -140,6 +140,34 @@ export class AudioEngine {
     return this._unlocking;
   }
 
+  // Osobny, NISKOLATENCYJNY tor tylko dla krótkich dźwięków tapnięć (Android).
+  // Muzyka zostaje na domyślnym kontekście (latencyHint 0 dawał na niej
+  // mikro-przerwy), ale dźwięk trafienia w torze muzyki jest spóźniony o całe
+  // opóźnienie wyjścia (A41: ~0.5 s). Krótkie syntezowane "pyknięcia" mogą
+  // iść osobnym, szybkim strumieniem — muzyka jest kompensowana offsetSec(),
+  // dźwięk tapnięcia nie może być spóźniony.
+  private sfxCtx: AudioContext | null = null;
+  private sfxOut: GainNode | null = null;
+  private sfxNoise: AudioBuffer | null = null;
+
+  private buildSfxCtx(Ctx: typeof AudioContext) {
+    this.sfxCtx = null;
+    this.sfxOut = null;
+    this.sfxNoise = null;
+    if (!/Android/i.test(navigator.userAgent)) return;
+    try {
+      const c = new Ctx({ latencyHint: 0 });
+      const out = c.createGain();
+      out.gain.value = 0.2; // 0.22 (sfxGain) x 0.9 (master) jak na torze muzyki
+      out.connect(c.destination);
+      this.sfxCtx = c;
+      this.sfxOut = out;
+      this.sfxNoise = this.makeNoise(c);
+    } catch {
+      this.sfxCtx = null;
+    }
+  }
+
   private buildCtx() {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
     // Domyślna latencja. Próba `latencyHint: 0` na Androidzie (A41: outputLatency
@@ -148,6 +176,7 @@ export class AudioEngine {
     // 346 ms (= zgubiona paczka, słyszalny zgrzyt). Ciągła muzyka waży więcej niż
     // szybszy winyl pauzy, więc zostaje tryb domyślny.
     this.ctx = new Ctx();
+    this.buildSfxCtx(Ctx);
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     const comp = this.ctx.createDynamicsCompressor();
@@ -445,6 +474,14 @@ export class AudioEngine {
     this.resumeSettleUntil = 0;
     this.lastSongT = -Infinity;
     try {
+      void this.sfxCtx?.close();
+    } catch {
+      /* ignore */
+    }
+    this.sfxCtx = null;
+    this.sfxOut = null;
+    this.sfxNoise = null;
+    try {
       await old?.close();
     } catch {
       /* ignore */
@@ -478,6 +515,7 @@ export class AudioEngine {
     }
     if (!this.ctx) this.buildCtx();
     const ctx = this.ctx!;
+    void this.sfxCtx?.resume().catch(() => {}); // szybki tor SFX (Android)
 
     // cichy bufor — klasyczny odblokowywacz iOS
     try {
@@ -707,14 +745,18 @@ export class AudioEngine {
       | "iceShatter",
   ) {
     if (!this._sfxOn || !this.ctx || !this.sfxGain) return;
-    const ctx = this.ctx;
+    const fast = !!(this.sfxCtx && this.sfxOut && this.sfxNoise);
+    const ctx: AudioContext = fast ? this.sfxCtx! : this.ctx;
+    const sfxGain: AudioNode = fast ? this.sfxOut! : this.sfxGain;
+    const noiseBuf = fast ? this.sfxNoise : this.noiseBuffer;
+    if (fast && (ctx.state as string) !== "running") void ctx.resume().catch(() => {});
     const t = ctx.currentTime;
     const g = ctx.createGain();
-    g.connect(this.sfxGain);
+    g.connect(sfxGain);
 
     if (kind === "iceForm" || kind === "iceCrack" || kind === "iceShatter") {
       const n = ctx.createBufferSource();
-      n.buffer = this.noiseBuffer;
+      n.buffer = noiseBuf;
       const bp = ctx.createBiquadFilter();
       if (kind === "iceForm") {
         // narastające „zamarzanie" — szum przez pasmo opadające, z lekkim brzękiem
@@ -744,7 +786,7 @@ export class AudioEngine {
         const og = ctx.createGain();
         og.gain.setValueAtTime(0.14, t);
         og.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-        o.connect(og).connect(this.sfxGain);
+        o.connect(og).connect(sfxGain);
         this.track(o).start(t);
         o.stop(t + 0.08);
       } else {
@@ -768,7 +810,7 @@ export class AudioEngine {
           const og = ctx.createGain();
           og.gain.setValueAtTime(0.12, st);
           og.gain.exponentialRampToValueAtTime(0.0001, st + 0.14);
-          o.connect(og).connect(this.sfxGain);
+          o.connect(og).connect(sfxGain);
           this.track(o).start(st);
           o.stop(st + 0.16);
         }
@@ -778,7 +820,7 @@ export class AudioEngine {
 
     if (kind === "miss") {
       const n = ctx.createBufferSource();
-      n.buffer = this.noiseBuffer;
+      n.buffer = noiseBuf;
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
       lp.frequency.value = 520;
