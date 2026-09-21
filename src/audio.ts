@@ -911,7 +911,10 @@ export class AudioEngine {
       // Do czasu klipu dodajemy opóźnienie wyjścia audio: suspend tuż po
       // wyrenderowaniu ostatniej próbki ucinał dźwięk, zanim dotarł do głośnika
       // (Galaxy A41: outputLatency 0.52 s > cały klip pauzy ~0.5 s → cisza).
-      const lat = Math.min(1, (ctx.outputLatency || 0) + (ctx.baseLatency || 0));
+      // outputLatency/baseLatency w kontekście gry potrafią raportować 0, więc
+      // stała podłoga (zmierzony ślad na A41: klip startuje, suspend po 0.42 s,
+      // a do głośnika dochodzi po ~0.5 s).
+      const lat = Math.max(0.7, Math.min(1.2, (ctx.outputLatency || 0) + (ctx.baseLatency || 0)));
       setTimeout(() => {
         if (seq !== this.pauseSeq || !this.pauseStartMs) return; // wznowiono / nowy przebieg
         this.startTime += ctx.currentTime - at;
