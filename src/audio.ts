@@ -556,7 +556,10 @@ export class AudioEngine {
     // Wyjątek: kontekst JUŻ jest martwy (state="running", currentTime stoi) po
     // powrocie z głębokiego tła i nie gramy właśnie utworu — wtedy w tym geście
     // budujemy świeży (bez tego pomaga tylko przeładowanie strony).
-    if (this.ctx && this.ctx.state === "running" && !this._running) {
+    // Tylko iOS: na Androidzie zegar audio przesuwa się krokami ~170 ms (bufor
+    // wyjściowy), więc test "currentTime stoi po 55 ms" dawał FAŁSZYWY alarm przy
+    // każdym GRAJ i niepotrzebnie niszczył oraz budował od nowa całe audio.
+    if (this.ctx && this.ctx.state === "running" && !this._running && !/Android/i.test(navigator.userAgent)) {
       const t0 = this.ctx.currentTime;
       await new Promise((r) => setTimeout(r, 55));
       if (this.ctx && this.ctx.currentTime === t0) {
