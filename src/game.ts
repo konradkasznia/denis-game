@@ -1033,6 +1033,8 @@ export class Game {
           }
         }
       }
+      // zatrzaśnij kompensację opóźnienia na resztę rundy (po rozgrzaniu kontekstu)
+      if (this.offLatRound < 0 && this.songTime > 2) this.offLatRound = this.offsetSec();
       this.checkMisses();
       this.refreshFireLanes();
       this.resolveHeldHolds();
@@ -2947,6 +2949,7 @@ export class Game {
   private songStartedAt = 0; // performance.now() startu utworu — dla watchdoga
 
   private beginSong() {
+    this.offLatRound = -1;
     this.awaitingStart = false;
     this.resumeCheckAt = 0;
     this.iceActive = false;
@@ -3086,7 +3089,13 @@ export class Game {
   // w przód. Śledzimy ją więc powoli (max 8%/s), żeby fluktuacje były niewidoczne.
   private offLat = -1;
   private offLatAt = 0;
+  // Po kilku sekundach rundy wartość jest ZATRZASKIWANA do końca rundy. W pauzie
+  // (Android) kontekst muzyki jest niszczony, więc odczyt spadał do domyślnego
+  // 0.03 s i nutki wskakiwały do przodu o ~0.2 s w trakcie pauzy, a muzyka po
+  // wznowieniu wracała od punktu zatrzymania — wyglądało to jak "cofnięta".
+  private offLatRound = -1;
   private offsetSec() {
+    if (this.offLatRound >= 0) return this.offLatRound;
     const now = performance.now();
     if (this.offLat < 0 || now - this.offLatAt >= 16) {
       const c = this.audio.ctx as (AudioContext & { outputLatency?: number }) | null;

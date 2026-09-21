@@ -989,6 +989,7 @@ export class AudioEngine {
   /** Wstrzymuje zegar i dźwięk (suspend zamraża AudioContext.currentTime).
    *  Zapisujemy moment pauzy, żeby awaryjny zegar ścienny odjął ten czas. */
   pause(stingSec = 0) {
+    this.sampleLatency(); // zanim kontekst zostanie zniszczony
     clearTimeout(this.resumeMusicTimer); // pauza w trakcie odliczania po wznowieniu
     this.resumeMusicDone = false;
     if (this._running && !this.pauseStartMs) this.pauseStartMs = performance.now();
@@ -1115,11 +1116,22 @@ export class AudioEngine {
   private resumeMusicTimer = 0;
   private resumeMusicDone = false;
 
-  /** Realne opóźnienie wyjścia toru muzyki (A41: ~0.52 s), przycięte do 0..0.6 s. */
-  musicLatencySec(): number {
+  // Opóźnienie wyjścia toru muzyki, zapamiętywane jako maksimum z odczytów. Odczyt
+  // ze ŚWIEŻO zbudowanego kontekstu (po pauzie) jest niewiarygodnie mały, a w pauzie
+  // kontekstu w ogóle nie ma — bez pamięci wartość spadała i nutki wskakiwały do przodu.
+  private latMaxSec = 0;
+
+  sampleLatency() {
     const c = this.ctx;
-    const l = c ? c.outputLatency || c.baseLatency || 0 : 0;
-    return Math.max(0, Math.min(0.6, l));
+    if (!c) return;
+    const l = c.outputLatency || c.baseLatency || 0;
+    if (l > this.latMaxSec) this.latMaxSec = Math.min(0.6, l);
+  }
+
+  /** Realne opóźnienie wyjścia toru muzyki (A41: ~0.52 s), 0..0.6 s, stałe w sesji. */
+  musicLatencySec(): number {
+    this.sampleLatency();
+    return this.latMaxSec;
   }
 
   scheduleMusicResume(inSec: number, latSec: number) {
@@ -1475,6 +1487,7 @@ export class AudioEngine {
     }
   }
   start(song: SongDef, leadInSec = 0.25) {
+    this.sampleLatency();
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx;
     this.leadIn = leadInSec;
