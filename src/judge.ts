@@ -23,11 +23,12 @@ export const ACC_WEIGHT: Record<Judgement, number> = {
   miss: 0,
 };
 
-/** Zamienia odległość czasową |Δt| na ocenę, albo null gdy poza oknem GOOD. */
-export function classify(absDt: number): Exclude<Judgement, "miss"> | null {
-  if (absDt > W_GOOD) return null;
-  if (absDt <= W_PERFECT) return "perfect";
-  if (absDt <= W_GREAT) return "great";
+/** Zamienia odległość czasową |Δt| na ocenę, albo null gdy poza oknem GOOD.
+ *  `scale` rozszerza wszystkie okna (np. 1.15 = pierwszy poziom, łatwiejsze trafienia). */
+export function classify(absDt: number, scale = 1): Exclude<Judgement, "miss"> | null {
+  if (absDt > W_GOOD * scale) return null;
+  if (absDt <= W_PERFECT * scale) return "perfect";
+  if (absDt <= W_GREAT * scale) return "great";
   return "good";
 }
 
@@ -45,13 +46,15 @@ export function pickNote(
   lane: number,
   inputTime: number,
   offsetSec: number,
+  scale = 1,
 ): { note: Note; absDt: number } | null {
   let best: Note | null = null;
   let bestAbs = Infinity;
+  const w = W_GOOD * scale;
   for (const n of notes) {
     if (n.judged || n.lane !== lane) continue;
     const absDt = Math.abs(inputTime - n.time - offsetSec);
-    if (absDt <= W_GOOD && absDt < bestAbs) {
+    if (absDt <= w && absDt < bestAbs) {
       best = n;
       bestAbs = absDt;
     }
@@ -60,6 +63,6 @@ export function pickNote(
 }
 
 /** Czy nieoceniona nuta powinna już zostać uznana za pudło (głowa minęła okno). */
-export function isMissed(note: Note, songTime: number, offsetSec: number): boolean {
-  return !note.judged && !note.holding && songTime - note.time - offsetSec > W_GOOD;
+export function isMissed(note: Note, songTime: number, offsetSec: number, scale = 1): boolean {
+  return !note.judged && !note.holding && songTime - note.time - offsetSec > W_GOOD * scale;
 }

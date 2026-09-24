@@ -127,10 +127,11 @@ export function isDiscovered(id: string): boolean {
   return discoveredIds().has(id);
 }
 
-// ---- progresja poziomów (gwiazdki) --------------------------------------
+// ---- progresja poziomów --------------------------------------------------
 //
-// Poziom N+1 odblokowuje się po zaliczeniu poziomu N na >= UNLOCK_STARS gwiazdek.
-// Najlepszy wynik gwiazdkowy per utwór trzymamy w localStorage jako mapę id -> 0..5.
+// Poziom N+1 odblokowuje się, gdy poziom N zostanie choć raz przejechany do
+// końca (patrz prevRoundCleared/markCompleted) — bez progu punktowego/gwiazdek.
+// Gwiazdki (niżej) zostają jako sama ocena jakości przebiegu na karuzeli/wynikach.
 
 const STARS_KEY = "denis.stars";
 export const UNLOCK_STARS = 4;
@@ -180,10 +181,32 @@ export function mergeServerStars(server: Record<string, { stars?: number }>): vo
   }
 }
 
-/** Czy poziom przeszedł bramkę gwiazdkową (zaliczony poprzedni na >= UNLOCK_STARS). */
-function starGatePassed(index: number): boolean {
+const COMPLETED_KEY = "denis.completed";
+
+function completedIds(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COMPLETED_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Odnotowuje, że runda została przejechana do końca (wołane z finish()). */
+export function markCompleted(id: string) {
+  const s = completedIds();
+  if (s.has(id)) return;
+  s.add(id);
+  try {
+    localStorage.setItem(COMPLETED_KEY, JSON.stringify([...s]));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Czy poprzedni poziom został choć raz przejechany do końca (bez progu punktowego). */
+function prevRoundCleared(index: number): boolean {
   const prev = SONGS[index - 1];
-  return !!prev && bestStars(prev.id) >= UNLOCK_STARS;
+  return !!prev && completedIds().has(prev.id);
 }
 
 /** Runda BONUSOWA (kupowana za monety, poza główną numeracją poziomów —
@@ -197,9 +220,9 @@ export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
   if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
   const id = SONGS[index]?.id;
-  // runda bonusowa omija bramkę gwiazdkową, liczy się tylko zakup (coins.ts)
+  // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts)
   if (isBonusRound(id)) return isUnlocked(id!);
-  if (!starGatePassed(index)) return false;
+  if (!prevRoundCleared(index)) return false;
   return true;
 }
 

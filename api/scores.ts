@@ -8,7 +8,8 @@ import { ensureSchema, db } from "./_lib/db.js";
 import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
 
-const TOP_N = 100;
+// Bez limitu: tabela deduplikuje po graczu (PRIMARY KEY user_id+song_id w schema),
+// więc wierszy jest tyle co graczy którzy zagrali dany utwór — nie rośnie per wynik.
 const ym = () => new Date().toISOString().slice(0, 7); // "2026-09"
 
 // Anti-cheat (wstępne): górny limit wyniku per utwór. Realny maks. „perfekcyjnego
@@ -82,15 +83,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
                     FROM scores_monthly s JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ? AND s.ym = ?
-                    ORDER BY s.score DESC, s.updated_at ASC LIMIT ?`,
-              args: [songId, m, TOP_N],
+                    ORDER BY s.score DESC, s.updated_at ASC`,
+              args: [songId, m],
             }
           : {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
                     FROM scores s JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ?
-                    ORDER BY s.score DESC, s.updated_at ASC LIMIT ?`,
-              args: [songId, TOP_N],
+                    ORDER BY s.score DESC, s.updated_at ASC`,
+              args: [songId],
             },
       );
       const total = await c.execute(

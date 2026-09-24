@@ -34,6 +34,7 @@ import { showDoc } from "./docOverlay.ts";
 import {
   boardReady,
   mergeServerBest,
+  myBest,
   myEntry,
   type Period,
   refreshBoard,
@@ -52,12 +53,12 @@ import {
   isBonusRound,
   levelNumber,
   levelUnlocked,
+  markCompleted,
   markDiscovered,
   mergeServerStars,
   recordStars,
   SONGS,
   spotifyUrl,
-  UNLOCK_STARS,
 } from "./songs.ts";
 import { VH, viewport, VW } from "./viewport.ts";
 import {
@@ -130,29 +131,32 @@ const BASE_SCORE: Record<Judgement, number> = { perfect: 300, great: 140, good: 
 const FLOW_PER_TIER = 10; // co ile perfektów rośnie mnożnik
 const MAX_FLOW_TIER = 4; // mnożnik x1..x5
 // ocena rundy = wynik / "par" (solidny przebieg). Gwiazdka i-ta zapala się,
-// gdy ocena >= STAR_MARKS[i]. 3. gwiazdka = próg zaliczenia rundy.
+// gdy ocena >= STAR_MARKS[i]. Runda jest zaliczona zawsze po przejechaniu do
+// końca (patrz finish()/passed w handleResultsTap i drawResults) — gwiazdki
+// są już tylko oceną jakości przebiegu, nie bramką progresji.
 const STAR_MARKS = [0.22, 0.44, 0.7, 0.86, 0.97];
-const PASS_RATING = 0.7;
 // Ręczny „par" dla utworów, gdzie auto-liczony próg (computeParScore —
 // zależny od AKTUALNEJ liczby nut w beatmapie, więc rusza się przy każdej
 // edycji w edytorze) ma dawać inny konkretny wynik niż to, co Konrad uznaje
-// za zaliczone. score / PAR_SCORE_OVERRIDE >= PASS_RATING (0.7) => zaliczone
-// (i to samo „score" = próg 3. gwiazdki, patrz STAR_MARKS). byAccuracy
-// (rating()) zostaje jako dodatkowa siatka bezpieczeństwa — patrz niżej.
+// za solidny przebieg (score / PAR_SCORE_OVERRIDE = ocena, patrz STAR_MARKS).
 const PAR_SCORE_OVERRIDE: Record<string, number> = {
   "ksiaze-z-bajki": 500_000, // 350 000 pkt ma wystarczyć do zaliczenia (350 000 / 0,7)
   "panna-mloda": 85_714, // 60 000 pkt ma wystarczyć do zaliczenia (60 000 / 0,7)
 };
 
+// Pasek systemowy (Android) potrafi nachodzić na samą górną krawędź canvasu —
+// wszystko co siedziało w pierwszych ~40 px dostaje ten margines w dół.
+const TOP_SAFE = 28;
+
 // --- strefy dotyku ---
-const BACK: Rect = { x: 16, y: 36, w: 170, h: 62 };
+const BACK: Rect = { x: 16, y: 36 + TOP_SAFE, w: 170, h: 62 };
 
 // --- modal „włącz dźwięk" (nad ekranem startowym) ---
 const MODAL_OK: Rect = { x: VW / 2 - 170, y: 792, w: 340, h: 92 };
 
 // --- karuzela WYBIERZ HIT (makieta 1080×1920 -> 720×1280) ---
-const HIT_GEAR: Rect = { x: VW - 82, y: 26, w: 62, h: 68 };
-const HIT_LOGO: Rect = { x: 6, y: 40, w: VW - 12, h: 150 };
+const HIT_GEAR: Rect = { x: VW - 82, y: 26 + TOP_SAFE, w: 62, h: 68 };
+const HIT_LOGO: Rect = { x: 6, y: 40 + TOP_SAFE, w: VW - 12, h: 150 };
 const HIT_LEVEL_Y = 250; // środek napisu „POZIOM N"
 const HIT_TITLE_Y = 306; // środek tytułu utworu
 const HIT_STARS_Y = 362;
@@ -167,7 +171,7 @@ const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h:
 // NAGRODY i jako cel animacji „lot monet" po rundzie (drawResults) — tam
 // zostaje w rogu. Na karuzeli WYBIERZ HIT pigułka stoi gdzie indziej, patrz
 // HITS_HEAD_COINS niżej.
-const HIT_COINS: Rect = { x: 14, y: 22, w: 178, h: 62 };
+const HIT_COINS: Rect = { x: 14, y: 22 + TOP_SAFE, w: 178, h: 62 };
 // karuzela WYBIERZ HIT: rząd nagłówka = [Cześć, X!] ... [monety][zębatka]
 // (Konrad 2026-09-11) — pigułka tuż przy zębatce, nie w rogu.
 const HITS_HEAD_COINS: Rect = { x: HIT_GEAR.x - 16 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
@@ -278,7 +282,7 @@ function openExternal(url: string) {
     }
   }
 }
-const PAUSE_RECT: Rect = { x: VW - 96, y: 24, w: 72, h: 64 };
+const PAUSE_RECT: Rect = { x: VW - 96, y: 24 + TOP_SAFE, w: 72, h: 64 };
 
 // --- ekran rejestracji / logowania: głowa + rozmieszczenie pionowe ---
 const AUTH_F1_Y = 268; // górna krawędź pierwszego pola (nick) — bez przesunięcia
@@ -812,6 +816,8 @@ export class Game {
    *  czekać i pokazujemy komunikat zamiast zgadywanego miejsca. */
   private resultRankFailed = false;
   private resultsSavedBest = false;
+  private resultIsNewBest = false;
+  private resultPrevBest = 0;
   // monety zdobyte w tej rundzie + animacja „lecą w lewy górny róg"
   private coinsEarned = 0;
   private coinFly: { bx: number; by: number; tx: number; ty: number; born: number; delay: number }[] = [];
@@ -2692,7 +2698,9 @@ export class Game {
       this.resultsAt = performance.now() - 2200;
       return;
     }
-    const passed = this.rating() >= PASS_RATING;
+    // przejechanie rundy do końca wystarczy (finish() woła się tylko wtedy) —
+    // bez progu punktowego; STAR_MARKS zostaje tylko jako ocena jakości przebiegu
+    const passed = true;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
 
     // KONTYNUUJ → karuzela: następny poziom gdy zaliczony TERAZ i odblokowany,
@@ -3025,6 +3033,13 @@ export class Game {
     this.resultsAt = performance.now();
     if (!this.resultsSavedBest) {
       this.resultsSavedBest = true;
+      // ZANIM submitScore() nadpisze lokalny rekord tego utworu — czy TA runda
+      // jest nowym rekordem (patrz drawResults: MIEJSCE vs „Twój najlepszy: …")
+      this.resultPrevBest = myBest(this.trackId) ?? 0;
+      this.resultIsNewBest = this.score > this.resultPrevBest;
+      // runda przejechana do końca (finish() woła się tylko po dojechaniu do
+      // końca utworu) → odblokowuje kolejny poziom, bez progu punktowego
+      markCompleted(this.trackId);
       if (this.score > bestScore()) {
         try {
           localStorage.setItem("denis.best", String(this.score));
@@ -3128,25 +3143,12 @@ export class Game {
       this.extinguishFire(burning, lane);
       return;
     }
-    const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec());
+    const sc = this.judgeScale();
+    const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec(), sc);
     if (!picked) {
-      // za wczesny tap (poza oknem GOOD, nic do trafienia) — spal najbliższą
-      // nadchodzącą nutę w tym torze, żeby nie dało się bezkarnie spamować
-      // i czekać, aż coś wejdzie w okno (bomby wyłączone — wczesny tap nie
-      // może być sposobem na uniknięcie kary za bombę)
-      let next: Note | null = null;
-      for (const n of this.song.notes) {
-        if (n.lane !== lane || n.judged || n.holding || n.bomb) continue;
-        if (!next || n.time < next.time) next = n;
-      }
-      if (next) {
-        next.judged = true;
-        next.hit = false;
-        next.headJ = "miss";
-        next.judgedAt = this.songTime;
-        if (next.fire && !next.fireOut) this.apply("miss", lane, "SKUCIE!", "#ff7a2c");
-        else this.apply("miss", lane);
-      }
+      // za wczesny/pusty tap (poza oknem GOOD, nic do trafienia) — po prostu
+      // nic się nie dzieje; nuta leci dalej nietknięta, gracz oceni ją normalnie
+      // gdy wejdzie w okno (wcześniej: taki tap od razu palił ją jako pudło)
       return;
     }
     const { note, absDt } = picked;
@@ -3159,7 +3161,7 @@ export class Game {
       this.burnHit(note, lane);
       return;
     }
-    const j = classify(absDt) ?? "good";
+    const j = classify(absDt, sc) ?? "good";
     note.hit = true;
     note.headJ = j;
     note.judgedAt = this.songTime;
@@ -3306,10 +3308,17 @@ export class Game {
     }
   }
 
+  /** Poziom 1 (Panna Młoda) ma okna oceny/pudła powiększone o 15% — łatwiej
+   *  o PERFECT, łagodniejsze wejście w grę. Tylko ten utwór. */
+  private judgeScale(): number {
+    return this.trackId === "panna-mloda" ? 1.15 : 1;
+  }
+
   private checkMisses() {
     const off = this.offsetSec();
+    const sc = this.judgeScale();
     for (const n of this.song.notes) {
-      if (!isMissed(n, this.songTime, off)) continue;
+      if (!isMissed(n, this.songTime, off, sc)) continue;
       if (n.bomb) {
         // ominięta bomba = dobra gra, żadnej kary; po prostu znika
         n.judged = true;
@@ -3973,11 +3982,13 @@ export class Game {
       });
       this.boardScrollMax = 0;
     } else {
-      const rows = topN(this.boardSongId, this.boardPeriod, 100);
+      // bez limitu — lista jest wirtualizowana (rysuje tylko widoczne wiersze,
+      // patrz first/last niżej), a serwer i tak trzyma tylko 1 wynik/gracza
+      const rows = topN(this.boardSongId, this.boardPeriod, Number.MAX_SAFE_INTEGER);
       const contentH = rows.length * rowH;
       this.boardScrollMax = Math.max(0, contentH - viewH);
 
-      // po wejściu / zmianie zakładki — pokaż wiersz gracza (jeśli w TOP 100)
+      // po wejściu / zmianie zakładki — przewiń do wiersza gracza
       if (this.boardScrollInit) {
         this.boardScrollInit = false;
         const mr = me?.rank ?? 0;
@@ -7076,7 +7087,7 @@ export class Game {
 
   private drawHud(ctx: CanvasRenderingContext2D) {
     // tytuł + pasek postępu utworu
-    text(ctx, this.song.title.toUpperCase(), MARGIN, 44, {
+    text(ctx, this.song.title.toUpperCase(), MARGIN, 44 + TOP_SAFE, {
       size: 20,
       align: "left",
       weight: "800",
@@ -7085,7 +7096,7 @@ export class Game {
     });
     const p = clamp(this.songTime / this.song.duration, 0, 1);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
-    ctx.fillRect(0, 0, VW, 5);
+    ctx.fillRect(0, TOP_SAFE, VW, 5);
     if (!this.hudProgressGrad) {
       const pg = ctx.createLinearGradient(0, 0, VW, 0);
       pg.addColorStop(0, "#ff9f43");
@@ -7093,7 +7104,7 @@ export class Game {
       this.hudProgressGrad = pg;
     }
     ctx.fillStyle = this.hudProgressGrad;
-    ctx.fillRect(0, 0, VW * p, 5);
+    ctx.fillRect(0, TOP_SAFE, VW * p, 5);
 
     // pauza
     ctx.fillStyle = "rgba(255,255,255,0.8)";
@@ -7102,7 +7113,7 @@ export class Game {
 
     // wynik
     const scoreStr = Math.round(this.displayScore).toString().padStart(6, "0");
-    text(ctx, scoreStr, VW / 2, 116, {
+    text(ctx, scoreStr, VW / 2, 116 + TOP_SAFE, {
       size: 52,
       weight: "800",
       color: "#fff7ec",
@@ -7297,7 +7308,6 @@ export class Game {
     }
     const reveal = clamp((now - this.resultsAt) / 1800, 0, 1);
     const eased = 1 - Math.pow(1 - reveal, 3);
-    const finalR = this.rating();
     // animujemy DO liczby faktycznie zapisanych gwiazdek (ta sama liczba, którą
     // widać potem w karuzeli) — nie do surowej oceny. Inaczej blisko progu
     // (np. 4,97/5) ostatnia gwiazdka wygląda na prawie pełną, choć realnie
@@ -7305,7 +7315,8 @@ export class Game {
     const starTarget = Math.floor(this.starFill());
     const shownStars = starTarget * eased;
     const revealDone = reveal >= 1;
-    const passed = finalR >= PASS_RATING;
+    // spójne z handleResultsTap: przejechanie rundy do końca = zaliczone, bez progu
+    const passed = true;
     const lvlIdx = SONGS.findIndex((s) => s.id === this.trackId);
 
     // --- nagłówek ---
@@ -7400,8 +7411,7 @@ export class Game {
     }
 
     const hasNext = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length && SONGS[lvlIdx + 1].playable;
-    const nextUnlocked = hasNext && levelUnlocked(lvlIdx + 1); // po recordStars() w finish()
-    const starsNow = Math.floor(this.starFill());
+    const nextUnlocked = hasNext && levelUnlocked(lvlIdx + 1); // po markCompleted() w finish()
 
     if (revealDone) {
       const vFade = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
@@ -7438,7 +7448,11 @@ export class Game {
         ctx.lineWidth = 2;
         roundRect(ctx, bx, by, bw, bh, 14);
         ctx.stroke();
-        text(ctx, "TO ZA MAŁO NA KOLEJNY POZIOM", cx, by + 24, {
+        // jedyny pozostały powód blokady kolejnego poziomu: runda bonusowa
+        // (Pogrzebówka) jeszcze nie kupiona za monety — progresja gwiazdkowa
+        // nie blokuje już nic (patrz markCompleted/prevRoundCleared w songs.ts)
+        const price = coinUnlockPrice(lvlIdx + 1);
+        text(ctx, "KOLEJNY POZIOM DO ODBLOKOWANIA", cx, by + 24, {
           size: 20,
           weight: "900",
           font: HEAD_FONT,
@@ -7447,7 +7461,7 @@ export class Game {
         });
         text(
           ctx,
-          `Potrzebujesz ${"★".repeat(UNLOCK_STARS)} (86%), masz ${"★".repeat(Math.max(0, starsNow))}`,
+          price > 0 ? `Odblokuj za ${price} monet na karuzeli` : "Sprawdź karuzelę „Wybierz hit”",
           cx,
           by + 52,
           { size: 18, weight: "700", color: "#f0d9bd" },
@@ -7470,7 +7484,15 @@ export class Game {
       color: "#fff7ec",
       shadows: HEAD_SHADOWS,
     });
-    if (this.resultRank > 0) {
+    if (!this.resultIsNewBest) {
+      // nie pobity własny rekord — zamiast miejsca w rankingu (myliłoby: nowe
+      // MIEJSCE dotyczyłoby wyniku sprzed tej rundy) pokazujemy sam rekord
+      text(ctx, `(Twój najlepszy: ${this.resultPrevBest.toLocaleString("pl-PL")} pkt)`, VW / 2, 876, {
+        size: 20,
+        weight: "700",
+        color: "#c9b7a6",
+      });
+    } else if (this.resultRank > 0) {
       text(ctx, `MIEJSCE ${this.resultRank}`, VW / 2, 880, {
         size: 30,
         weight: "900",
