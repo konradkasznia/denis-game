@@ -7360,9 +7360,6 @@ export class Game {
     }
 
     // --- statystyki trafień (kafelki z naliczaniem — zastąpiły licznik) ---
-    const cx = VW / 2;
-    const gp = { y: 300, h: 452 }; // obszar sięgający do nagłówka werdyktu (gp.y + gp.h)
-
     const stats: { label: string; value: number; bad?: boolean }[] = [
       { label: "PERFECT", value: this.counts.perfect },
       { label: "SUPER", value: this.counts.great },
@@ -7408,72 +7405,6 @@ export class Game {
         color: st.bad ? "#ffb0b0" : "#ffce8a",
         letterSpacing: "2px",
       });
-    }
-
-    const hasNext = lvlIdx >= 0 && lvlIdx + 1 < SONGS.length && SONGS[lvlIdx + 1].playable;
-    const nextUnlocked = hasNext && levelUnlocked(lvlIdx + 1); // po markCompleted() w finish()
-
-    if (revealDone) {
-      const vFade = clamp((now - this.resultsAt - 1800) / 400, 0, 1);
-      const lockedNext = passed && hasNext && !nextUnlocked;
-      ctx.save();
-      ctx.globalAlpha = vFade;
-      // nagłówek ZAWSZE mówi wprost, czy runda jest zaliczona — czy nie.
-      // Wcześniej przy zaliczonej rundzie z za małą liczbą gwiazdek nagłówek
-      // pokazywał „NIEWIELE ZABRAKŁO", co brzmiało jak porażka (mimo zielonych
-      // gwiazdek obok) i myliło graczy. To, że brakuje gwiazdek na KOLEJNY
-      // poziom, jest osobną, dodatkową informacją w polu niżej — nie zmienia
-      // faktu, że ta runda jest zaliczona.
-      const headline = passed ? "ZALICZONE!" : "NIEZALICZONE";
-      const headColor = passed ? "#5ef2a0" : "#ff6b7d";
-      text(ctx, headline, cx, gp.y + gp.h - (lockedNext ? 92 : 52), {
-        size: passed ? 42 : 36,
-        weight: "900",
-        font: HEAD_FONT,
-        color: headColor,
-        glow: passed ? "#5ef2a0" : "#ff5e7e",
-        glowBlur: 18,
-        letterSpacing: "1px",
-      });
-      if (lockedNext) {
-        // wyraźna informacja: rundę zaliczono, ale to za mało na kolejny poziom
-        const bw = VW - 96;
-        const bx = (VW - bw) / 2;
-        const by = gp.y + gp.h - 66;
-        const bh = 76;
-        ctx.fillStyle = "rgba(255,170,60,0.16)";
-        roundRect(ctx, bx, by, bw, bh, 14);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,190,90,0.55)";
-        ctx.lineWidth = 2;
-        roundRect(ctx, bx, by, bw, bh, 14);
-        ctx.stroke();
-        // jedyny pozostały powód blokady kolejnego poziomu: runda bonusowa
-        // (Pogrzebówka) jeszcze nie kupiona za monety — progresja gwiazdkowa
-        // nie blokuje już nic (patrz markCompleted/prevRoundCleared w songs.ts)
-        const price = coinUnlockPrice(lvlIdx + 1);
-        text(ctx, "KOLEJNY POZIOM DO ODBLOKOWANIA", cx, by + 24, {
-          size: 20,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#ffce8a",
-          letterSpacing: "1px",
-        });
-        text(
-          ctx,
-          price > 0 ? `Odblokuj za ${price} monet na karuzeli` : "Sprawdź karuzelę „Wybierz hit”",
-          cx,
-          by + 52,
-          { size: 18, weight: "700", color: "#f0d9bd" },
-        );
-      } else if (passed && nextUnlocked) {
-        text(ctx, "Następny poziom odblokowany!", cx, gp.y + gp.h - 14, {
-          size: 19,
-          weight: "800",
-          color: "#8affc1",
-        });
-      }
-      ctx.restore();
     }
 
     // --- punkty + miejsce ---
