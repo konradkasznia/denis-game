@@ -113,11 +113,15 @@ const HIT_Y_BASE = 1118; // linia trafienia przy wysokości projektowej (VH); re
 const APPROACH = 2.15; // s: jak długo nuta jest widoczna zanim dojdzie do linii (przy HIT_Y_BASE)
 // Odstęp linii trafienia od dołu ekranu. Historycznie 162 — testerzy zgłosili, że
 // wygodniej klika się PONIŻEJ obręczy, ale że jest tam za mało miejsca. Zwiększone
-// do 230, żeby dać więcej fizycznego miejsca na kciuk pod linią. `approachSec()`
-// świadomie NIE liczy się z tej wartości (patrz `HIT_Y_BOTTOM_TIMING_REF` niżej) —
-// przesunięcie linii w górę dla wygody dotyku NIE MOŻE zmieniać czasu, w którym
-// nuty się pojawiają (wykalibrowane, nietykalne na wyraźną prośbę).
-const HIT_Y_BOTTOM = 230;
+// do 230, żeby dać więcej fizycznego miejsca na kciuk pod linią. Potem +50 (280) —
+// cała dolna sekcja (obręcze + klawisze, patrz PAD_BOT_MARGIN) leżała tak nisko,
+// że dotyk często trafiał w systemowe przyciski wstecz/gesty Androida na samym
+// dole ekranu; podniesienie obu wartości o tyle samo zachowuje odstęp
+// obręcz-krawędź (miejsce na kciuk) i tylko przesuwa całość wyżej.
+// `approachSec()` świadomie NIE liczy się z tej wartości (patrz
+// `HIT_Y_BOTTOM_TIMING_REF` niżej) — przesunięcie linii w górę dla wygody dotyku
+// NIE MOŻE zmieniać czasu, w którym nuty się pojawiają (wykalibrowane, nietykalne).
+const HIT_Y_BOTTOM = 280;
 // ZAMROŻONE na oryginalnej wartości (162) — wyłącznie do liczenia approachSec().
 const HIT_Y_BOTTOM_TIMING_REF = 162;
 const LANE_GAP_HIT = 150; // odstęp środków torów przy linii trafienia
@@ -1505,8 +1509,13 @@ export class Game {
     return this.sh() - HIT_Y_BOTTOM;
   }
   /** Dolna krawędź strefy klawiszy. */
+  /** Dolna krawędź strefy klawiszy — przesunięta o tyle samo co HIT_Y_BOTTOM
+   *  (patrz komentarz tam), żeby cała dolna sekcja (obręcze + klawisze) trzymała
+   *  odstęp od krawędzi ekranu, nie tylko sama linia trafienia. Czysto wizualne:
+   *  laneAtX() (który tor został dotknięty) liczy się z samego X, niezależnie
+   *  od Y, więc to nie zmienia strefy dotyku ani czasów/prędkości nut. */
   private padBot(): number {
-    return this.sh() - 16;
+    return this.sh() - 66;
   }
   /** Czas dojścia nuty od horyzontu do linii — skalowany z długością toru,
    *  żeby prędkość nut w pikselach była stała niezależnie od wysokości ekranu.
