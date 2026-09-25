@@ -3315,6 +3315,12 @@ export class Game {
     return this.trackId === "panna-mloda" ? 1.15 : 1;
   }
 
+  /** Promień receptora (obręczy) — rośnie razem z judgeScale(), żeby wizualnie
+   *  było widać większy margines błędu, nie tylko liczyć na wyczucie gracza. */
+  private receptorR(): number {
+    return RECEPTOR_R * this.judgeScale();
+  }
+
   private checkMisses() {
     const off = this.offsetSec();
     const sc = this.judgeScale();
@@ -5957,9 +5963,10 @@ export class Game {
         const x = this.hitX(l);
         const flash = clamp(1 - (this.songTime - this.laneFlash[l]) / 0.22, 0, 1);
         const held = !!this.held[l];
-        const r = RECEPTOR_R + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
+        const rr = this.receptorR();
+        const r = rr + flash * 6 + this.lanePress[l] * 5 + (held ? 6 : 0);
         const glowAmt = clamp(flash + (held ? 0.55 : 0), 0, 1);
-        const gs = (r / RECEPTOR_R) * (1 + glowAmt * 0.4);
+        const gs = (r / rr) * (1 + glowAmt * 0.4);
         const gd = 2 * 96 * gs;
         ctx.save();
         ctx.globalAlpha = recAlpha * (0.5 + glowAmt * 0.5);
@@ -5987,10 +5994,10 @@ export class Game {
           ctx.strokeStyle = "#ff8a1e";
           ctx.lineWidth = 4 + 3 * pulse;
           ctx.beginPath();
-          ctx.arc(x, hitY, RECEPTOR_R + 6, 0, Math.PI * 2);
+          ctx.arc(x, hitY, rr + 6, 0, Math.PI * 2);
           ctx.stroke();
           const spr = this.extSprite();
-          const d = RECEPTOR_R * 1.55;
+          const d = rr * 1.55;
           ctx.globalAlpha = recAlpha;
           ctx.drawImage(spr, x - d / 2, hitY - d / 2, d, d);
           ctx.restore();
@@ -6027,9 +6034,11 @@ export class Game {
     return cv;
   }
 
-  /** Poświata pierścienia receptora (bazowy promień pierścienia = RECEPTOR_R w sprite 192x192). */
+  /** Poświata pierścienia receptora (promień pierścienia = receptorR() w sprite 192x192,
+   *  osobno wypalona na kolor × skalę — Panna Młoda ma większy receptorR()). */
   private receptorGlowSprite(color: string): HTMLCanvasElement {
-    const key = `r|${color}`;
+    const scale = this.judgeScale();
+    const key = `r|${color}|${scale}`;
     const hit = this.glowSpriteCache.get(key);
     if (hit) return hit;
     const S = 192;
@@ -6040,7 +6049,7 @@ export class Game {
     if (c) {
       const rgb = Game.rgbOf(color);
       const R = S / 2;
-      const ring = RECEPTOR_R / R;
+      const ring = this.receptorR() / R;
       const g = c.createRadialGradient(R, R, 0, R, R, R);
       g.addColorStop(0, `rgba(${rgb},0.18)`);
       g.addColorStop(Math.max(0, ring - 0.16), `rgba(${rgb},0.42)`);
