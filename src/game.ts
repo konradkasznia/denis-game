@@ -184,12 +184,13 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "burnFast";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   pogrzebowka: ["bomb", "vodka", "flashlight"],
   "pan-strazak": ["fire"],
   "byleby-nie-byla-ciepla": ["ice"],
+  "pani-policjantko": ["burnFast"],
 };
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
@@ -211,6 +212,10 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   ice: {
     title: "UWAŻAJ NA LÓD",
     body: "Ekran nagle zamarza w taflę lodu. Trzeba ją szybko rozbić serią stuknięć, zanim gra pójdzie dalej — nuty w tym czasie i tak są nie do zagrania.",
+  },
+  burnFast: {
+    title: "SZYBKIE SPALANIE NUT",
+    body: "Na tym utworze okno na trafienie jest o 40% węższe niż zwykle — nuty „spalają się” (liczą jako pudło) dużo szybciej. Receptor jest mniejszy, marginesu błędu prawie nie ma. Graj precyzyjniej niż normalnie.",
   },
 };
 
@@ -3311,8 +3316,12 @@ export class Game {
 
   /** Poziom 1 (Panna Młoda) ma okna oceny/pudła powiększone o 15% — łatwiej
    *  o PERFECT, łagodniejsze wejście w grę. Tylko ten utwór. */
+  /** Pani Policjantko (tylko konto Konrad) ma okna oceny/pudła zwężone o 40% —
+   *  nuty „spalają się" (liczą jako pudło) wyraźnie szybciej niż normalnie. */
   private judgeScale(): number {
-    return this.trackId === "panna-mloda" ? 1.15 : 1;
+    if (this.trackId === "panna-mloda") return 1.15;
+    if (this.trackId === "pani-policjantko") return 0.6;
+    return 1;
   }
 
   /** Promień receptora (obręczy) — rośnie razem z judgeScale(), żeby wizualnie
@@ -4313,6 +4322,7 @@ export class Game {
     flashlight: "LATARKA",
     fire: "OGIEŃ",
     ice: "LÓD",
+    burnFast: "OGIEŃ", // brak dedykowanej ikony — "spalanie" pasuje tematycznie do ognia
   };
 
   private drawWarnSign(
@@ -4681,6 +4691,50 @@ export class Game {
         weight: "900",
         font: HEAD_FONT,
         color: `rgba(190,230,255,${(0.6 + 0.4 * frost).toFixed(3)})`,
+      });
+    } else if (kind === "burnFast") {
+      // jedna nutka gaśnie w połowie drogi (dużo wcześniej niż normalna linia
+      // trafienia) — wizualnie pokazuje węższe okno z judgeScale()
+      const SPEED = 0.5;
+      const BURN_P = 0.6;
+      const lane = 1;
+      field(false, [{ lane: 3, off: 0.5 }]); // tło + jedna zwykła nutka dla kontrastu
+      const p = ((t * SPEED + 0.1) % 1 + 1) % 1;
+      const bx = lanesX[lane];
+      if (p < BURN_P) {
+        const x = vx + (bx - vx) * (0.05 + 0.95 * p);
+        const y = vy + (hitY - vy) * p;
+        const rr = 3 + 9 * p;
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffd24c";
+        ctx.fill();
+      } else {
+        const x = vx + (bx - vx) * (0.05 + 0.95 * BURN_P);
+        const y = vy + (hitY - vy) * BURN_P;
+        const burnT = clamp((p - BURN_P) / (1 - BURN_P), 0, 1);
+        const flash = clamp(1 - burnT * 3.5, 0, 1);
+        if (flash > 0.01) {
+          ctx.save();
+          ctx.globalAlpha = flash;
+          ctx.beginPath();
+          ctx.arc(x, y, 10 + (1 - flash) * 16, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ff5a3c";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.restore();
+          text(ctx, "PUDŁO", x, y - 24, {
+            size: 14,
+            weight: "900",
+            color: `rgba(255,120,100,${flash.toFixed(3)})`,
+          });
+        }
+      }
+      text(ctx, "SPALANIE · okno trafień o 40% węższe", ox + ow / 2, oy + 17, {
+        size: 12.5,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffb199",
       });
     } else {
       const cyc = 4.2;
