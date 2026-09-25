@@ -206,7 +206,13 @@ export function markCompleted(id: string) {
 /** Czy poprzedni poziom został choć raz przejechany do końca (bez progu punktowego). */
 function prevRoundCleared(index: number): boolean {
   const prev = SONGS[index - 1];
-  return !!prev && completedIds().has(prev.id);
+  if (!prev) return false;
+  // completedIds() to nowy zapis (od wprowadzenia progresji bez progu). Gracze,
+  // którzy przeszli poziom WCZEŚNIEJ (stary kod, bez tego zapisu) mieliby go
+  // teraz zablokowanego mimo realnego ukończenia — bestStars > 0 zawsze
+  // oznacza dojechaną do końca rundę (recordStars leci tylko z finish()),
+  // więc to samo w sobie wystarcza jako dowód ukończenia z dowolnej przeszłości.
+  return completedIds().has(prev.id) || bestStars(prev.id) > 0;
 }
 
 /** Runda BONUSOWA (kupowana za monety, poza główną numeracją poziomów —
