@@ -188,9 +188,10 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "burnFast";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "burnFast" | "hold";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
+  "ksiaze-z-bajki": ["hold"],
   pogrzebowka: ["bomb", "vodka", "flashlight"],
   "pan-strazak": ["fire"],
   "byleby-nie-byla-ciepla": ["ice"],
@@ -220,6 +221,10 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   burnFast: {
     title: "SZYBKIE SPALANIE NUT",
     body: "Na tym utworze okno na trafienie jest o 40% węższe niż zwykle — nuty „spalają się” (liczą jako pudło) dużo szybciej. Receptor jest mniejszy, marginesu błędu prawie nie ma. Graj precyzyjniej niż normalnie.",
+  },
+  hold: {
+    title: "NUTY DO PRZYTRZYMANIA",
+    body: "Od tego poziomu pojawiają się podłużne nutki — zamiast samego stuknięcia, przytrzymaj palec na torze, aż cała nutka przejedzie przez linię trafienia. Puszczenie za wcześnie liczy się jako zerwane trzymanie.",
   },
 };
 
@@ -4332,6 +4337,7 @@ export class Game {
     fire: "OGIEŃ",
     ice: "LÓD",
     burnFast: "OGIEŃ", // brak dedykowanej ikony — "spalanie" pasuje tematycznie do ognia
+    hold: "PRZETRZYMAJ",
   };
 
   private drawWarnSign(
@@ -4745,6 +4751,65 @@ export class Game {
         font: HEAD_FONT,
         color: "#ffb199",
       });
+    } else if (kind === "hold") {
+      const cyc = 2.6;
+      const c = t % cyc;
+      field(false, []); // bez zwykłych nutek — samo demo przytrzymania
+      const lane = 1;
+      const bx = lanesX[lane];
+      const FALL = 1.0;
+      const fall = Math.min(c / FALL, 1);
+      const HOLD_END = FALL + 0.9;
+      const RELEASE_END = HOLD_END + 0.4;
+      const holding = c >= FALL && c < HOLD_END;
+      const releasing = c >= HOLD_END && c < RELEASE_END;
+      const rp = releasing ? (c - HOLD_END) / 0.4 : 0;
+      const holdProgress = holding ? (c - FALL) / 0.9 : c >= HOLD_END ? 1 : 0;
+      const TAIL = 0.32; // długość ogona w przestrzeni „p" (0..1 = horyzont..linia)
+      const noteXAt = (p: number) => vx + (bx - vx) * (0.05 + 0.95 * clamp(p, 0, 1));
+      const noteYAt = (p: number) => vy + (hitY - vy) * clamp(p, 0, 1);
+      const noteRAt = (p: number) => 3 + 9 * clamp(p, 0, 1);
+      const headP = c < FALL ? fall : 1;
+      const tailP = c < FALL ? Math.max(0.02, headP - TAIL) : Math.max(0.02, 1 - TAIL + TAIL * holdProgress);
+      if (c < HOLD_END) {
+        const hy = noteYAt(headP);
+        const ty = noteYAt(tailP);
+        const hr = noteRAt(headP);
+        const tr = noteRAt(tailP);
+        ctx.save();
+        ctx.fillStyle = holding ? "#8affc1" : "#ffd24c";
+        ctx.beginPath();
+        ctx.moveTo(noteXAt(headP) - hr, hy);
+        ctx.lineTo(noteXAt(tailP) - tr, ty);
+        ctx.lineTo(noteXAt(tailP) + tr, ty);
+        ctx.lineTo(noteXAt(headP) + hr, hy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(noteXAt(headP), hy, hr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(noteXAt(tailP), ty, tr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      if (releasing) {
+        ctx.save();
+        ctx.globalAlpha = 1 - rp;
+        ctx.beginPath();
+        ctx.arc(bx, hitY, 12 + rp * 22, 0, Math.PI * 2);
+        ctx.strokeStyle = "#8affc1";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+      }
+      text(
+        ctx,
+        holding ? "PRZYTRZYMAJ" : releasing ? "PUŚĆ!" : "PODŁUŻNA NUTKA · trzymaj do końca",
+        ox + ow / 2,
+        oy + 17,
+        { size: 12.5, weight: "900", font: HEAD_FONT, color: "#8affc1" },
+      );
     } else {
       const cyc = 4.2;
       const c = t % cyc;
@@ -4784,9 +4849,8 @@ export class Game {
     const steps: { txt: string; col: string }[] = [
       { txt: "1. Kółka nadjeżdżają z góry, każde swoim torem.", col: "#e2d7c7" },
       { txt: "2. Stuknij w dole ekranu dokładnie w chwili, gdy kółko wchodzi w białą obręcz na linii.", col: "#e2d7c7" },
-      { txt: "3. Podłużne kółka PRZYTRZYMAJ palcem, aż całe przejadą przez linię.", col: "#e2d7c7" },
-      { txt: "4. PERFECT = trafienie w idealny moment. Najlepsza ocena, najwięcej punktów.", col: "#8affc1" },
-      { txt: "5. Seria trafień to COMBO i rosnący mnożnik (do ×5). Zwykłe „OK” albo pudło ją zeruje.", col: "#ffd24c" },
+      { txt: "3. PERFECT = trafienie w idealny moment. Najlepsza ocena, najwięcej punktów.", col: "#8affc1" },
+      { txt: "4. Seria trafień to COMBO i rosnący mnożnik (do ×5). Zwykłe „OK” albo pudło ją zeruje.", col: "#ffd24c" },
     ];
     const wrapChars = Math.floor((pw - (tx - px) - 22) / 10.4); // ~cała szerokość panelu
     const wrapped = steps.map((s) => wrapText(s.txt, wrapChars));
@@ -4886,30 +4950,21 @@ export class Game {
     ctx.lineTo(ox + ow - 6, hitY);
     ctx.stroke();
 
+    // Samouczek na starcie pokazuje TYLKO zwykłe stuknięcie — przytrzymania
+    // tłumaczy osobny znak ostrzegawczy w 2. rundzie (patrz OBSTACLE_INFO.hold),
+    // bo pojawiają się dopiero tam.
     const SLOT = 2.6;
     const c = t % SLOT;
     const lane = Math.floor(t / SLOT) % 4;
-    const isHold = lane >= 2; // 1. i 2. kółko = stuknięcie, 3. i 4. = przytrzymanie
     const bx = lanesX[lane];
     const noteX = (f: number) => vx + (bx - vx) * (0.12 + 0.88 * clamp(f, 0, 1));
     const noteY = (f: number) => vy + (hitY - vy) * clamp(f, 0, 1);
     const noteR = (f: number) => 3 + 12 * clamp(f, 0, 1);
 
-    // --- fazy w slocie ---
-    const FALL = isHold ? 1.1 : 1.32;
+    const FALL = 1.32;
     const fall = Math.min(c / FALL, 1);
-    // TAP
-    const tapImpact = !isHold && c >= FALL - 0.02 && c < FALL + 0.5;
+    const tapImpact = c >= FALL - 0.02 && c < FALL + 0.5;
     const tip = tapImpact ? (c - FALL + 0.02) / 0.52 : 0;
-    // HOLD
-    const HOLD_END = FALL + 0.95;
-    const REL_END = HOLD_END + 0.42;
-    const holding = isHold && c >= FALL && c < HOLD_END;
-    const releasing = isHold && c >= HOLD_END && c < REL_END;
-    const rp = releasing ? (c - HOLD_END) / 0.42 : 0;
-    const hg = holding ? (c - FALL) / 0.95 : c >= HOLD_END ? 1 : 0; // postęp „przejeżdżania" ogona
-    const HL = 0.5; // długość ogona w przestrzeni „f"
-    const activeGreen = tapImpact || holding || releasing;
 
     // obręcze na linii — aktywna rozjaśnia się gdy nuta blisko
     lanesX.forEach((lx, i) => {
@@ -4917,130 +4972,63 @@ export class Game {
       const near = hot ? Math.max(0, (fall - 0.5) / 0.5) : 0;
       ctx.beginPath();
       ctx.arc(lx, hitY, 15, 0, Math.PI * 2);
-      ctx.strokeStyle = hot && activeGreen ? "#8affc1" : `rgba(255,255,255,${0.5 + near * 0.45})`;
-      ctx.lineWidth = 3 + near * 2 + (hot && activeGreen ? 1 : 0);
+      ctx.strokeStyle = hot && tapImpact ? "#8affc1" : `rgba(255,255,255,${0.5 + near * 0.45})`;
+      ctx.lineWidth = 3 + near * 2 + (hot && tapImpact ? 1 : 0);
       ctx.stroke();
     });
 
-    if (isHold) {
-      // --- KÓŁKO PODŁUŻNE (do przytrzymania) ---
-      const headF = c < FALL ? fall : 1;
-      const tailF = c < FALL ? headF - HL : 1 - HL + HL * hg;
-      if (c < HOLD_END) {
-        const tf = Math.max(0.02, tailF);
-        const hy = noteY(headF);
-        const ty = noteY(tf);
-        const hr = noteR(headF);
-        const tr = noteR(tf);
-        ctx.save();
-        ctx.shadowColor = holding ? "#8affc1" : "#ffb347";
-        ctx.shadowBlur = 12;
-        ctx.fillStyle = holding ? "#8affc1" : "#ffd24c";
+    if (!tapImpact) {
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = "#ffd24c";
+      for (const bk of [0.08, 0.16]) {
+        const f2 = Math.max(0, fall - bk);
         ctx.beginPath();
-        ctx.moveTo(noteX(headF) - hr, hy);
-        ctx.lineTo(noteX(tf) - tr, ty);
-        ctx.lineTo(noteX(tf) + tr, ty);
-        ctx.lineTo(noteX(headF) + hr, hy);
-        ctx.closePath();
+        ctx.arc(noteX(f2), noteY(f2), noteR(f2), 0, Math.PI * 2);
         ctx.fill();
-        ctx.beginPath();
-        ctx.arc(noteX(headF), hy, hr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(noteX(tf), ty, tr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
       }
-      if (holding) {
-        text(ctx, "PRZYTRZYMAJ", bx, hitY - 42, {
-          size: 18,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#8affc1",
-          shadows: HEAD_SHADOWS,
-        });
-      } else if (releasing) {
-        ctx.save();
-        ctx.globalAlpha = 1 - rp;
-        for (let k = 0; k < 3; k++) {
-          ctx.beginPath();
-          ctx.arc(bx, hitY, 14 + rp * (22 + k * 12), 0, Math.PI * 2);
-          ctx.strokeStyle = "#8affc1";
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(138,255,193,${0.95 - rp * 0.5})`;
-        ctx.fill();
-        text(ctx, "PUŚĆ!", bx, hitY - 40, {
-          size: 20,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#8affc1",
-          shadows: HEAD_SHADOWS,
-        });
-      }
-      // palec: podczas trzymania DOCIŚNIĘTY do obręczy, przy puszczeniu się cofa
-      const press = holding ? 14 : releasing ? 14 * (1 - rp) : 0;
-      text(ctx, "👆", bx, hitY + 50 - press, { size: 34 });
+      ctx.restore();
+      ctx.save();
+      ctx.shadowColor = "#ffb347";
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(noteX(fall), noteY(fall), noteR(fall), 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd24c";
+      ctx.fill();
+      ctx.restore();
     } else {
-      // --- KÓŁKO ZWYKŁE (stuknięcie) ---
-      if (!tapImpact) {
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        ctx.fillStyle = "#ffd24c";
-        for (const bk of [0.08, 0.16]) {
-          const f2 = Math.max(0, fall - bk);
-          ctx.beginPath();
-          ctx.arc(noteX(f2), noteY(f2), noteR(f2), 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.restore();
-        ctx.save();
-        ctx.shadowColor = "#ffb347";
-        ctx.shadowBlur = 12;
+      ctx.save();
+      ctx.globalAlpha = 1 - tip;
+      for (let k = 0; k < 3; k++) {
         ctx.beginPath();
-        ctx.arc(noteX(fall), noteY(fall), noteR(fall), 0, Math.PI * 2);
-        ctx.fillStyle = "#ffd24c";
-        ctx.fill();
-        ctx.restore();
-      } else {
-        ctx.save();
-        ctx.globalAlpha = 1 - tip;
-        for (let k = 0; k < 3; k++) {
-          ctx.beginPath();
-          ctx.arc(bx, hitY, 14 + tip * (22 + k * 12), 0, Math.PI * 2);
-          ctx.strokeStyle = "#8affc1";
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(138,255,193,${0.95 - tip * 0.5})`;
-        ctx.fill();
-        text(ctx, "TERAZ!", bx, hitY - 40, {
-          size: 22,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#8affc1",
-          shadows: HEAD_SHADOWS,
-        });
+        ctx.arc(bx, hitY, 14 + tip * (22 + k * 12), 0, Math.PI * 2);
+        ctx.strokeStyle = "#8affc1";
+        ctx.lineWidth = 3;
+        ctx.stroke();
       }
-      const jab = tapImpact ? Math.sin(Math.min(tip / 0.35, 1) * Math.PI) * 16 : 0;
-      text(ctx, "👆", bx, hitY + 52 - jab, { size: 34 });
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(bx, hitY, 13, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(138,255,193,${0.95 - tip * 0.5})`;
+      ctx.fill();
+      text(ctx, "TERAZ!", bx, hitY - 40, {
+        size: 22,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#8affc1",
+        shadows: HEAD_SHADOWS,
+      });
     }
+    const jab = tapImpact ? Math.sin(Math.min(tip / 0.35, 1) * Math.PI) * 16 : 0;
+    text(ctx, "👆", bx, hitY + 52 - jab, { size: 34 });
 
-    // podpis: co robić z tym kółkiem
-    text(
-      ctx,
-      isHold ? "PODŁUŻNE KÓŁKA PRZYTRZYMAJ PALCEM" : "STUKNIJ, GDY KÓŁKO WEJDZIE W OBRĘCZ",
-      ox + ow / 2,
-      labelY,
-      { size: 13, weight: "900", font: HEAD_FONT, color: "#ffd24c", letterSpacing: "1px" },
-    );
+    text(ctx, "STUKNIJ, GDY KÓŁKO WEJDZIE W OBRĘCZ", ox + ow / 2, labelY, {
+      size: 13,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd24c",
+      letterSpacing: "1px",
+    });
   }
 
   // ---- wspólne elementy UI ----------------------------------
