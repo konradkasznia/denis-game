@@ -167,13 +167,14 @@ const HIT_GRAJ: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 104 };
 const HIT_RES: Rect = { x: MARGIN, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 const HIT_REW: Rect = { x: VW / 2 + 9, y: 1104, w: (VW - MARGIN * 2) / 2 - 9, h: 92 };
 
-// pigułka z monetami — lewy górny róg (klik → NAGRODY). Używana na ekranie
-// NAGRODY i jako cel animacji „lot monet" po rundzie (drawResults) — tam
-// zostaje w rogu. Na karuzeli WYBIERZ HIT pigułka stoi gdzie indziej, patrz
-// HITS_HEAD_COINS niżej.
+// lewy górny róg — TYLKO kotwica dla powitania „Cześć, X!" na karuzeli
+// (patrz drawHits). Pigułka z monetami nigdzie już tu nie stoi — wszystkie
+// ekrany (karuzela/NAGRODY/WYNIKI) trzymają ją w jednym miejscu, HITS_HEAD_COINS.
 const HIT_COINS: Rect = { x: 14, y: 22 + TOP_SAFE, w: 178, h: 62 };
-// karuzela WYBIERZ HIT: rząd nagłówka = [Cześć, X!] ... [monety][zębatka]
-// (Konrad 2026-09-11) — pigułka tuż przy zębatce, nie w rogu.
+// jedyna pozycja pigułki z monetami w całej grze: rząd nagłówka karuzeli
+// WYBIERZ HIT = [Cześć, X!] ... [monety][zębatka] (Konrad 2026-09-11), tuż
+// przy zębatce. Rewards i Wyniki (drawRewards/drawResults) rysują pigułkę
+// dokładnie tu, żeby nigdy nie „skakała" między ekranami.
 const HITS_HEAD_COINS: Rect = { x: HIT_GEAR.x - 16 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
 
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
@@ -5383,8 +5384,7 @@ export class Game {
   private drawRewards(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     // ta sama pozycja co na karuzeli (prawy górny róg) — monety mają stać
-    // zawsze w tym samym miejscu w menu; lewy górny róg zostaje tylko na
-    // ekranie wyników, gdzie jest celem animacji „lot monet" po rundzie
+    // zawsze w tym samym miejscu, patrz też drawResults (pillR)
     this.drawCoinPill(ctx, HITS_HEAD_COINS, coins());
     // bez przycisku „‹ WRÓĆ" w rogu — zostaje systemowy powrót + „POWRÓT" na dole
     text(ctx, "NAGRODY", VW / 2, 130, {
@@ -7471,8 +7471,8 @@ export class Game {
       if (earned > 0 && !this.coinFlySpawned && now - this.resultsAt > 2000) {
         this.coinFlySpawned = true;
         const n = clamp(this.coinsEarned, 6, 14);
-        const tx = HIT_COINS.x + HIT_COINS.h * 0.62;
-        const ty = HIT_COINS.y + HIT_COINS.h / 2 - this.vdy;
+        const tx = HITS_HEAD_COINS.x + HITS_HEAD_COINS.h * 0.62;
+        const ty = HITS_HEAD_COINS.y + HITS_HEAD_COINS.h / 2 - this.vdy;
         for (let i = 0; i < n; i++) {
           this.coinFly.push({
             bx: VW / 2 + (Math.random() - 0.5) * (tw + 60),
@@ -7487,8 +7487,9 @@ export class Game {
         this.coinCountAt = now + n * 55 + 480;
       }
 
-      // pigułka z liczbą monet — bezwzględny lewy górny róg (kompensujemy `vdy`)
-      const pillR: Rect = { ...HIT_COINS, y: HIT_COINS.y - this.vdy };
+      // pigułka z liczbą monet — ta sama pozycja co na karuzeli/ekranie NAGRODY
+      // (prawy górny róg), kompensujemy tylko `vdy` (wychylenie świata)
+      const pillR: Rect = { ...HITS_HEAD_COINS, y: HITS_HEAD_COINS.y - this.vdy };
       let shownCoins = total;
       let pulse = 0;
       if (earned > 0) {
