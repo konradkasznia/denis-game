@@ -6151,32 +6151,42 @@ export class Game {
       const eHi = n.holding ? 1 : Math.min(headE, 1.08);
       if (eHi <= eLo) continue;
 
+      // Aktywnie trzymana nuta: wyraźnie szerszy i jaśniejszy ogon (było ledwo
+      // widać, że palec faktycznie coś trzyma) — nadjeżdżająca/ocenioma reszta
+      // zostaje bez zmian.
+      const wMul = n.holding ? 0.88 : 0.5;
       const steps = 7;
       ctx.beginPath();
       for (let i = 0; i <= steps; i++) {
         const e = lerp(eLo, eHi, i / steps);
-        const x = this.laneXAtE(n.lane, e) - RECEPTOR_R * 0.5 * this.sizeAtE(e);
+        const x = this.laneXAtE(n.lane, e) - RECEPTOR_R * wMul * this.sizeAtE(e);
         const y = this.yForE(e);
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
       for (let i = steps; i >= 0; i--) {
         const e = lerp(eLo, eHi, i / steps);
-        ctx.lineTo(this.laneXAtE(n.lane, e) + RECEPTOR_R * 0.5 * this.sizeAtE(e), this.yForE(e));
+        ctx.lineTo(this.laneXAtE(n.lane, e) + RECEPTOR_R * wMul * this.sizeAtE(e), this.yForE(e));
       }
       ctx.closePath();
       ctx.save();
       ctx.globalAlpha =
         (n.holding
-          ? 0.72
+          ? 1
           : n.judged
             ? clamp(1 - (this.songTime - n.judgedAt) / 0.25, 0, 1) * 0.4
             : 0.42) * this.noteAlphaMul;
-      ctx.fillStyle = LANE_COLORS[n.lane];
+      ctx.fillStyle = n.holding ? shade(LANE_COLORS[n.lane], 70) : LANE_COLORS[n.lane];
       if (n.holding) {
         ctx.shadowColor = LANE_COLORS[n.lane];
-        ctx.shadowBlur = 24;
+        ctx.shadowBlur = 34;
       }
       ctx.fill();
+      if (n.holding) {
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
