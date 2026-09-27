@@ -230,6 +230,8 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
 
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
+const REW_TIKTOK: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 92 }; // 8px odstępu nad POWRÓT
+const TIKTOK_URL = "https://www.tiktok.com/@denis_impulsywni";
 
 // --- ekran USTAWIENIA ---
 const SET_W = VW - MARGIN * 2;
@@ -2644,6 +2646,11 @@ export class Game {
   }
 
   private handleRewardsTap(x: number, y: number) {
+    if (inRect(REW_TIKTOK, x, y)) {
+      uiSound("buttons");
+      openExternal(TIKTOK_URL);
+      return;
+    }
     // x < 0 = systemowy „wstecz"; REW_HOME = przycisk „POWRÓT" na dole
     if (x < 0 || inRect(REW_HOME, x, y)) {
       uiSound("back");
@@ -5075,7 +5082,7 @@ export class Game {
     opts: {
       disabled?: boolean;
       fallback?: string;
-      style?: "gold" | "dark-gold" | "dark-green";
+      style?: "gold" | "dark-gold" | "dark-green" | "tiktok";
     } = {},
   ) {
     const { disabled = false, fallback = name.toUpperCase(), style = "gold" } = opts;
@@ -5458,16 +5465,16 @@ export class Game {
       const h = (rd.naturalHeight / rd.naturalWidth) * w;
       ctx.drawImage(rd, VW / 2 - w / 2, 220, w, h);
     }
-    wrapText("Wciąż rozbudowujemy naszą grę! Daj nam trochę czasu, a wkrótce wrócimy z konkursami!", 26).forEach(
-      (ln, i) =>
-        text(ctx, ln, VW / 2, 860 + i * 40, {
-          size: 28,
-          weight: "900",
-          font: HEAD_FONT,
-          color: "#fff7ec",
-          shadows: HEAD_SHADOWS,
-        }),
+    wrapText("Obserwuj nasze social media, aby nie przegapić żadnego konkursu!", 26).forEach((ln, i) =>
+      text(ctx, ln, VW / 2, 860 + i * 40, {
+        size: 28,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#fff7ec",
+        shadows: HEAD_SHADOWS,
+      }),
     );
+    this.uiButton(ctx, REW_TIKTOK, "obserwuj-tiktok", { fallback: "Obserwuj nas na TikToku", style: "tiktok" });
     this.uiButton(ctx, REW_HOME, "powrot", { fallback: "POWRÓT", style: "dark-gold" });
   }
 
@@ -7763,7 +7770,7 @@ export class Game {
     ctx: CanvasRenderingContext2D,
     r: Rect,
     label: string,
-    style: "gold" | "dark-gold" | "dark-green",
+    style: "gold" | "dark-gold" | "dark-green" | "tiktok",
   ) {
     const rad = Math.min(r.h / 2, 26);
     const lip = Math.round(r.h * 0.14);
@@ -7779,11 +7786,14 @@ export class Game {
     ctx.fill();
     ctx.restore();
 
-    // krawędź (spód/bevel) — zielona pod zielonym Spotify, brązowa pod resztą
+    // krawędź (spód/bevel) — zielona pod Spotify, cyjan pod TikTokiem, brązowa pod resztą
     const edge = ctx.createLinearGradient(0, r.y + faceH - 6, 0, r.y + r.h);
     if (style === "dark-green") {
       edge.addColorStop(0, "#0e8a3e");
       edge.addColorStop(1, "#0a4d24");
+    } else if (style === "tiktok") {
+      edge.addColorStop(0, "#0d1a1a");
+      edge.addColorStop(1, "#000000");
     } else {
       edge.addColorStop(0, "#b05206");
       edge.addColorStop(1, "#70380b");
@@ -7799,18 +7809,33 @@ export class Game {
       g.addColorStop(0.5, "#ffc63c");
       g.addColorStop(1, "#f5a81c");
       ctx.fillStyle = g;
+    } else if (style === "tiktok") {
+      ctx.fillStyle = "#010101";
     } else {
       ctx.fillStyle = "#1d0d07";
     }
     roundRect(ctx, r.x, r.y, r.w, faceH, rad);
     ctx.fill();
 
-    // obrys
-    ctx.lineWidth = style === "gold" ? 2 : 3;
-    ctx.strokeStyle =
-      style === "dark-green" ? "#1db954" : style === "dark-gold" ? "#c9791a" : "rgba(120,64,8,0.5)";
-    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
-    ctx.stroke();
+    // obrys — TikTok: podwójna krawędź cyjan (góra/lewo) + róż (dół/prawo), styl logotypu
+    if (style === "tiktok") {
+      ctx.save();
+      roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+      ctx.clip();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#25F4EE";
+      roundRect(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, faceH - 3, rad);
+      ctx.stroke();
+      ctx.strokeStyle = "#FE2C55";
+      roundRect(ctx, r.x - 1.5, r.y - 1.5, r.w - 3, faceH - 3, rad);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.lineWidth = style === "gold" ? 2 : 3;
+      ctx.strokeStyle = style === "dark-green" ? "#1db954" : style === "dark-gold" ? "#c9791a" : "rgba(120,64,8,0.5)";
+      roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+      ctx.stroke();
+    }
 
     // górny bevel (tylko złoty)
     if (style === "gold") {
@@ -7840,8 +7865,8 @@ export class Game {
       weight: "900",
       font: HEAD_FONT,
       color: "#fff",
-      stroke: style === "gold" ? "#70380b" : "rgba(0,0,0,0.55)",
-      strokeWidth: style === "gold" ? 5 : 4,
+      stroke: style === "gold" ? "#70380b" : style === "tiktok" ? "#FE2C55" : "rgba(0,0,0,0.55)",
+      strokeWidth: style === "gold" ? 5 : style === "tiktok" ? 3 : 4,
       shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.4)" }],
     });
   }
