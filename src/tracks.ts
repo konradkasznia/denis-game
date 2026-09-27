@@ -219,7 +219,10 @@ async function fetchPublishedChart(id: string): Promise<RawChart | null> {
     const timer = ctrl ? setTimeout(() => ctrl.abort(), 4000) : null;
     let res: Response;
     try {
-      res = await fetch(`${apiBase()}/api/chart?songId=${encodeURIComponent(id)}`, { signal: ctrl?.signal });
+      res = await fetch(`${apiBase()}/api/chart?songId=${encodeURIComponent(id)}`, {
+        signal: ctrl?.signal,
+        cache: "no-store", // nigdy nie serwuj z lokalnego cache'a HTTP (telefon musi widzieć każdą nową publikację)
+      });
     } finally {
       if (timer) clearTimeout(timer);
     }
