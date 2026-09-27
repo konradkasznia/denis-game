@@ -230,7 +230,7 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
 
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
-const REW_TIKTOK: Rect = { x: MARGIN, y: 986, w: VW - MARGIN * 2, h: 92 }; // 8px odstępu nad POWRÓT
+const REW_TIKTOK: Rect = { x: MARGIN, y: 976, w: VW - MARGIN * 2, h: 102 }; // 8px odstępu nad POWRÓT
 const TIKTOK_URL = "https://www.tiktok.com/@denis_impulsywni";
 
 // --- ekran USTAWIENIA ---
@@ -7817,25 +7817,18 @@ export class Game {
     roundRect(ctx, r.x, r.y, r.w, faceH, rad);
     ctx.fill();
 
-    // obrys — TikTok: podwójna krawędź cyjan (góra/lewo) + róż (dół/prawo), styl logotypu
-    if (style === "tiktok") {
-      ctx.save();
-      roundRect(ctx, r.x, r.y, r.w, faceH, rad);
-      ctx.clip();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#25F4EE";
-      roundRect(ctx, r.x + 1.5, r.y + 1.5, r.w - 3, faceH - 3, rad);
-      ctx.stroke();
-      ctx.strokeStyle = "#FE2C55";
-      roundRect(ctx, r.x - 1.5, r.y - 1.5, r.w - 3, faceH - 3, rad);
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      ctx.lineWidth = style === "gold" ? 2 : 3;
-      ctx.strokeStyle = style === "dark-green" ? "#1db954" : style === "dark-gold" ? "#c9791a" : "rgba(120,64,8,0.5)";
-      roundRect(ctx, r.x, r.y, r.w, faceH, rad);
-      ctx.stroke();
-    }
+    // obrys
+    ctx.lineWidth = style === "gold" ? 2 : 3;
+    ctx.strokeStyle =
+      style === "dark-green"
+        ? "#1db954"
+        : style === "tiktok"
+          ? "#25F4EE"
+          : style === "dark-gold"
+            ? "#c9791a"
+            : "rgba(120,64,8,0.5)";
+    roundRect(ctx, r.x, r.y, r.w, faceH, rad);
+    ctx.stroke();
 
     // górny bevel (tylko złoty)
     if (style === "gold") {
@@ -7865,8 +7858,8 @@ export class Game {
       weight: "900",
       font: HEAD_FONT,
       color: "#fff",
-      stroke: style === "gold" ? "#70380b" : style === "tiktok" ? "#FE2C55" : "rgba(0,0,0,0.55)",
-      strokeWidth: style === "gold" ? 5 : style === "tiktok" ? 3 : 4,
+      stroke: style === "gold" ? "#70380b" : "rgba(0,0,0,0.55)",
+      strokeWidth: style === "gold" ? 5 : 4,
       shadows: [{ dx: 0, dy: 2, color: "rgba(0,0,0,0.4)" }],
     });
   }
