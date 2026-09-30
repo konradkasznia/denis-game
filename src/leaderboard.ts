@@ -2,8 +2,6 @@
 //
 // Źródło prawdy: backend (/api/scores). Trzymamy lokalną kopię ostatnio pobranej
 // tablicy oraz najlepszy wynik gracza (żeby UI działało natychmiast i offline).
-// „Boty" (deterministyczny ogon stawki) dokładamy tylko jako wypełnienie, gdy
-// realnych wyników jest mało — żeby tablica nie świeciła pustką.
 
 import { nick as myNick } from "./account.ts";
 import { applyServerCoins } from "./coins.ts";
@@ -16,57 +14,6 @@ export interface Entry {
   nick: string;
   score: number;
   me?: boolean;
-}
-
-function hashStr(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const NICKS = [
-  "Kasia_88", "DJ_Bartek", "Ola2000", "kamil.pl", "WeselnyKról", "monika_r", "Piotrek",
-  "aniaaa", "grzesiek_w", "NikaXO", "MłodaPara", "tomek1993", "sylwia.k", "MarekG",
-  "dominika_", "krzychu", "julka_2010", "Rafał", "patka", "SzymonB", "gosia_m",
-  "adrian.p", "weronika", "MateuszK", "iza_w", "ЯArek", "kinga_", "DawidM", "natalia88",
-  "hubert.pl", "ewelina_", "ЯBartosz", "magda_z", "ЯKuba", "ola.nowak", "Filip",
-  "karolina_k", "Wojtek99", "asia_p", "MichałW",
-];
-
-/** Deterministyczna „reszta stawki" (wypełniacz, gdy realnych wyników mało).
- *  To tylko TŁO tabeli — nie ma udawać rekordzistów. Rozkład mocno skośny:
- *  większość „graczy" w środku stawki, tylko pojedynczy blisko górnej granicy,
- *  która jest CELOWO niższa niż bardzo dobry przebieg człowieka (~600 k+), żeby
- *  świetna runda lądowała w czołówce, a nie „miejsce 36". Realne miejsce i tak
- *  liczy serwer po samych prawdziwych graczach. */
-function fakeBoard(songId: string, period: Period): { nick: string; score: number }[] {
-  const rng = mulberry32(hashStr(`board:${period}:${songId}`));
-  const n = period === "month" ? 120 : 170;
-  const top = period === "month" ? 440_000 : 520_000; // najlepszy „bot"
-  const base = period === "month" ? 22_000 : 30_000;
-  const rows: { nick: string; score: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const score = base + Math.floor(Math.pow(rng(), 2.4) * (top - base));
-    const name =
-      NICKS[Math.floor(rng() * NICKS.length)] +
-      (rng() < 0.25 ? String(Math.floor(rng() * 90) + 10) : "");
-    rows.push({ nick: name, score });
-  }
-  return rows;
 }
 
 function keyFor(songId: string) {
@@ -158,14 +105,7 @@ async function postScore(songId: string, score: number, stars: number) {
 function fullBoard(songId: string, period: Period): Entry[] {
   const rb = remote.get(rkey(songId, period));
   const list: { nick: string; score: number; me?: boolean }[] = [];
-
-  if (rb && rb.top.length) {
-    for (const e of rb.top) list.push({ nick: e.nick, score: e.score, me: e.me });
-    const floor = rb.top[rb.top.length - 1]?.score ?? 0;
-    for (const f of fakeBoard(songId, period)) if (f.score < floor) list.push(f);
-  } else {
-    for (const f of fakeBoard(songId, period)) list.push(f);
-  }
+  if (rb) for (const e of rb.top) list.push({ nick: e.nick, score: e.score, me: e.me });
 
   // „ja" w zakładce all-time bierzemy też z lokalnego rekordu (działa offline);
   // w zakładce miesięcznej — tylko z serwera
