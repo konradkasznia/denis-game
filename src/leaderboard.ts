@@ -20,6 +20,27 @@ function keyFor(songId: string) {
   return `denis.board.${songId}`;
 }
 
+// Jednorazowe skasowanie lokalnie zapamiętanych „moich najlepszych wyników" po
+// realnym zerowaniu tablic na serwerze (zmiana beatmapy = inna maks. liczba
+// punktów, stary rekord gracza jest nieporównywalny) — inaczej telefon i tak
+// pokazywałby stary wynik z lokalnego cache'a, mimo pustej bazy. Podbij
+// CURRENT_RESET_VERSION przy każdym kolejnym takim zerowaniu.
+const RESET_VERSION_KEY = "denis.scoresResetV";
+const CURRENT_RESET_VERSION = 1;
+(function invalidateStaleLocalBests() {
+  try {
+    const stored = Number(localStorage.getItem(RESET_VERSION_KEY) || 0);
+    if (stored >= CURRENT_RESET_VERSION) return;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("denis.board.")) localStorage.removeItem(k);
+    }
+    localStorage.setItem(RESET_VERSION_KEY, String(CURRENT_RESET_VERSION));
+  } catch {
+    /* ignore */
+  }
+})();
+
 /** Najlepszy wynik gracza w tej piosence (all-time, lokalny cache). */
 export function myBest(songId: string): number | null {
   const v = Number(localStorage.getItem(keyFor(songId)));
