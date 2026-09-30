@@ -77,18 +77,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const monthly = String(req.query.period || "all") === "month";
       const m = ym();
 
+      // LEFT JOIN, nie JOIN: gracz mógł skasować konto — wynik zostaje w tabeli
+      // pod migawką nicku zapisaną w chwili gry (s.nick), patrz api/account.ts
       const rows = await c.execute(
         monthly
           ? {
-              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
-                    FROM scores_monthly s JOIN users u ON u.id = s.user_id
+              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
+                    FROM scores_monthly s LEFT JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ? AND s.ym = ?
                     ORDER BY s.score DESC, s.updated_at ASC`,
               args: [songId, m],
             }
           : {
-              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
-                    FROM scores s JOIN users u ON u.id = s.user_id
+              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
+                    FROM scores s LEFT JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ?
                     ORDER BY s.score DESC, s.updated_at ASC`,
               args: [songId],
@@ -170,26 +172,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const coinEligible = Date.now() - prevCoinMs >= gateMs;
     // 1 moneta za każde pełne 10 000 pkt TEGO przebiegu (wynik po capie anty-cheat)
     const coinsGained = coinEligible ? Math.floor(score / 10_000) : 0;
+    // migawka aktualnego nicku — zostaje w tabeli nawet po skasowaniu konta (LEFT JOIN w GET wyżej)
+    const displayName = u.nick || u.login;
     await c.batch(
       [
         {
-          sql: `INSERT INTO scores (user_id, song_id, score, stars, updated_at, coin_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+          sql: `INSERT INTO scores (user_id, song_id, score, stars, updated_at, coin_at, nick)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, song_id) DO UPDATE SET
                   score = MAX(scores.score, excluded.score),
                   stars = MAX(scores.stars, excluded.stars),
                   updated_at = excluded.updated_at,
-                  coin_at = COALESCE(excluded.coin_at, scores.coin_at)`,
-          args: [u.id, songId, score, stars, now, coinsGained > 0 ? now : null],
+                  coin_at = COALESCE(excluded.coin_at, scores.coin_at),
+                  nick = excluded.nick`,
+          args: [u.id, songId, score, stars, now, coinsGained > 0 ? now : null, displayName],
         },
         {
-          sql: `INSERT INTO scores_monthly (user_id, song_id, ym, score, stars, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+          sql: `INSERT INTO scores_monthly (user_id, song_id, ym, score, stars, updated_at, nick)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, song_id, ym) DO UPDATE SET
                   score = MAX(scores_monthly.score, excluded.score),
                   stars = MAX(scores_monthly.stars, excluded.stars),
-                  updated_at = excluded.updated_at`,
-          args: [u.id, songId, m, score, stars, now],
+                  updated_at = excluded.updated_at,
+                  nick = excluded.nick`,
+          args: [u.id, songId, m, score, stars, now, displayName],
         },
         { sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [coinsGained, u.id] },
       ],

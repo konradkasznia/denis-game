@@ -50,8 +50,22 @@ export function ensureSchema(): Promise<void> {
       if (scols.length && !scols.includes("coin_at")) {
         await c.execute("ALTER TABLE scores ADD COLUMN coin_at TEXT");
       }
+      // migawka nicku w chwili zapisu wyniku — pozwala zostawić wynik w tabeli
+      // pod starym nickiem, gdy gracz później skasuje konto (patrz api/account.ts)
+      if (scols.length && !scols.includes("nick")) {
+        await c.execute("ALTER TABLE scores ADD COLUMN nick TEXT NOT NULL DEFAULT ''");
+      }
     } catch {
       /* scores jeszcze nie istnieje — CREATE TABLE poniżej */
+    }
+    try {
+      const smi = await c.execute("PRAGMA table_info(scores_monthly)");
+      const smcols = smi.rows.map((r) => String(r.name));
+      if (smcols.length && !smcols.includes("nick")) {
+        await c.execute("ALTER TABLE scores_monthly ADD COLUMN nick TEXT NOT NULL DEFAULT ''");
+      }
+    } catch {
+      /* scores_monthly jeszcze nie istnieje — CREATE TABLE poniżej */
     }
     for (const sql of MIGRATIONS_SQL) await c.execute(sql);
     await c.batch(SCHEMA_SQL, "write");
