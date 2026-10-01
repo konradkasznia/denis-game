@@ -47,6 +47,27 @@ export function setHapticsEnabled(on: boolean) {
   }
 }
 
+const PREF_KEY = "denis.haptics";
+
+/** Zapamiętany wybór gracza (przełącznik w ustawieniach). Domyślnie włączone. */
+export function hapticsPref(): boolean {
+  try {
+    const v = localStorage.getItem(PREF_KEY);
+    return v === null ? true : v === "1";
+  } catch {
+    return true;
+  }
+}
+
+export function setHapticsPref(on: boolean) {
+  try {
+    localStorage.setItem(PREF_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  setHapticsEnabled(on);
+}
+
 export function hapticsAvailable() {
   return isNative || webSupported;
 }

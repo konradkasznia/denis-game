@@ -45,7 +45,7 @@ import {
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
 import { bumpVolume, refreshVolume, volumeGateActive } from "./volume.ts";
 import { ACC_WEIGHT, classify, isMissed, type Judgement, pickNote } from "./judge.ts";
-import { fire as haptic, setHapticsEnabled } from "./haptics.ts";
+import { fire as haptic, hapticsPref, setHapticsEnabled, setHapticsPref } from "./haptics.ts";
 import {
   bestStars,
   coinUnlockPrice,
@@ -231,6 +231,9 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
 // --- ekran NAGRODY ---
 const REW_HOME: Rect = { x: MARGIN, y: 1086, w: VW - MARGIN * 2, h: 102 };
 const REW_TIKTOK: Rect = { x: MARGIN, y: 976, w: VW - MARGIN * 2, h: 102 }; // 8px odstępu nad POWRÓT
+// pigułka monet wyśrodkowana, tuż nad tekstem „Obserwuj nasze social media"
+// (na innych ekranach stoi w prawym górnym rogu — tu celowo inaczej, patrz drawRewards)
+const REW_COINS: Rect = { x: VW / 2 - 89, y: 806, w: 178, h: 62 };
 const TIKTOK_URL = "https://www.tiktok.com/@denis_impulsywni";
 
 // --- ekran USTAWIENIA ---
@@ -238,13 +241,14 @@ const SET_W = VW - MARGIN * 2;
 const SET_TERMS: Rect = { x: MARGIN, y: 246, w: SET_W, h: 96 };
 const SET_PRIV: Rect = { x: MARGIN, y: 356, w: SET_W, h: 96 };
 const SET_PUSH: Rect = { x: MARGIN, y: 462, w: SET_W, h: 96 }; // przełącznik powiadomień
-const SET_PW: Rect = { x: MARGIN, y: 590, w: SET_W, h: 96 }; // zmiana hasła
-const SET_DELETE: Rect = { x: MARGIN, y: 700, w: SET_W, h: 96 };
-const SET_LOGOUT: Rect = { x: MARGIN, y: 810, w: SET_W, h: 96 };
+const SET_HAPTICS: Rect = { x: MARGIN, y: 572, w: SET_W, h: 96 }; // przełącznik wibracji
+const SET_PW: Rect = { x: MARGIN, y: 682, w: SET_W, h: 96 }; // zmiana hasła
+const SET_DELETE: Rect = { x: MARGIN, y: 792, w: SET_W, h: 96 };
+const SET_LOGOUT: Rect = { x: MARGIN, y: 902, w: SET_W, h: 96 };
 // widoczny TYLKO gdy jest dostępna nowa wersja (updateInfo) — mieści się w
 // istniejącej przerwie przed stopką, więc gdy go nie ma, nic się nie rusza
-const SET_UPDATE: Rect = { x: MARGIN, y: 918, w: SET_W, h: 88 };
-const SET_MAIL: Rect = { x: MARGIN, y: 1012, w: SET_W, h: 120 };
+const SET_UPDATE: Rect = { x: MARGIN, y: 1010, w: SET_W, h: 88 };
+const SET_MAIL: Rect = { x: MARGIN, y: 1104, w: SET_W, h: 120 };
 
 // --- ekran ZMIEŃ HASŁO ---
 const CPW_FIELD: Rect = { x: MARGIN, y: 300, w: SET_W, h: 86 };
@@ -313,9 +317,14 @@ const AUTH_BOT_LOGIN = 968; // — tryb logowania
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
 const PZ_MENU: Rect = { x: MARGIN, y: 800, w: VW - MARGIN * 2, h: 96 };
-const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 110 };
-const RES_SPOTIFY: Rect = { x: MARGIN, y: 1034, w: VW - MARGIN * 2, h: 110 }; // 8px odstępu
-const RES_PRIMARY: Rect = { x: MARGIN, y: 1152, w: VW - MARGIN * 2, h: 110 };
+// 4 przyciski (zamiast dawnych 3) — patrz drawResults/handleResultsTap: slot 3/4
+// mają różne etykiety/akcje w zależności od tego, czy ten utwór odblokowuje kolejny
+// poziom (resultShowNextLevel) — „ZAGRAJ PONOWNIE"/„NASTĘPNY POZIOM", czy nie —
+// „WRÓĆ DO MENU"/„ZAGRAJ PONOWNIE" (żółty, wyróżniający).
+const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 80 };
+const RES_SPOTIFY: Rect = { x: MARGIN, y: 1004, w: VW - MARGIN * 2, h: 80 }; // 8px odstępu
+const RES_SLOT3: Rect = { x: MARGIN, y: 1092, w: VW - MARGIN * 2, h: 80 };
+const RES_SLOT4: Rect = { x: MARGIN, y: 1180, w: VW - MARGIN * 2, h: 80 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -835,6 +844,13 @@ export class Game {
   private resultsSavedBest = false;
   private resultIsNewBest = false;
   private resultPrevBest = 0;
+  /** czy ten utwór odblokowuje zwykły kolejny poziom (nie rundę bonusową/devOnly) —
+   *  steruje etykietami przycisków 3/4 na podsumowaniu, patrz finish()/drawResults. */
+  private resultShowNextLevel = false;
+  /** jw., ale TYLKO gdy to pierwsze ukończenie tego utworu — pokazuje komunikat
+   *  „Odblokowałeś kolejny poziom!" + konfetti (raz, patrz resultConfettiSpawned). */
+  private resultUnlockedNext = false;
+  private resultConfettiSpawned = false;
   // monety zdobyte w tej rundzie + animacja „lecą w lewy górny róg"
   private coinsEarned = 0;
   private coinFly: { bx: number; by: number; tx: number; ty: number; born: number; delay: number }[] = [];
@@ -856,7 +872,7 @@ export class Game {
       loadImg("assets/ui/stage-bg.jpg").onload = go; // przy okazji: prefetch tła
       setTimeout(go, 0);
     }
-    setHapticsEnabled(true); // wibracje zawsze włączone
+    setHapticsEnabled(hapticsPref()); // wg przełącznika w ustawieniach (domyślnie włączone)
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
     registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
     void this.syncSession(); // sprawdź sesję na serwerze
@@ -2692,6 +2708,13 @@ export class Game {
       else void enablePush();
       return;
     }
+    if (inRect(SET_HAPTICS, x, y)) {
+      uiSound("buttons");
+      const next = !hapticsPref();
+      setHapticsPref(next);
+      if (next) haptic("tick"); // od razu daj poczuć, że włączone
+      return;
+    }
     if (inRect(SET_LOGOUT, x, y)) {
       uiSound("buttons");
       this.logoutModal = true; // potwierdzenie — patrz onPress / drawLogoutModal
@@ -2725,23 +2748,35 @@ export class Game {
       this.resultsAt = performance.now() - 2200;
       return;
     }
-    // przejechanie rundy do końca wystarczy (finish() woła się tylko wtedy) —
-    // bez progu punktowego; STAR_MARKS zostaje tylko jako ocena jakości przebiegu
-    const passed = true;
     const idx = SONGS.findIndex((s) => s.id === this.trackId);
 
-    // KONTYNUUJ → karuzela: następny poziom gdy zaliczony TERAZ i odblokowany,
-    // inaczej ten sam (do poprawy wyniku / ponownej próby)
-    if (x < 0 || inRect(RES_PRIMARY, x, y)) {
+    const goReplay = () => {
       uiSound("buttons");
-      // runda niezaliczona → przycisk jest „SPRÓBUJ PONOWNIE": ta sama runda od nowa
-      if (!passed) {
-        void this.startPlay();
-        return;
-      }
-      const canAdvance = passed && idx >= 0 && levelUnlocked(idx + 1);
-      this.hitIndex = clamp(canAdvance ? idx + 1 : Math.max(0, idx), 0, this.maxHitIndex());
+      void this.startPlay();
+    };
+    // karuzela na kolejnym poziomie (odblokowanym właśnie tą rundą)
+    const goNextLevel = () => {
+      uiSound("buttons");
+      this.hitIndex = clamp(idx >= 0 ? idx + 1 : 0, 0, this.maxHitIndex());
       this.enterHits();
+    };
+    // karuzela na TYM SAMYM poziomie — „wróć do menu" (bez progresji)
+    const goMenu = () => {
+      uiSound("buttons");
+      this.hitIndex = clamp(Math.max(0, idx), 0, this.maxHitIndex());
+      this.enterHits();
+    };
+
+    // slot 4 (złoty, wyróżniający) = systemowy „wstecz" też nim steruje —
+    // „NASTĘPNY POZIOM" gdy ten utwór odblokowuje kolejny, inaczej „ZAGRAJ PONOWNIE"
+    if (x < 0 || inRect(RES_SLOT4, x, y)) {
+      if (this.resultShowNextLevel) goNextLevel();
+      else goReplay();
+      return;
+    }
+    if (inRect(RES_SLOT3, x, y)) {
+      if (this.resultShowNextLevel) goReplay();
+      else goMenu();
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
@@ -2893,6 +2928,9 @@ export class Game {
     this.paused = false;
     this.resumeAt = 0;
     this.resultsSavedBest = false;
+    this.resultShowNextLevel = false;
+    this.resultUnlockedNext = false;
+    this.resultConfettiSpawned = false;
     this.songTime = 0;
     this.scene = "play";
     this.preparing = false;
@@ -3066,7 +3104,16 @@ export class Game {
       this.resultIsNewBest = this.score > this.resultPrevBest;
       // runda przejechana do końca (finish() woła się tylko po dojechaniu do
       // końca utworu) → odblokowuje kolejny poziom, bez progu punktowego
-      markCompleted(this.trackId);
+      const resIdx = SONGS.findIndex((s) => s.id === this.trackId);
+      const firstClear = markCompleted(this.trackId);
+      const nextMeta = resIdx >= 0 ? SONGS[resIdx + 1] : undefined;
+      // „Następny poziom" na podsumowaniu pokazujemy tylko, gdy zaraz po tym
+      // utworze w kolejce jest zwykły, grywalny poziom progresji — nie runda
+      // bonusowa (Pogrzebówka, kupowana za monety) ani poziom testowy (devOnly,
+      // np. na razie Pani policjantko). Patrz levelUnlocked()/prevRoundCleared()
+      // w songs.ts — ta sama logika progresji.
+      this.resultShowNextLevel = !!nextMeta && !isBonusRound(nextMeta.id) && !nextMeta.devOnly;
+      this.resultUnlockedNext = firstClear && this.resultShowNextLevel;
       if (this.score > bestScore()) {
         try {
           localStorage.setItem("denis.best", String(this.score));
@@ -5447,9 +5494,6 @@ export class Game {
 
   private drawRewards(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
-    // ta sama pozycja co na karuzeli (prawy górny róg) — monety mają stać
-    // zawsze w tym samym miejscu, patrz też drawResults (pillR)
-    this.drawCoinPill(ctx, HITS_HEAD_COINS, coins());
     // bez przycisku „‹ WRÓĆ" w rogu — zostaje systemowy powrót + „POWRÓT" na dole
     text(ctx, "NAGRODY", VW / 2, 130, {
       size: 48,
@@ -5465,8 +5509,10 @@ export class Game {
       const h = (rd.naturalHeight / rd.naturalWidth) * w;
       ctx.drawImage(rd, VW / 2 - w / 2, 220, w, h);
     }
-    wrapText("Obserwuj nasze social media, aby nie przegapić żadnego konkursu!", 26).forEach((ln, i) =>
-      text(ctx, ln, VW / 2, 860 + i * 40, {
+    // wyśrodkowane, tuż nad tekstem (na tym ekranie celowo nie w rogu — patrz REW_COINS)
+    this.drawCoinPill(ctx, REW_COINS, coins());
+    wrapText("Obserwuj nasze social media, aby nie przegapić żadnego konkursu!", 35).forEach((ln, i) =>
+      text(ctx, ln, VW / 2, 896 + i * 40, {
         size: 28,
         weight: "900",
         font: HEAD_FONT,
@@ -5557,6 +5603,7 @@ export class Game {
       "Nowe poziomy i utwory. Nie wysyłamy reklam.",
       pushOptedInSync(),
     );
+    this.toggleRow(ctx, SET_HAPTICS, "Wibracje", "Przy trafieniach, combo i przyciskach.", hapticsPref());
 
     // Usuń konto i dane — przedostatnie, neutralny kolor
     this.linkRow(ctx, SET_DELETE, "Usuń konto i dane", "#e0d0bd");
@@ -7392,8 +7439,6 @@ export class Game {
     const starTarget = Math.floor(this.starFill());
     const shownStars = starTarget * eased;
     const revealDone = reveal >= 1;
-    // spójne z handleResultsTap: przejechanie rundy do końca = zaliczone, bez progu
-    const passed = true;
     const lvlIdx = SONGS.findIndex((s) => s.id === this.trackId);
 
     // --- nagłówek ---
@@ -7521,6 +7566,23 @@ export class Game {
       this.drawSpinner(ctx, VW / 2, 874, 11, false);
     }
 
+    // --- „odblokowałeś kolejny poziom!" (tylko pierwsze ukończenie, patrz finish()) ---
+    if (this.resultUnlockedNext) {
+      text(ctx, "Odblokowałeś kolejny poziom!", VW / 2, 908, {
+        size: 19,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#7dffb0",
+        shadows: HEAD_SHADOWS,
+      });
+      if (!this.resultConfettiSpawned && now - this.resultsAt > 2000) {
+        this.resultConfettiSpawned = true;
+        this.burstFx("confetti", VW / 2, 640);
+        this.burstFx("confetti", VW / 2 - 150, 700);
+        this.burstFx("confetti", VW / 2 + 150, 700);
+      }
+    }
+
     // --- monety: pigułka w lewym górnym rogu + „Zdobyłeś X monet" + lot monet ---
     // Nawet słaba runda (dużo bomb, wynik przy zerze) NIE odejmuje monet —
     // `coinsEarned` jest liczone z wyniku po `Math.max(0, ...)`, więc minimum to 0.
@@ -7594,11 +7656,15 @@ export class Game {
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
     this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
-    // niezaliczona runda → od razu druga szansa zamiast powrotu do karuzeli
-    this.uiButton(ctx, RES_PRIMARY, "kontynuuj", {
-      fallback: passed ? "KONTYNUUJ" : "SPRÓBUJ PONOWNIE",
-      style: "gold",
-    });
+    // slot 3/4: patrz handleResultsTap/finish() — „NASTĘPNY POZIOM" tylko gdy ten
+    // utwór faktycznie odblokowuje zwykły kolejny poziom, inaczej „WRÓĆ DO MENU"
+    if (this.resultShowNextLevel) {
+      this.uiButton(ctx, RES_SLOT3, "zagraj-ponownie", { fallback: "ZAGRAJ PONOWNIE", style: "dark-gold" });
+      this.uiButton(ctx, RES_SLOT4, "nastepny-poziom", { fallback: "NASTĘPNY POZIOM", style: "gold" });
+    } else {
+      this.uiButton(ctx, RES_SLOT3, "wroc-do-menu", { fallback: "WRÓĆ DO MENU", style: "dark-gold" });
+      this.uiButton(ctx, RES_SLOT4, "zagraj-ponownie", { fallback: "ZAGRAJ PONOWNIE", style: "gold" });
+    }
 
     ctx.restore();
   }

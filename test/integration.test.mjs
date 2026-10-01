@@ -369,21 +369,22 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   );
 }
 {
-  // zaliczone ale <4 gwiazdek -> KONTYNUUJ zostawia na tym samym poziomie
+  // brak kolejnego poziomu (następny w kolejce to runda bonusowa, kupowana za
+  // monety) -> przycisk „WRÓĆ DO MENU" zostawia na tym samym poziomie
   localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5 }));
   const gl = new Game();
   gl.trackId = "ksiaze-z-bajki"; // poziom 2; pogrzebówka (runda bonusowa) wymaga zakupu za monety
   await new Promise((r) => setTimeout(r, 5));
   await gl.startPlay();
-  gl.score = 800; // rating 0.8 -> zaliczone, 3 gwiazdki
+  gl.score = 800;
   gl.parScore = 1000;
   gl.finish();
   gl.resultsAt = performance.now() - 5000;
-  gl.onPress(-1, 360, 1200);
+  gl.onPress(-1, 360, 1132); // WRÓĆ DO MENU (slot 3)
   await new Promise((r) => setTimeout(r, 10));
   ok(
     gl.scene === "hits" && gl.hitIndex === 1,
-    "zaliczone <4★ -> KONTYNUUJ zostawia na tym samym poziomie",
+    "brak kolejnego poziomu -> WRÓĆ DO MENU zostawia na tym samym poziomie",
   );
 }
 
