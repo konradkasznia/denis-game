@@ -1,0 +1,58 @@
+name: iOS build (smoke-test, bez podpisywania)
+
+# Buduje platformę `ios/` na runnerze macOS (nie ma tu lokalnie Maca/Xcode) —
+# RĘCZNIE (Actions -> ten workflow -> Run workflow), tak jak android-release.yml.
+# macOS runnery w Actions są dużo droższe niż ubuntu, stąd brak push-triggera
+# (ten jest w android.yml).
+#
+# Na razie BEZ podpisywania — brak konta Apple Developer, więc nie da się
+# zainstalować na fizycznym iPhonie ani wysłać do TestFlight. Ten workflow
+# tylko kompiluje pod symulator (CODE_SIGNING_ALLOWED=NO), żeby wyłapać błędy
+# builda (web -> Capacitor -> Swift) zanim konto Developera w ogóle powstanie.
+#
+# Gdy pojawi się konto Apple Developer: dojdzie krok z certyfikatem/profilem
+# (sekrety repo, analogicznie do RELEASE_KEYSTORE_* w android-release.yml) i
+# eksport .ipa + upload do TestFlight.
+#
+# Android: ten plik niczego tam nie zmienia — osobna platforma (`android/`),
+# osobny pipeline, nie dotykamy go.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      - name: Build web (dist/) — backend na Vercelu (apka woła cross-origin)
+        run: npm run build
+        env:
+          VITE_API_BASE: https://denis-game.vercel.app
+          VITE_ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+
+      - name: Capacitor sync
+        run: npx cap sync ios
+
+      - name: Build pod symulator (bez podpisywania — smoke-test)
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build

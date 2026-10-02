@@ -1,6 +1,11 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
-// DENIS Impulsywni Live — Capacitor (Android; iOS w fazie późniejszej).
+// DENIS Impulsywni Live — Capacitor (Android + iOS).
+//
+// iOS: platforma `ios/` budowana wyłącznie przez GitHub Actions (macOS runner —
+// patrz `.github/workflows/ios-build.yml`), bo nie ma tu lokalnie Maca/Xcode.
+// Na razie bez podpisywania (brak konta Apple Developer) — tylko build pod
+// symulator jako smoke-test. Android zostaje bez zmian, osobny pipeline.
 //
 // Dwa warianty budowania:
 //  - PRODUKCJA (domyślnie): assety gry (`dist/`) zbundlowane w APK — gra działa
@@ -23,6 +28,9 @@ const config: CapacitorConfig = {
     ? { server: { url: serverUrl, cleartext: false, androidScheme: "https" } }
     : {}),
   android: {
+    backgroundColor: "#0b0b12",
+  },
+  ios: {
     backgroundColor: "#0b0b12",
   },
   plugins: {
