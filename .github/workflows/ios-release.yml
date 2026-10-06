@@ -1,0 +1,97 @@
+name: iOS (release, do TestFlight)
+
+# Buduje, PODPISUJE i wysyła do TestFlight — RĘCZNIE (Actions -> ten workflow ->
+# Run workflow), tak jak android-release.yml. Wymaga 3 sekretów repo:
+#   ASC_API_KEY_ID        — Key ID klucza App Store Connect API
+#   ASC_API_ISSUER_ID     — Issuer ID (z Users and Access -> Integrations)
+#   ASC_API_KEY_P8_BASE64 — zawartość pliku AuthKey_<ID>.p8, zakodowana base64
+# Klucz MUSI mieć rolę co najmniej Admin w App Store Connect — inaczej
+# "cloud-managed signing" (-allowProvisioningUpdates) nie może samo utworzyć/
+# pobrać certyfikatu dystrybucyjnego i krok archive/export pada z błędem
+# uprawnień do certyfikatu.
+#
+# Podpisywanie w chmurze (Xcode 15+/26): xcodebuild SAM zarządza certyfikatem
+# i profilem provisioningu przez App Store Connect API — nie trzeba lokalnego
+# Maca, fastlane/match ani ręcznie eksportowanego .p12. `ios/ExportOptions.plist`
+# ma destination=upload, więc -exportArchive od razu wysyła .ipa do App Store
+# Connect (TestFlight) — bez osobnego kroku altool/Transporter.
+#
+# CURRENT_PROJECT_VERSION (numer builda) liczony z liczby commitów — ten sam
+# patent co versionCode w android/app/build.gradle, zawsze rośnie. MARKETING_VERSION
+# (widoczna wersja, np. 0.9.1) ustawiona ręcznie w project.pbxproj — synchronizuj
+# z APP_VERSION w src/game.ts / versionName w android/app/build.gradle przy
+# każdym realnym wydaniu (patrz istniejący komentarz w api/app-version.ts).
+#
+# Android: ten plik niczego tam nie zmienia — osobna platforma, osobny pipeline.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      # fetch-depth: 0 — potrzebne do policzenia numeru builda z liczby commitów
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      - name: Build web (dist/) — backend na Vercelu (apka woła cross-origin)
+        run: npm run build
+        env:
+          VITE_API_BASE: https://denis-game.vercel.app
+          VITE_ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+
+      - name: Capacitor sync
+        run: npx cap sync ios
+
+      - name: Klucz App Store Connect API z sekretu
+        run: |
+          if [ -z "${{ secrets.ASC_API_KEY_P8_BASE64 }}" ]; then
+            echo "::error::Brak sekretów ASC_API_KEY_* — patrz komentarz na górze tego pliku."
+            exit 1
+          fi
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.ASC_API_KEY_P8_BASE64 }}" | base64 -d \
+            > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+
+      - name: Archive (podpisywanie w chmurze przez API key)
+        run: |
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_API_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_API_ISSUER_ID }} \
+            CURRENT_PROJECT_VERSION=$BUILD_NUMBER
+
+      - name: Export + upload do TestFlight
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_API_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_API_ISSUER_ID }}
+
+      - name: Log eksportu (na wypadek błędu wysyłki)
+        if: always()
+        run: find build/export -maxdepth 2 -type f 2>/dev/null || true

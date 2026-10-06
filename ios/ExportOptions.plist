@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- destination=upload: xcodebuild wysyła .ipa prosto do App Store Connect
+	     (TestFlight) w ramach -exportArchive, bez osobnego kroku altool/Transporter. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<!-- signingStyle automatic + -allowProvisioningUpdates (patrz ios-release.yml)
+	     = xcodebuild sam zarządza certyfikatem/profilem przez App Store Connect
+	     API key, bez ręcznego cert/sigh i bez lokalnego Maca. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- Team ID z portalu Apple Developer (widoczny przy nazwisku w prawym górnym
+	     rogu, np. "Grzegorz Tymoczko - A78VT6LM7V") -->
+	<key>teamID</key>
+	<string>A78VT6LM7V</string>
+</dict>
+</plist>
