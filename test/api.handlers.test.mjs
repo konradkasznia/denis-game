@@ -172,6 +172,11 @@ ok(again.body.coinsGained === 0, "anty-farm dalej działa (0 monet przed czasem)
   const now = new Date().toISOString();
   const stmts = [];
   for (let i = 0; i < 250; i++) {
+    // ranking pokazuje tylko istniejące konta (JOIN users), więc boty muszą je mieć
+    stmts.push({
+      sql: "INSERT INTO users (id, login, login_key, pw_hash, created_at) VALUES (?, ?, ?, 'x', ?)",
+      args: [1000 + i, `bot${i}`, `bot${i}`, now],
+    });
     stmts.push({
       sql: "INSERT INTO scores (user_id, song_id, score, stars, updated_at, nick) VALUES (?, 'pogrzebowka', ?, 3, ?, ?)",
       args: [1000 + i, 500_000 + i, now, `bot${i}`],
@@ -231,9 +236,30 @@ const sc = await call(h.scores, { method: "POST", token: tokB, body: { songId: "
 ok(sc.status === 200, "wynik na mapę opublikowaną z edytora przyjęty");
 
 console.log("· usunięcie konta:");
+const uidB = Number((await client.execute("SELECT id FROM users WHERE login = 'Basia'")).rows[0].id);
+const countB = async () =>
+  Number(
+    (
+      await client.execute({
+        sql: "SELECT (SELECT COUNT(*) FROM scores WHERE user_id = ?) + (SELECT COUNT(*) FROM scores_monthly WHERE user_id = ?) AS n",
+        args: [uidB, uidB],
+      })
+    ).rows[0].n,
+  );
+ok((await countB()) === 2, "przed usunięciem: wynik w obu rankingach");
 const del = await call(h.account, { method: "POST", token: tokB, body: { action: "delete" } });
 ok(del.status === 200, "usunięcie konta");
 ok((await call(h.me, { token: tokB })).status === 401, "sesja po usunięciu nieważna");
+ok((await countB()) === 0, "wyniki usuniętego konta skasowane z obu rankingów");
+{
+  // osierocony wiersz (np. sprzed tej zmiany) nie może pojawić się w rankingu
+  await client.execute({
+    sql: "INSERT INTO scores (user_id, song_id, score, stars, updated_at, nick) VALUES (99999, 'test-mapa', 9999999, 5, ?, 'duch')",
+    args: [new Date().toISOString()],
+  });
+  const g = await call(h.scores, { query: { songId: "test-mapa", period: "all" } });
+  ok(!g.body.top.some((e) => e.nick === "duch"), "ranking nie pokazuje wyników bez konta");
+}
 
 client.close(); // plik bazy zostaje (Windows trzyma blokadę do końca procesu); kasuje go start testu
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);

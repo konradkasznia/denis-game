@@ -2763,7 +2763,7 @@ export class Game {
       let sure = false;
       try {
         sure = !!window.confirm?.(
-          "Usunąć konto oraz cały postęp i wyniki na tym urządzeniu? Tej operacji nie można cofnąć.",
+          "Usunąć konto, cały postęp i wszystkie wyniki z rankingów? Tej operacji nie można cofnąć.",
         );
       } catch {
         sure = false;

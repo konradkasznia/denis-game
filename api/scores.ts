@@ -75,14 +75,14 @@ const maxScoreFor =(notes: number) => Math.round(notes * 3800 + 150000);
 
 async function rankAll(songId: string, score: number): Promise<number> {
   const r = await db().execute({
-    sql: "SELECT COUNT(*) AS n FROM scores WHERE song_id = ? AND score > ?",
+    sql: "SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.score > ?",
     args: [songId, score],
   });
   return Number(r.rows[0]?.n ?? 0) + 1;
 }
 async function rankMonth(songId: string, m: string, score: number): Promise<number> {
   const r = await db().execute({
-    sql: "SELECT COUNT(*) AS n FROM scores_monthly WHERE song_id = ? AND ym = ? AND score > ?",
+    sql: "SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ? AND s.score > ?",
     args: [songId, m, score],
   });
   return Number(r.rows[0]?.n ?? 0) + 1;
@@ -103,21 +103,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const monthly = String(req.query.period || "all") === "month";
       const m = ym();
 
-      // LEFT JOIN, nie JOIN: gracz mógł skasować konto — wynik zostaje w tabeli
-      // pod migawką nicku zapisaną w chwili gry (s.nick), patrz api/account.ts
+      // JOIN: tylko istniejące konta. Usunięcie konta kasuje też jego wyniki
+      // (api/account.ts), a JOIN gwarantuje, że żaden osierocony wiersz nie wyjdzie.
       const rows = await c.execute(
         monthly
           ? {
-              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
-                    FROM scores_monthly s LEFT JOIN users u ON u.id = s.user_id
+              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
+                    FROM scores_monthly s JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ? AND s.ym = ?
                     ORDER BY s.score DESC, s.updated_at ASC
                     LIMIT ?`,
               args: [songId, m, TOP_LIMIT],
             }
           : {
-              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
-                    FROM scores s LEFT JOIN users u ON u.id = s.user_id
+              sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
+                    FROM scores s JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ?
                     ORDER BY s.score DESC, s.updated_at ASC
                     LIMIT ?`,
@@ -126,8 +126,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       const total = await c.execute(
         monthly
-          ? { sql: "SELECT COUNT(*) AS n FROM scores_monthly WHERE song_id = ? AND ym = ?", args: [songId, m] }
-          : { sql: "SELECT COUNT(*) AS n FROM scores WHERE song_id = ?", args: [songId] },
+          ? { sql: "SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ?", args: [songId, m] }
+          : { sql: "SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ?", args: [songId] },
       );
 
       const me = await sessionUser(req).catch(() => null);
@@ -201,7 +201,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const coinEligible = Date.now() - prevCoinMs >= gateMs;
     // 1 moneta za każde pełne 10 000 pkt TEGO przebiegu (wynik po capie anty-cheat)
     const coinsGained = coinEligible ? Math.floor(score / 10_000) : 0;
-    // migawka aktualnego nicku — zostaje w tabeli nawet po skasowaniu konta (LEFT JOIN w GET wyżej)
+    // migawka aktualnego nicku (pomocniczo; ranking bierze nazwę z users przez JOIN)
     const displayName = u.nick || u.login;
     await c.batch(
       [

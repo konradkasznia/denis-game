@@ -128,11 +128,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (b.action === "delete") {
-      // scores/scores_monthly ZOSTAJĄ celowo — wynik gracza ma zostać widoczny
-      // w tabeli pod jego ostatnim nickiem nawet po skasowaniu konta (migawka
-      // nicku w kolumnie `nick`, patrz LEFT JOIN w GET /api/scores)
+      // usuwamy WSZYSTKO, w tym wyniki z obu rankingów — tak obiecują
+      // polityka-prywatnosci.html i usun-konto.html (RODO art. 17)
       await c.batch(
         [
+          { sql: "DELETE FROM scores WHERE user_id = ?", args: [u.id] },
+          { sql: "DELETE FROM scores_monthly WHERE user_id = ?", args: [u.id] },
           { sql: "DELETE FROM sessions WHERE user_id = ?", args: [u.id] },
           { sql: "DELETE FROM users WHERE id = ?", args: [u.id] },
         ],
