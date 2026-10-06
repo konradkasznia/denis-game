@@ -1,7 +1,7 @@
 // Rdzeń gry: maszyna stanów (menu → odliczanie → gra → wynik) oraz cała
 // logika rytmiczna i rysowanie.
 
-import { AudioEngine, AudioLoadError } from "./audio.ts";
+import { AudioEngine } from "./audio.ts";
 import { clearSession, deleteAccount, hasAccount, login as accountLogin } from "./account.ts";
 import {
   checkLogin as apiCheckLogin,
@@ -26,7 +26,7 @@ import {
 } from "./coins.ts";
 import { isNative } from "./native.ts";
 import { diag, diagActive } from "./diag.ts";
-import { api, ApiError, apiBase, backendReachable } from "./net.ts";
+import { api, ApiError, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
@@ -1762,8 +1762,20 @@ export class Game {
     void this.audio.unlock();
   }
 
+  /** Po powrocie z tła iOS nie wznawia dźwięku bez gestu: muzyka menu milczała
+   *  aż do GRAJ. Pierwsze DOWOLNE dotknięcie po powrocie odblokowuje audio. */
+  private audioKickPending = false;
+
   onPress(lane: number, x: number, y: number) {
     this.primeAudioAndroid(true);
+    if (this.audioKickPending) {
+      this.audioKickPending = false;
+      if (this.scene !== "play") {
+        void this.audio.unlock().then(() => {
+          if (this.scene !== "play") this.audio.startLoop();
+        });
+      }
+    }
     // przelicz Y z układu ekranu na układ UI (ramka bywa przesunięta w pionie)
     y -= this.frameDY();
     if (this.preparing) return this.cancelPrepare();
@@ -2116,6 +2128,7 @@ export class Game {
    *  w grze, jesteśmy teraz w menu pauzy i gracz sam klika GRAJ!. */
   onAppForeground() {
     this.audio.enterForeground();
+    this.audioKickPending = true;
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
   }
@@ -2913,21 +2926,9 @@ export class Game {
                 if (guard()) this.setPrepStep(s);
               });
             } catch (e) {
-              console.warn("audio.loadTrack (lokalny plik) nieudane:", e);
-              // "decode" = mamy bajty, ale TO URZĄDZENIE nie potrafi ich
-              // zdekodować — pobranie IDENTYCZNYCH bajtów spod innego adresu
-              // nic nie zmieni. Tylko przy "fetch" warto próbować z edytora.
-              const decodeFailed = e instanceof AudioLoadError && e.phase === "decode";
-              if (!decodeFailed) {
-                const pub = `${apiBase()}/api/song-audio?id=${encodeURIComponent(this.trackId)}`;
-                try {
-                  this.setPrepStep("wczytywanie dźwięku");
-                  await this.audio.loadTrack(pub);
-                  song.audioUrl = pub; // audio.start() użyje tego bufora
-                } catch (e2) {
-                  console.warn("brak też audio z edytora — gram podkład syntezowany:", e2);
-                }
-              }
+              // muzyka jest WYŁĄCZNIE w paczce (tools/pull-charts.mjs) — bez
+              // pobierania z serwera; brak pliku = podkład syntezowany niżej
+              console.warn("audio.loadTrack (plik z paczki) nieudane:", e);
             }
           }
           if (!guard()) return;

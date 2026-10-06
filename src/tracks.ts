@@ -201,110 +201,11 @@ export function rawToSong(raw: RawChart): SongDef {
   };
 }
 
-/** Baza API (dla apki natywnej ustawiane przez VITE_API_BASE; na webie puste = ten sam host). */
-function apiBase(): string {
-  try {
-    const b = (import.meta as { env?: Record<string, string> }).env?.VITE_API_BASE;
-    if (b) return b.replace(/\/+$/, "");
-  } catch {
-    /* ignore */
-  }
-  return "";
-}
-
-// Ostatnia pobrana opublikowana mapa, per utwór. Bez tego wolna sieć (timeout)
-// po cichu dawała STARĄ mapę z buildu: Konrad usunął trzymane nuty w edytorze,
-// a w apce dalej się pojawiały, bo pobranie mapy trwało ponad 4 s.
-const PUB_CACHE_KEY = (id: string) => `denis-pubchart:${id}`;
-
-function readCachedPublished(id: string): RawChart | null {
-  try {
-    const s = localStorage.getItem(PUB_CACHE_KEY(id));
-    if (!s) return null;
-    const c = JSON.parse(s) as RawChart;
-    return c && Array.isArray(c.notes) && c.notes.length ? c : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedPublished(id: string, c: RawChart) {
-  try {
-    localStorage.setItem(PUB_CACHE_KEY(id), JSON.stringify(c));
-  } catch {
-    /* brak miejsca / prywatny tryb — trudno */
-  }
-}
-
-/** Beatmapa opublikowana z edytora (jeśli jest) — ma pierwszeństwo przed plikiem w repo.
- *  Przy braku sieci / timeoucie: ostatnia pobrana wersja z pamięci telefonu. */
-async function fetchPublishedChart(id: string): Promise<RawChart | null> {
-  const fresh = await fetchPublishedChartNet(id);
-  if (fresh) {
-    writeCachedPublished(id, fresh);
-    return fresh;
-  }
-  if (fresh === null) {
-    // serwer potwierdził brak publikacji — zapamiętana kopia jest nieaktualna
-    try {
-      localStorage.removeItem(PUB_CACHE_KEY(id));
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-  return readCachedPublished(id);
-}
-
-/** chart = jest opublikowana, null = serwer potwierdził, że NIE ma, undefined = nie wiadomo (sieć). */
-async function fetchPublishedChartNet(id: string): Promise<RawChart | null | undefined> {
-  try {
-    if (typeof fetch !== "function") return undefined;
-    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
-    let res: Response;
-    try {
-      res = await fetch(`${apiBase()}/api/chart?songId=${encodeURIComponent(id)}`, {
-        signal: ctrl?.signal,
-        cache: "no-store", // nigdy nie serwuj z lokalnego cache'a HTTP (telefon musi widzieć każdą nową publikację)
-      });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    if (res.status === 404) return null;
-    if (!res.ok) return undefined;
-    const j = (await res.json()) as { ok?: boolean; chart?: RawChart };
-    if (j?.ok && j.chart && Array.isArray(j.chart.notes) && j.chart.notes.length) return j.chart;
-    return j?.ok ? null : undefined;
-  } catch {
-    /* brak backendu / offline / timeout → ostatnia znana wersja albo plik */
-  }
-  return undefined;
-}
-
-/** Poniżej tylu nut opublikowaną mapę uznajemy za „przypadkowo pustą" (np. ktoś
- *  kliknął „Wyślij do aplikacji" po „wyczyść wszystko") i wolimy pełną mapę z repo. */
-const MIN_PUBLISHED_NOTES = 12;
-
 export async function loadTrack(id: string): Promise<SongDef> {
-  // 1. beatmapa opublikowana z edytora (Turso) — sprawdzana na KAŻDEJ
-  //    platformie, też natywnie. Był tu krótki eksperyment z pomijaniem tego
-  //    na Androidzie/iOS (żeby nic nie czekało na sieć przy starcie poziomu),
-  //    ale skutek uboczny okazał się gorszy niż zysk: apka natywna zaczęła
-  //    grać STARĄ mapę zaszytą w buildzie, podczas gdy web (i Konrad w
-  //    edytorze) widział już poprawioną — różne liczby nut, różne bpm, „nutki
-  //    i animacje źle poustawione" w APK. `fetchPublishedChart()` ma i tak
-  //    krótki, własny timeout (4 s) i przy braku sieci ciepło spada na plik
-  //    lokalny (punkt 2. niżej) — to nie jest ten sam, dużo dłuższy problem co
-  //    przy audio (patrz audio.ts AudioLoadError). Świeżość mapy > te ~4 s.
-  const published = await fetchPublishedChart(id);
-
-  // 2. plik beatmapy w repo — używany jako fallback ORAZ jako miara, czy
-  //    opublikowana mapa nie jest przypadkowo okrojona. To zawsze plik
-  //    LOKALNY (zaszyty w buildzie/bundlu) — krótki timeout, żeby ewentualne
-  //    zacięcie nie kosztowało pełnych 35 s zewnętrznego watchdoga w game.ts
-  //    (ta sama klasa błędu co przy audio — patrz audio.ts AudioLoadError).
-  let repo: RawChart | null = null;
+  // JEDNA wersja mapy: plik zaszyty w paczce (public/charts/<id>.json).
+  // Gra NIE pobiera map z serwera w trakcie działania. Mapy z edytora trafiają
+  // do paczki przez `node tools/pull-charts.mjs` przed buildem.
+  // Krótki timeout: to lokalny plik, zacięcie nie może zjeść 35 s watchdoga.
   try {
     const ctrl = typeof AbortController === "function" ? new AbortController() : undefined;
     const to = ctrl ? setTimeout(() => ctrl.abort(), 8000) : undefined;
@@ -312,30 +213,16 @@ export async function loadTrack(id: string): Promise<SongDef> {
       const res = await fetch(`charts/${id}.json`, { signal: ctrl?.signal });
       if (res.ok) {
         const raw = (await res.json()) as RawChart;
-        if (raw && Array.isArray(raw.notes) && raw.notes.length) repo = raw;
+        if (raw && Array.isArray(raw.notes) && raw.notes.length) {
+          diag(`chart ${id} notes=${raw.notes.length}`);
+          return rawToSong(raw);
+        }
       }
     } finally {
       if (to) clearTimeout(to);
     }
   } catch {
-    /* brak pliku, nie JSON, albo timeout — lecimy dalej (syntezowany podkład) */
-  }
-
-  if (published) {
-    const thin = (published.notes?.length ?? 0) < MIN_PUBLISHED_NOTES;
-    const repoFull = !!repo && repo.notes.length >= MIN_PUBLISHED_NOTES;
-    if (thin && repoFull) {
-      console.warn(
-        `loadTrack(${id}): opublikowana mapa ma tylko ${published.notes?.length ?? 0} nut — używam pełnej z repo`,
-      );
-    } else {
-      diag(`chart ${id} published notes=${published.notes.length}`);
-      return rawToSong(published);
-    }
-  }
-  if (repo) {
-    diag(`chart ${id} REPO notes=${repo.notes.length} (published=${published ? "thin" : "none"})`);
-    return rawToSong(repo);
+    /* brak pliku, nie JSON, albo timeout — utwór bez mapy w paczce */
   }
 
   // 3. syntezowany podkład

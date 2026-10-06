@@ -48,7 +48,8 @@ ok(clash === 0, `brak nut w tym samym torze < 80ms: ${clash}`);
 const dens = song.notes.length / (song.notes.at(-1).time - song.notes[0].time);
 ok(dens > 0.8 && dens < 7, `gęstość ${dens.toFixed(2)} nut/s w rozsądnym zakresie`);
 
-ok(song.notes.some((n) => n.dur > 0), `są nuty trzymane: ${song.notes.filter((n) => n.dur > 0).length}`);
+// Panna Młoda (poziom 1) celowo BEZ nut trzymanych (decyzja z edytora, 26.09)
+ok(song.notes.every((n) => !(n.dur > 0)), `brak nut trzymanych: ${song.notes.filter((n) => n.dur > 0).length}`);
 
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
 process.exit(fail === 0 ? 0 : 1);
