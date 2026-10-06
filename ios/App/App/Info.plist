@@ -62,6 +62,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!-- pełny ekran = rezygnacja z iPad multitasking (Split View/Slide Over).
+	     Bez tego App Store odrzuca upload (błąd 90474), bo multitasking na iPadzie
+	     wymaga wszystkich 4 orientacji, a gra jest tylko w pionie. -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<!-- wymagane przez onesignal-cordova-plugin (powiadomienia push) -->
