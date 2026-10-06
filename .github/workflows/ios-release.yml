@@ -79,7 +79,8 @@ jobs:
             -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_API_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_API_ISSUER_ID }} \
-            CURRENT_PROJECT_VERSION=$BUILD_NUMBER
+            CURRENT_PROJECT_VERSION=$BUILD_NUMBER \
+            DEVELOPMENT_TEAM=A78VT6LM7V
 
       - name: Export + upload do TestFlight
         run: |
