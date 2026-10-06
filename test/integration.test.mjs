@@ -48,6 +48,15 @@ class FakeAudioContext {
   }
 }
 
+// Wirtualny zegar ścienny: gra wygładza zegar audio przez performance.now()
+// (AudioEngine.ctxNow / clockAlive / wallElapsed). Test przewija ctx._t szybciej
+// niż realny czas, więc performance.now() MUSI iść w tym samym tempie — inaczej
+// zegar utworu skacze, a idealne stuknięcia wypadają poza okno.
+let virtualMs = 1_000_000;
+const realNow = performance.now.bind(performance);
+let useVirtual = false;
+performance.now = () => (useVirtual ? virtualMs : realNow());
+
 const store = new Map();
 globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -101,11 +110,14 @@ async function playthrough(mode) {
   ok(g.scene === "play" && g.audio.running, mode + ": gra startuje po GRAJ! (po odliczaniu)");
   const ac = g.audio.ctx;
   const dt = 1 / 60;
+  virtualMs = realNow();
+  useVirtual = true;
   let frame = 0;
 
   while (g.scene !== "results" && frame < 60 * 100) {
     ac._t += dt;
-    g.update(dt, frame * 16.67);
+    virtualMs += dt * 1000;
+    g.update(dt, virtualMs);
     const st = g.songTime;
 
     if (mode !== "idle") {
@@ -131,6 +143,7 @@ async function playthrough(mode) {
     g.render(ctx);
     frame++;
   }
+  useVirtual = false;
   return g;
 }
 
@@ -239,8 +252,10 @@ localStorage.removeItem("denis.board.pogrzebowka");
 const rank = submitScore("pogrzebowka", 250000);
 ok(rank >= 1, `wynik ma miejsce w rankingu (#${rank})`);
 ok(myEntry("pogrzebowka", "all")?.score === 250000, "moj wynik w tablicy (wszystkie)");
-ok(topN("pogrzebowka", "all", 10).length === 10, "tablica ma top 10");
-ok(topN("pogrzebowka", "month", 10).length === 10, "zakładka miesięczna też ma top 10");
+// bez botów-wypełniaczy (commit 0ca4038): offline tablica = tylko realne wpisy
+ok(topN("pogrzebowka", "all", 10).some((e) => e.me && e.score === 250000), "mój wynik w top 10 (wszystkie)");
+// zakładka miesięczna offline jest pusta z założenia (tylko dane z serwera)
+ok(topN("pogrzebowka", "month", 10).length === 0, "zakładka miesięczna offline: pusta (bez wypełniaczy)");
 ok(gapToTop("pogrzebowka", "all", 10) >= 0, "policzony dystans do top 10");
 const rank2 = submitScore("pogrzebowka", 1500000);
 ok(rank2 <= rank, "lepszy wynik = wyzsze miejsce");
@@ -270,16 +285,18 @@ ok(gn.scene === "profile", "zębatka otwiera profil");
 // progresja: poziom 2 zablokowany dopóki poziom 1 nie ma 4 gwiazdek
 const { bestStars, levelUnlocked, recordStars } = await import("../src/songs.ts");
 localStorage.removeItem("denis.stars");
+localStorage.removeItem("denis.completed"); // wcześniejsze przebiegi ukończyły poziom 1
 ok(levelUnlocked(0) === true && levelUnlocked(1) === false, "start: gra się tylko poziom 1");
 recordStars("panna-mloda", 4);
 ok(bestStars("panna-mloda") === 4, "zapis gwiazdek");
-ok(levelUnlocked(1) === true, "4 gwiazdki na poziomie 1 odblokowują poziom 2");
+ok(levelUnlocked(1) === true, "ukończony poziom 1 odblokowuje poziom 2");
 
 // runda bonusowa (Pogrzebówka) — kupno omija bramkę gwiazdkową
 const { coinUnlockPrice } = await import("../src/songs.ts");
+const { UNLOCK_COST } = await import("../src/coins.ts");
 localStorage.removeItem("denis.stars");
 localStorage.removeItem("denis.unlocked");
-ok(coinUnlockPrice(2) === 200, "Pogrzebówkę można kupić bez zaliczenia księcia");
+ok(coinUnlockPrice(2) === UNLOCK_COST.pogrzebowka, "Pogrzebówkę można kupić bez zaliczenia księcia");
 ok(levelUnlocked(2) === false, "Pogrzebówka zablokowana dopóki nie kupiona");
 localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
 ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
