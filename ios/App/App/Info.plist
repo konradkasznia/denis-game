@@ -43,6 +43,9 @@
       </array>
     </dict>
 	</dict>
+	<!-- tylko standardowe HTTPS: bez pytania o export compliance przy kazdym buildzie -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
