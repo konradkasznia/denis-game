@@ -8,9 +8,10 @@
 import { apiBase } from "./net.ts";
 import { platform } from "./native.ts";
 
-const handler: { postMessage(m: string): void } | undefined = (window as any).webkit?.messageHandlers?.diag;
+const handler: { postMessage(m: string): void } | undefined =
+  typeof window !== "undefined" ? (window as any).webkit?.messageHandlers?.diag : undefined;
 
-export const diagActive = platform === "ios";
+export const diagActive = typeof window !== "undefined" && platform === "ios";
 
 const t0 = performance.now();
 const sid = Math.random().toString(36).slice(2, 8);
