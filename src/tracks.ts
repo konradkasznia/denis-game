@@ -7,6 +7,7 @@
 // edytor będzie mógł je nadpisywać, a testy czytać przez `fs`.
 
 import { buildSynthSong, LANES, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
+import { diag } from "./diag.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
 
@@ -211,12 +212,56 @@ function apiBase(): string {
   return "";
 }
 
-/** Beatmapa opublikowana z edytora (jeśli jest) — ma pierwszeństwo przed plikiem w repo. */
-async function fetchPublishedChart(id: string): Promise<RawChart | null> {
+// Ostatnia pobrana opublikowana mapa, per utwór. Bez tego wolna sieć (timeout)
+// po cichu dawała STARĄ mapę z buildu: Konrad usunął trzymane nuty w edytorze,
+// a w apce dalej się pojawiały, bo pobranie mapy trwało ponad 4 s.
+const PUB_CACHE_KEY = (id: string) => `denis-pubchart:${id}`;
+
+function readCachedPublished(id: string): RawChart | null {
   try {
-    if (typeof fetch !== "function") return null;
+    const s = localStorage.getItem(PUB_CACHE_KEY(id));
+    if (!s) return null;
+    const c = JSON.parse(s) as RawChart;
+    return c && Array.isArray(c.notes) && c.notes.length ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPublished(id: string, c: RawChart) {
+  try {
+    localStorage.setItem(PUB_CACHE_KEY(id), JSON.stringify(c));
+  } catch {
+    /* brak miejsca / prywatny tryb — trudno */
+  }
+}
+
+/** Beatmapa opublikowana z edytora (jeśli jest) — ma pierwszeństwo przed plikiem w repo.
+ *  Przy braku sieci / timeoucie: ostatnia pobrana wersja z pamięci telefonu. */
+async function fetchPublishedChart(id: string): Promise<RawChart | null> {
+  const fresh = await fetchPublishedChartNet(id);
+  if (fresh) {
+    writeCachedPublished(id, fresh);
+    return fresh;
+  }
+  if (fresh === null) {
+    // serwer potwierdził brak publikacji — zapamiętana kopia jest nieaktualna
+    try {
+      localStorage.removeItem(PUB_CACHE_KEY(id));
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+  return readCachedPublished(id);
+}
+
+/** chart = jest opublikowana, null = serwer potwierdził, że NIE ma, undefined = nie wiadomo (sieć). */
+async function fetchPublishedChartNet(id: string): Promise<RawChart | null | undefined> {
+  try {
+    if (typeof fetch !== "function") return undefined;
     const ctrl = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 4000) : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
     let res: Response;
     try {
       res = await fetch(`${apiBase()}/api/chart?songId=${encodeURIComponent(id)}`, {
@@ -226,13 +271,15 @@ async function fetchPublishedChart(id: string): Promise<RawChart | null> {
     } finally {
       if (timer) clearTimeout(timer);
     }
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) return undefined;
     const j = (await res.json()) as { ok?: boolean; chart?: RawChart };
     if (j?.ok && j.chart && Array.isArray(j.chart.notes) && j.chart.notes.length) return j.chart;
+    return j?.ok ? null : undefined;
   } catch {
-    /* brak backendu / offline / timeout → lecimy dalej na plik */
+    /* brak backendu / offline / timeout → ostatnia znana wersja albo plik */
   }
-  return null;
+  return undefined;
 }
 
 /** Poniżej tylu nut opublikowaną mapę uznajemy za „przypadkowo pustą" (np. ktoś
@@ -282,10 +329,14 @@ export async function loadTrack(id: string): Promise<SongDef> {
         `loadTrack(${id}): opublikowana mapa ma tylko ${published.notes?.length ?? 0} nut — używam pełnej z repo`,
       );
     } else {
+      diag(`chart ${id} published notes=${published.notes.length}`);
       return rawToSong(published);
     }
   }
-  if (repo) return rawToSong(repo);
+  if (repo) {
+    diag(`chart ${id} REPO notes=${repo.notes.length} (published=${published ? "thin" : "none"})`);
+    return rawToSong(repo);
+  }
 
   // 3. syntezowany podkład
   const cfg = SYNTH_TRACKS[id] ?? SYNTH_TRACKS.rozgrzewka;
