@@ -251,7 +251,8 @@ const SET_UPDATE: Rect = { x: MARGIN, y: 1010, w: SET_W, h: 88 };
 const SET_MAIL: Rect = { x: MARGIN, y: 1104, w: SET_W, h: 120 };
 
 // --- ekran ZMIEŃ HASŁO ---
-const CPW_FIELD: Rect = { x: MARGIN, y: 300, w: SET_W, h: 86 };
+const CPW_CUR: Rect = { x: MARGIN, y: 190, w: SET_W, h: 86 };
+const CPW_FIELD: Rect = { x: MARGIN, y: 296, w: SET_W, h: 86 };
 const CPW_SAVE: Rect = { x: MARGIN, y: 588, w: SET_W, h: 104 };
 
 // --- tablica wyników: zakładki „ten miesiąc" | „wszystkie" + przycisk powrotu ---
@@ -804,8 +805,13 @@ export class Game {
   private authShowPw = false;
   private authError = "";
   // ekran „Zmień hasło" (z ustawień)
+  private curPw = "";
+  private curPwShow = false;
+  /** błąd dotyczy pola „Obecne hasło" (czerwony obrys tam zamiast na nowym) */
+  private changePwErrCur = false;
   private newPw = "";
   private newPwShow = false;
+  private deleteBusy = false;
   private changePwBusy = false;
   private changePwMsg = "";
   private changePwOk = false;
@@ -2244,6 +2250,31 @@ export class Game {
   private changePwFieldSpecs(): FieldSpec[] {
     return [
       {
+        // obecne hasło — serwer wymaga go do zmiany (sam token nie wystarcza)
+        key: "curpw",
+        type: this.curPwShow ? "text" : "password",
+        value: this.curPw,
+        placeholder: "Obecne hasło",
+        autocomplete: "current-password",
+        enterKeyHint: "next",
+        x: CPW_CUR.x,
+        y: CPW_CUR.y + this.frameDY(),
+        w: CPW_CUR.w,
+        h: CPW_CUR.h,
+        error: !!this.changePwMsg && !this.changePwOk && this.changePwErrCur,
+        onInput: (v) => {
+          this.curPw = v;
+          this.changePwMsg = "";
+        },
+        onEnter: () => this.changePassword(),
+        reveal: {
+          revealed: this.curPwShow,
+          onToggle: () => {
+            this.curPwShow = !this.curPwShow;
+          },
+        },
+      },
+      {
         key: "newpw",
         type: this.newPwShow ? "text" : "password",
         value: this.newPw,
@@ -2254,7 +2285,7 @@ export class Game {
         y: CPW_FIELD.y + this.frameDY(), // scena „changepw" jest przesuwana w pionie
         w: CPW_FIELD.w,
         h: CPW_FIELD.h,
-        error: !!this.changePwMsg && !this.changePwOk,
+        error: !!this.changePwMsg && !this.changePwOk && !this.changePwErrCur,
         onInput: (v) => {
           this.newPw = v;
           this.changePwMsg = "";
@@ -2690,6 +2721,9 @@ export class Game {
     }
     if (inRect(SET_PW, x, y)) {
       uiSound("buttons");
+      this.curPw = "";
+      this.curPwShow = false;
+      this.changePwErrCur = false;
       this.newPw = "";
       this.newPwShow = false;
       this.changePwMsg = "";
@@ -2734,10 +2768,26 @@ export class Game {
       } catch {
         sure = false;
       }
-      if (sure) {
-        deleteAccount();
-        this.hitIndex = 0;
-        this.gotoStart();
+      if (sure && !this.deleteBusy) {
+        // czekamy na potwierdzenie serwera: wcześniej żądanie szło „w ciemno",
+        // więc bez sieci konto zostawało na serwerze, choć lokalnie znikało
+        this.deleteBusy = true;
+        void deleteAccount()
+          .then((r) => {
+            if (!r.ok) {
+              try {
+                window.alert?.(r.error);
+              } catch {
+                /* ignore */
+              }
+              return;
+            }
+            this.hitIndex = 0;
+            this.gotoStart();
+          })
+          .finally(() => {
+            this.deleteBusy = false;
+          });
       }
     }
   }
@@ -3202,6 +3252,19 @@ export class Game {
     return this.offLat;
   }
 
+  /** Czas utworu w CHWILI stuknięcia / puszczenia palca. `this.songTime` to
+   *  wartość z ostatniego update(), a zdarzenie dotyku przychodzi między
+   *  klatkami: ocena tym czasem była spóźniona o 0..1 klatkę (~8 ms średnio
+   *  przy 60 fps, do 50 ms przy zacięciu), co przy oknie PERFECT ±50 ms
+   *  zamieniało część trafień w GREAT. getSongTime() jest tani i monotoniczny. */
+  private inputSongTime(): number {
+    if (this.scene === "play" && !this.awaitingStart && !this.paused && !this.rolling) {
+      const t = this.audio.getSongTime();
+      if (Number.isFinite(t) && t >= this.songTime) return t;
+    }
+    return this.songTime;
+  }
+
   private bombLocked(): boolean {
     return performance.now() < this.bombLockMs;
   }
@@ -3218,7 +3281,7 @@ export class Game {
       return;
     }
     const sc = this.judgeScale();
-    const picked = pickNote(this.song.notes, lane, this.songTime, this.offsetSec(), sc);
+    const picked = pickNote(this.song.notes, lane, this.inputSongTime(), this.offsetSec(), sc);
     if (!picked) {
       // za wczesny/pusty tap (poza oknem GOOD, nic do trafienia) — po prostu
       // nic się nie dzieje; nuta leci dalej nietknięta, gracz oceni ją normalnie
@@ -3329,7 +3392,7 @@ export class Game {
     note.judged = true;
     note.judgedAt = this.songTime;
     const end = note.time + note.dur + this.offsetSec();
-    this.completeHold(note, lane, this.songTime >= end - HOLD_RELEASE_TOL);
+    this.completeHold(note, lane, this.inputSongTime() >= end - HOLD_RELEASE_TOL);
   }
 
   /** Nuty trzymane utrzymane do samego końca (gracz nie puścił palca). */
@@ -5713,8 +5776,15 @@ export class Game {
 
   private async changePassword() {
     if (this.changePwBusy || this.changePwOk) return;
+    if (!this.curPw) {
+      this.changePwErrCur = true;
+      this.changePwMsg = "Podaj obecne hasło.";
+      haptic("miss");
+      return;
+    }
     // wymagania widać na check-liście pod polem — tu tylko blokujemy zapis
     if (!validPassword(this.newPw)) {
+      this.changePwErrCur = false;
       this.changePwMsg = "";
       haptic("miss");
       return;
@@ -5727,13 +5797,19 @@ export class Game {
     this.changePwBusy = true;
     this.changePwMsg = "";
     try {
-      await api("/api/account", { method: "POST", body: { action: "password", newPassword: this.newPw }, auth: true });
+      await api("/api/account", {
+        method: "POST",
+        body: { action: "password", currentPassword: this.curPw, newPassword: this.newPw },
+        auth: true,
+      });
       this.changePwOk = true;
-      this.changePwMsg = "Hasło zmienione.";
+      this.changePwMsg = "Hasło zmienione. Inne urządzenia zostały wylogowane.";
+      this.curPw = "";
       this.newPw = "";
       this.fields.clear();
       haptic("flowUp");
     } catch (e) {
+      this.changePwErrCur = e instanceof ApiError && e.status === 403;
       this.changePwMsg =
         e instanceof ApiError ? e.message : "Nie udało się zmienić hasła. Spróbuj ponownie.";
     } finally {
@@ -6229,14 +6305,23 @@ export class Game {
           : n.judged
             ? clamp(1 - (this.songTime - n.judgedAt) / 0.25, 0, 1) * 0.4
             : 0.42) * this.noteAlphaMul;
-      ctx.fillStyle = n.holding ? shade(LANE_COLORS[n.lane], 70) : LANE_COLORS[n.lane];
       if (n.holding) {
-        ctx.shadowColor = LANE_COLORS[n.lane];
-        ctx.shadowBlur = 34;
+        // poświata trzymanego ogona: gruby, półprzezroczysty obrys tej samej
+        // ścieżki zamiast shadowBlur 34 (rozmycie dużej powierzchni co klatkę,
+        // do 4 torów naraz, było najdroższym elementem rozgrywki na GPU)
+        ctx.strokeStyle = LANE_COLORS[n.lane];
+        ctx.globalAlpha = 0.22 * this.noteAlphaMul;
+        ctx.lineWidth = 30;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+        ctx.globalAlpha = 0.3 * this.noteAlphaMul;
+        ctx.lineWidth = 14;
+        ctx.stroke();
+        ctx.globalAlpha = this.noteAlphaMul;
       }
+      ctx.fillStyle = n.holding ? shade(LANE_COLORS[n.lane], 70) : LANE_COLORS[n.lane];
       ctx.fill();
       if (n.holding) {
-        ctx.shadowBlur = 0;
         ctx.strokeStyle = "rgba(255,255,255,0.85)";
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -7353,9 +7438,9 @@ export class Game {
       ctx.save();
       path();
       ctx.clip();
+      // bez shadowBlur: poświata i tak byłaby obcięta przez clip() do wnętrza
+      // gwiazdki (niewidoczna), a kosztowała rozmycie do 5× na klatkę w HUD-zie
       ctx.fillStyle = "#ffd24c";
-      ctx.shadowColor = "#ffd24c";
-      ctx.shadowBlur = 12;
       ctx.fillRect(cx - r, cy - r, r * 2 * fill, r * 2);
       ctx.restore();
     }
@@ -7386,11 +7471,18 @@ export class Game {
       mg.addColorStop(1, "#ffd24c");
       this.flowMeterGrad = mg;
     }
-    ctx.fillStyle = this.flowMeterGrad;
-    if (full || justUp) {
-      ctx.shadowColor = "#ffd24c";
-      ctx.shadowBlur = 20;
+    // poświata jako dwie półprzezroczyste, szersze warstwy zamiast shadowBlur —
+    // przy pełnym tierze pasek świecił CAŁĄ piosenkę, a rozmycie wysokiego
+    // prostokąta co klatkę to jeden z droższych kosztów GPU na słabych telefonach
+    if ((full || justUp) && h > 0) {
+      ctx.fillStyle = "rgba(255,210,76,0.16)";
+      roundRect(ctx, x - w / 2 - 10, bot - h - 10, w + 20, h + 20, w / 2 + 10);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,210,76,0.22)";
+      roundRect(ctx, x - w / 2 - 5, bot - h - 5, w + 10, h + 10, w / 2 + 5);
+      ctx.fill();
     }
+    ctx.fillStyle = this.flowMeterGrad;
     roundRect(ctx, x - w / 2, bot - h, w, Math.max(h, 0), w / 2);
     ctx.fill();
     ctx.restore();
@@ -7400,9 +7492,12 @@ export class Game {
     ctx.translate(x, bot + 26);
     const s = 1 + (justUp ? 0.3 : 0) + Math.sin(this.songTime * 12) * 0.04;
     ctx.scale(s, s);
+    // poświata płomienia: tanie koło zamiast shadowBlur
+    ctx.fillStyle = full ? "rgba(255,138,61,0.28)" : "rgba(255,138,61,0.16)";
+    ctx.beginPath();
+    ctx.arc(0, 3, full ? 24 : 19, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = full ? "#ffd24c" : "#ff8a3d";
-    ctx.shadowColor = "#ff8a3d";
-    ctx.shadowBlur = full ? 16 : 8;
     ctx.beginPath();
     ctx.moveTo(0, -16);
     ctx.quadraticCurveTo(13, 0, 6, 13);

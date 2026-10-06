@@ -1,0 +1,16 @@
+# Pliki, których `vercel deploy` (z lokalnego katalogu) NIE wysyła na Vercel.
+# Build potrzebuje tylko: src/, public/, api/, middleware.ts, tools/prune-dist.mjs,
+# index.html, editor.html, package*.json i configów. Reszta to ~200 MB materiałów
+# roboczych, masterów audio i projektów natywnych, które tylko spowalniały deploy
+# i leżały w źródłach deploymentu.
+/Piosenki
+/Materiały robocze
+/Robocze
+/art
+/figma-ekrany
+/android
+/ios
+/test
+/dist
+deploy-log.txt
+.env*

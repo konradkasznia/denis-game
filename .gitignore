@@ -4,6 +4,7 @@ dist
 *.local
 .vite
 test/.smoke.db*
+test/.handlers.db*
 /Piosenki/
 
 figma-ekrany/

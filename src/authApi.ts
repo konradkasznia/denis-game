@@ -41,11 +41,37 @@ function saveUsers(u: Record<string, UserRow>) {
   }
 }
 
-/** Prosty, jawnie NIEbezpieczny „hash" — tylko do atrapy bez serwera. */
-function mask(s: string): string {
+/** Stary, 32-bitowy „hash" atrapy — zostaje tylko do weryfikacji kont
+ *  założonych offline przed zmianą (przy udanym logowaniu przepisywany). */
+function legacyMask(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
   return `d${h.toString(36)}_${s.length}`;
+}
+
+function hex(buf: ArrayBuffer): string {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Hasło atrapy offline: SHA-256 z losową solą („s1$sól$hash"). Ludzie powtarzają
+ *  hasła, więc nawet lokalnie nie trzymamy łatwo odwracalnego skrótu. */
+async function pwHash(pw: string, salt?: string): Promise<string> {
+  const s =
+    salt ??
+    (typeof crypto !== "undefined" && crypto.getRandomValues
+      ? hex(crypto.getRandomValues(new Uint8Array(16)).buffer as ArrayBuffer)
+      : Math.random().toString(36).slice(2));
+  if (typeof crypto === "undefined" || !crypto.subtle) return legacyMask(pw); // bez WebCrypto
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${s}:${pw}`));
+  return `s1$${s}$${hex(d)}`;
+}
+
+async function pwMatches(pw: string, stored: string): Promise<boolean> {
+  if (stored.startsWith("s1$")) {
+    const salt = stored.split("$")[1] || "";
+    return (await pwHash(pw, salt)) === stored;
+  }
+  return stored === legacyMask(pw);
 }
 
 export function validLogin(s: string): boolean {
@@ -122,15 +148,25 @@ export async function register(
       try {
         return toResult(err);
       } catch {
-        /* OfflineError → atrapa poniżej */
+        // Backend jest (http/https), ale nie odpowiedział: NIE zakładamy po
+        // cichu lokalnej atrapy. Wcześniej gracz „miał konto", którego serwer
+        // nie znał (wyniki nigdy nie trafiały do rankingu), a gdy serwer
+        // jednak zdążył je utworzyć, login zostawał zajęty przez „ducha".
+        return {
+          ok: false,
+          error:
+            "Brak połączenia z serwerem. Sprawdź internet i spróbuj ponownie. Jeśli zobaczysz „login zajęty”, konto już powstało: po prostu się zaloguj.",
+          offline: true,
+        };
       }
     }
   }
 
+  // tylko środowisko bez backendu (file://, testy) — lokalna atrapa konta
   const u = users();
   const key = l.toLowerCase();
   if (u[key]) return { ok: false, error: "Ten login jest już zajęty. Wybierz inny." };
-  u[key] = { pw: mask(password), login: l, createdAt: new Date().toISOString() };
+  u[key] = { pw: await pwHash(password), login: l, createdAt: new Date().toISOString() };
   saveUsers(u);
   startSession(l);
   return { ok: true };
@@ -165,8 +201,14 @@ export async function login(loginName: string, password: string): Promise<AuthRe
   // pokazujemy to wprost, zamiast udawać „złe hasło". Lokalna atrapa (konto
   // założone OFFLINE na tym urządzeniu) wciąż działa, żeby nie blokować kogoś,
   // kto zarejestrował się bez sieci i wraca zalogować się też bez sieci.
-  const row = users()[l.toLowerCase()];
-  if (row && row.pw === mask(password)) {
+  const all = users();
+  const row = all[l.toLowerCase()];
+  if (row && (await pwMatches(password, row.pw))) {
+    if (!row.pw.startsWith("s1$")) {
+      // stary 32-bitowy „hash" — przepisz na SHA-256 z solą
+      row.pw = await pwHash(password);
+      saveUsers(all);
+    }
     startSession(row.login);
     return { ok: true };
   }

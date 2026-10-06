@@ -8,6 +8,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
+import { requireEditor } from "./_lib/editor.js";
 import { limitReq } from "./_lib/ratelimit.js";
 import { allow, json, body, nowIso } from "./_lib/util.js";
 
@@ -106,8 +107,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const c = db();
 
     if (req.method === "GET") {
+      if (!(await limitReq(req, "chart-get", 120, 60))) {
+        return json(res, 429, { error: "Zbyt wiele zapytań." });
+      }
       const songId = String(req.query.songId || "").trim();
-      if (!songId) return json(res, 400, { error: "Brak songId." });
+      if (!SONG_ID_RE.test(songId)) return json(res, 400, { error: "Brak songId." });
       const r = await c.execute({
         sql: "SELECT data, updated_at FROM charts WHERE song_id = ?",
         args: [songId],
@@ -125,15 +129,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { ok: true, chart: safe, updatedAt: String(r.rows[0].updated_at) });
     }
 
-    // POST — publikacja z edytora
-    const need = process.env.EDITOR_PASSWORD || "";
-    if (!need && process.env.VERCEL_ENV !== "development") {
-      // fail-closed WSZĘDZIE poza lokalnym devem (także preview) — inaczej na
-      // preview-deploymencie każdy publikuje beatmapy bez hasła do wspólnej bazy
-      return json(res, 503, { error: "Publikacja wyłączona (brak konfiguracji hasła)." });
-    }
-    const key = String(req.headers["x-editor-key"] || "");
-    if (need && key !== need) return json(res, 401, { error: "Złe hasło publikacji." });
+    // POST — publikacja z edytora (limit błędnych haseł PRZED porównaniem)
+    if (!(await requireEditor(req, res))) return;
 
     if (!(await limitReq(req, "chart-publish", 30, 3600))) {
       return json(res, 429, { error: "Zbyt wiele publikacji. Spróbuj później." });

@@ -1,6 +1,6 @@
 // Wspólne narzędzia dla funkcji API: hasła (scrypt), tokeny, sesje, odpowiedzi.
 
-import { randomBytes, scrypt as _scrypt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt as _scrypt, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "./db.js";
 
@@ -28,6 +28,25 @@ export async function verifyPassword(pw: string, stored: string): Promise<boolea
 
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("hex");
+}
+
+/** Token sesji trzymamy w bazie jako SHA-256 — wyciek bazy nie daje gotowych
+ *  tokenów do przejęcia kont. (Token ma 256 bitów losowości, więc sól zbędna.) */
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Porównanie sekretów w stałym czasie (niezależnie od długości). */
+export function safeEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(String(a)).digest();
+  const hb = createHash("sha256").update(String(b)).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+/** Klucz porównań loginu/nicku: pełne małe litery Unicode. SQLite-owe
+ *  `lower()` zna tylko ASCII, przez co „Łukasz" i „łukasz" były dwoma kontami. */
+export function loginKey(s: string): string {
+  return String(s || "").trim().normalize("NFC").toLowerCase();
 }
 
 export const nowIso = () => new Date().toISOString();
@@ -101,6 +120,8 @@ export interface SessionUser {
   login: string;
   nick: string;
   terms: boolean;
+  /** hash tokenu bieżącej sesji (np. żeby przy zmianie hasła zostawić tylko ją) */
+  tokenHash: string;
 }
 
 /** Długość życia sesji. Sesja jest „przesuwana" (patrz sessionUser) — aktywny
@@ -113,17 +134,33 @@ const SESSION_RENEW_BELOW_DAYS = 690;
 export async function sessionUser(req: VercelRequest): Promise<SessionUser | null> {
   const h = req.headers.authorization || "";
   const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
-  if (!token) return null;
+  if (!token || token.length > 200) return null;
   const c = db();
-  const s = await c.execute({
+  const th = hashToken(token);
+  let s = await c.execute({
     sql: "SELECT user_id, expires_at FROM sessions WHERE token = ?",
-    args: [token],
+    args: [th],
   });
+  if (!s.rows[0]) {
+    // sesja sprzed haszowania tokenów — zapisana jawnie; przepisz ją na hash
+    // (jednorazowo, przy pierwszym użyciu), żeby nikogo nie wylogować
+    s = await c.execute({
+      sql: "SELECT user_id, expires_at FROM sessions WHERE token = ?",
+      args: [token],
+    });
+    if (s.rows[0]) {
+      try {
+        await c.execute({ sql: "UPDATE sessions SET token = ? WHERE token = ?", args: [th, token] });
+      } catch {
+        /* równoległe żądanie zdążyło pierwsze — bez znaczenia */
+      }
+    }
+  }
   const row = s.rows[0];
   if (!row) return null;
   const expMs = new Date(String(row.expires_at)).getTime();
   if (expMs < Date.now()) {
-    await c.execute({ sql: "DELETE FROM sessions WHERE token = ?", args: [token] });
+    await c.execute({ sql: "DELETE FROM sessions WHERE token IN (?, ?)", args: [th, token] });
     return null;
   }
   // przesuwane wygaśnięcie — gdy zapasu zostało mniej niż próg, przedłuż sesję,
@@ -132,7 +169,7 @@ export async function sessionUser(req: VercelRequest): Promise<SessionUser | nul
     try {
       await c.execute({
         sql: "UPDATE sessions SET expires_at = ? WHERE token = ?",
-        args: [plusDaysIso(SESSION_DAYS), token],
+        args: [plusDaysIso(SESSION_DAYS), th],
       });
     } catch {
       /* przedłużenie nieudane — sesja i tak jest jeszcze ważna */
@@ -149,15 +186,17 @@ export async function sessionUser(req: VercelRequest): Promise<SessionUser | nul
     login: String(ur.login),
     nick: String(ur.nick || ""),
     terms: !!Number(ur.terms),
+    tokenHash: th,
   };
 }
 
-/** Tworzy nową sesję (token przesuwany, patrz SESSION_DAYS / sessionUser). */
+/** Tworzy nową sesję (token przesuwany, patrz SESSION_DAYS / sessionUser).
+ *  Klient dostaje surowy token, w bazie ląduje tylko jego hash. */
 export async function createSession(userId: number): Promise<string> {
   const token = randomToken(32);
   await db().execute({
     sql: "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-    args: [token, userId, nowIso(), plusDaysIso(SESSION_DAYS)],
+    args: [hashToken(token), userId, nowIso(), plusDaysIso(SESSION_DAYS)],
   });
   return token;
 }

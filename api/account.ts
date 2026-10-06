@@ -1,6 +1,7 @@
 // Operacje na koncie zalogowanego użytkownika.
 //   POST { action: "nick", nick }              → zmiana nazwy wyświetlanej (opcjonalna)
-//   POST { action: "password", newPassword }   → zmiana hasła (zalogowany)
+//   POST { action: "password", currentPassword, newPassword } → zmiana hasła
+//        (wymaga obecnego hasła; wylogowuje pozostałe urządzenia)
 //   POST { action: "unlock", songId }          → odblokowanie poziomu za monety
 //   POST { action: "delete" }                  → usunięcie konta i wszystkich danych
 
@@ -8,7 +9,17 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
 import { nickAllowed } from "./_lib/nick.js";
 import { limitReq } from "./_lib/ratelimit.js";
-import { allow, body, hashPassword, json, PW_RULE, sessionUser, validPassword } from "./_lib/util.js";
+import {
+  allow,
+  body,
+  hashPassword,
+  json,
+  loginKey,
+  PW_RULE,
+  sessionUser,
+  validPassword,
+  verifyPassword,
+} from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
 const UNLOCK_COST: Record<string, number> = { pogrzebowka: 50 };
@@ -25,21 +36,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!allowed) return json(res, 429, { error: "Zbyt wiele operacji. Spróbuj później." });
     if (!u) return json(res, 401, { error: "Brak sesji." });
     const c = db();
-    const b = body<{ action?: string; nick?: string; songId?: string; newPassword?: string }>(req);
+    const b = body<{
+      action?: string;
+      nick?: string;
+      songId?: string;
+      newPassword?: string;
+      currentPassword?: string;
+    }>(req);
 
     if (b.action === "nick") {
       const nick = String(b.nick || "").trim().slice(0, 18);
       const nc = nickAllowed(nick);
       if (!nc.ok) return json(res, 400, { error: nc.error });
+      if (nick) {
+        // nick nie może być cudzym loginem ani cudzym nickiem — inaczej da się
+        // podszyć pod innego gracza w rankingu
+        const k = loginKey(nick);
+        const taken = await c.execute({
+          sql: `SELECT 1 FROM users WHERE id <> ? AND (login_key = ? OR lower(login) = lower(?)
+                  OR (nick <> '' AND lower(nick) = ?)) LIMIT 1`,
+          args: [u.id, k, nick, k],
+        });
+        if (taken.rows[0]) return json(res, 409, { error: "Ta nazwa jest już zajęta." });
+      }
       await c.execute({ sql: "UPDATE users SET nick = ? WHERE id = ?", args: [nick, u.id] });
       return json(res, 200, { ok: true, nick });
     }
 
     if (b.action === "password") {
+      // wymagamy OBECNEGO hasła: sam token (localStorage, pożyczony telefon)
+      // nie może wystarczyć do trwałego przejęcia konta
+      const cur = String(b.currentPassword || "");
+      if (!cur) return json(res, 400, { error: "Podaj obecne hasło (zaktualizuj aplikację, jeśli nie ma tego pola)." });
+      if (!(await limitReq(req, "password-check", 8, 900, true)))
+        return json(res, 429, { error: "Zbyt wiele prób. Spróbuj za 15 minut." });
+      const pr = await c.execute({ sql: "SELECT pw_hash FROM users WHERE id = ?", args: [u.id] });
+      if (!(await verifyPassword(cur, String(pr.rows[0]?.pw_hash ?? ""))))
+        return json(res, 403, { error: "Obecne hasło jest nieprawidłowe." });
       const np = String(b.newPassword || "");
       if (!validPassword(np)) return json(res, 400, { error: PW_RULE });
       const hash = await hashPassword(np);
-      await c.execute({ sql: "UPDATE users SET pw_hash = ? WHERE id = ?", args: [hash, u.id] });
+      // ...i wylogowujemy WSZYSTKIE inne urządzenia (zostaje tylko ta sesja)
+      await c.batch(
+        [
+          { sql: "UPDATE users SET pw_hash = ? WHERE id = ?", args: [hash, u.id] },
+          { sql: "DELETE FROM sessions WHERE user_id = ? AND token <> ?", args: [u.id, u.tokenHash] },
+        ],
+        "write",
+      );
       return json(res, 200, { ok: true });
     }
 

@@ -8,6 +8,7 @@ import {
   createSession,
   hashPassword,
   json,
+  loginKey,
   nowIso,
   validLogin,
   validPassword,
@@ -17,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
   try {
     await ensureSchema();
-    if (!(await limitReq(req, "register", 6, 3600)))
+    if (!(await limitReq(req, "register", 6, 3600, true)))
       return json(res, 429, { error: "Zbyt wiele prób. Spróbuj ponownie za jakiś czas." });
     const b = body<{
       login?: string;
@@ -40,8 +41,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const c = db();
     const exists = await c.execute({
-      sql: "SELECT id FROM users WHERE lower(login) = lower(?)",
-      args: [login],
+      // zajęty także, gdy ktoś używa tej nazwy jako nicku (podszywanie w rankingu)
+      sql: "SELECT id FROM users WHERE login_key = ? OR lower(login) = lower(?) OR (nick <> '' AND lower(nick) = ?) LIMIT 1",
+      args: [loginKey(login), login, loginKey(login)],
     });
     if (exists.rows[0])
       return json(res, 409, { error: "Ten login jest już zajęty. Wybierz inny." });
@@ -49,9 +51,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const now = nowIso();
     const pw = await hashPassword(password);
     const ins = await c.execute({
-      sql: `INSERT INTO users (login, pw_hash, nick, terms, terms_at, created_at)
-            VALUES (?, ?, '', 1, ?, ?)`,
-      args: [login, pw, now, now],
+      sql: `INSERT INTO users (login, pw_hash, nick, terms, terms_at, created_at, login_key)
+            VALUES (?, ?, '', 1, ?, ?, ?)`,
+      args: [login, pw, now, now, loginKey(login)],
     });
     const token = await createSession(Number(ins.lastInsertRowid));
     return json(res, 200, { ok: true, token, login, nick: "" });

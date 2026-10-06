@@ -26,12 +26,32 @@ const SONG_SECONDS: Record<string, number> = {
 };
 const DEFAULT_SONG_SECONDS = 150;
 
-async function songMeta(c: Client, songId: string): Promise<{ notes: number; seconds: number }> {
+// Utwory, na które wolno zapisać wynik: rejestr z src/songs.ts (+ wyłączony
+// „Pan Młody", którego chart leży w repo) ORAZ wszystko, co opublikowano
+// z edytora (tabela `charts`). Wcześniej dowolne `songId` przechodziło — każde
+// nowe id miało pustą bramkę anty-farm i domyślny cap 600 nut, czyli skrypt
+// dostawał ~243 monety za każdy POST z wymyślonym id (+ śmieci w rankingu).
+const SONG_ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
+const STATIC_SONGS = new Set([
+  "panna-mloda",
+  "ksiaze-z-bajki",
+  "pogrzebowka",
+  "pani-policjantko",
+  "byleby-nie-byla-ciepla",
+  "pan-strazak",
+  "pan-mlody",
+]);
+
+/** Metadane utworu albo null, gdy takiego utworu nie ma. */
+async function songMeta(c: Client, songId: string): Promise<{ notes: number; seconds: number } | null> {
+  if (!SONG_ID_RE.test(songId)) return null;
+  let known = STATIC_SONGS.has(songId);
   let notes = KNOWN_NOTES[songId] ?? 600;
   let seconds = SONG_SECONDS[songId] ?? DEFAULT_SONG_SECONDS;
   try {
     const r = await c.execute({ sql: "SELECT data FROM charts WHERE song_id = ?", args: [songId] });
     if (r.rows[0]) {
+      known = true;
       const d = JSON.parse(String(r.rows[0].data));
       if (Array.isArray(d?.notes) && d.notes.length) notes = d.notes.length;
       const dur = Number(d?.duration);
@@ -42,10 +62,16 @@ async function songMeta(c: Client, songId: string): Promise<{ notes: number; sec
   }
   // klamra na wypadek literówki w opublikowanym charcie (np. duration 6000) —
   // bramka anty-farm nie może przez błąd danych zablokować uczciwego gracza
+  if (!known) return null;
   return { notes, seconds: Math.max(60, Math.min(seconds, 420)) };
 }
 
-const maxScoreFor = (notes: number) => Math.round(notes * 3800 + 150000);
+// Ile wierszy rankingu zwracamy. Wcześniej leciała CAŁA tabela (pełny skan
+// i coraz większy JSON przy każdym wejściu w ranking). Własne miejsce gracza
+// spoza top przychodzi osobno w polu `me`.
+const TOP_LIMIT = 200;
+
+const maxScoreFor =(notes: number) => Math.round(notes * 3800 + 150000);
 
 async function rankAll(songId: string, score: number): Promise<number> {
   const r = await db().execute({
@@ -73,7 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return json(res, 429, { error: "Zbyt wiele zapytań." });
       }
       const songId = String(req.query.songId || "").trim();
-      if (!songId) return json(res, 400, { error: "Brak songId." });
+      if (!SONG_ID_RE.test(songId)) return json(res, 400, { error: "Brak songId." });
       const monthly = String(req.query.period || "all") === "month";
       const m = ym();
 
@@ -85,15 +111,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
                     FROM scores_monthly s LEFT JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ? AND s.ym = ?
-                    ORDER BY s.score DESC, s.updated_at ASC`,
-              args: [songId, m],
+                    ORDER BY s.score DESC, s.updated_at ASC
+                    LIMIT ?`,
+              args: [songId, m, TOP_LIMIT],
             }
           : {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login, NULLIF(s.nick,''), 'Gracz') AS nick, s.score AS score, s.user_id AS uid
                     FROM scores s LEFT JOIN users u ON u.id = s.user_id
                     WHERE s.song_id = ?
-                    ORDER BY s.score DESC, s.updated_at ASC`,
-              args: [songId],
+                    ORDER BY s.score DESC, s.updated_at ASC
+                    LIMIT ?`,
+              args: [songId, TOP_LIMIT],
             },
       );
       const total = await c.execute(
@@ -139,6 +167,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // anti-cheat: wynik poza rozsądnym zakresem dla tego utworu → odrzuć
     const meta = await songMeta(c, songId);
+    if (!meta) return json(res, 400, { error: "Nieznany utwór." });
     const cap = maxScoreFor(meta.notes);
     if (score > cap) {
       console.warn(`scores: odrzucony wynik ${score} (cap ${cap}) user ${u.id} song ${songId}`);

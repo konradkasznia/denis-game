@@ -87,6 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return json(res, 200, { ok: true });
   } catch (e) {
-    return json(res, 500, { error: `Błąd serwera: ${(e as Error).message}` });
+    console.error("vote", e);
+    return json(res, 500, { error: "Błąd serwera." });
   }
 }

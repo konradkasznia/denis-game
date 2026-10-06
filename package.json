@@ -9,7 +9,7 @@
     "dev": "npm run sync-splash && vite",
     "build": "npm run sync-splash && tsc && vite build && node tools/prune-dist.mjs",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs && node --experimental-strip-types test/api.smoke.mjs"
+    "test": "node --experimental-strip-types test/judge.test.mjs && node --experimental-strip-types test/chart.test.mjs && node --experimental-strip-types test/chart-panna-mloda.test.mjs && node --experimental-strip-types test/integration.test.mjs && node --experimental-strip-types test/api.smoke.mjs && node --experimental-strip-types --no-warnings test/api.handlers.test.mjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.1",

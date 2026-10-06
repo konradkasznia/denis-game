@@ -14,9 +14,13 @@ export const SCHEMA_SQL: string[] = [
     terms_at TEXT,
     coins INTEGER NOT NULL DEFAULT 0,
     unlocked TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    login_key TEXT
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS users_login_lc ON users (lower(login))`,
+  // pełne małe litery Unicode liczone w JS (loginKey) — lower() SQLite zna tylko
+  // ASCII. NULL dozwolone wielokrotnie (wiersze przed uzupełnieniem w ensureSchema).
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_login_key ON users (login_key)`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,

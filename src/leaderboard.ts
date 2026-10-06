@@ -130,7 +130,10 @@ function fullBoard(songId: string, period: Period): Entry[] {
 
   // „ja" w zakładce all-time bierzemy też z lokalnego rekordu (działa offline);
   // w zakładce miesięcznej — tylko z serwera
-  const hasMe = list.some((e) => e.me);
+  // Serwer zwraca tylko top 200 + własne miejsce osobno (`me`). Gdy gracz jest
+  // poza top, NIE doklejamy go do listy: dostałby fałszywe miejsce 201 —
+  // jego realne miejsce pokazuje myEntry() z `rb.me`.
+  const hasMe = list.some((e) => e.me) || !!rb?.me;
   if (!hasMe && period === "all") {
     const mineLocal = myBest(songId);
     if (mineLocal != null) list.push({ nick: myNick(), score: mineLocal, me: true });
@@ -185,7 +188,7 @@ export function myEntry(songId: string, period: Period): Entry | null {
 /** Ile punktów brakuje graczowi do TOP `n` (0 = już w top). */
 export function gapToTop(songId: string, period: Period, n = 10): number {
   const b = fullBoard(songId, period);
-  const me = b.find((e) => e.me);
+  const me = b.find((e) => e.me) ?? myEntry(songId, period); // spoza top 200: z `rb.me`
   if (!me || me.rank <= n) return 0;
   const cut = b[n - 1]?.score ?? 0;
   return Math.max(0, cut - me.score + 1);

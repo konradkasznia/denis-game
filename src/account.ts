@@ -2,7 +2,7 @@
 // roboczą: login, opcjonalną nazwę wyświetlaną, akceptację regulaminu.
 // Model: LOGIN + HASŁO, bez e-maila. Login jest zarazem nazwą w rankingu.
 
-import { api, backendReachable, clearToken, getToken } from "./net.ts";
+import { api, ApiError, backendReachable, clearToken, getToken } from "./net.ts";
 
 function syncToServer(bodyObj: Record<string, unknown>) {
   if (!backendReachable() || !getToken()) return;
@@ -100,10 +100,26 @@ export function clearSession() {
   }
 }
 
-/** Usunięcie konta i wszystkich danych (żądanie „usuń moje dane"). */
-export function deleteAccount() {
-  // żądanie usunięcia po stronie serwera (wymóg RODO / App Store 5.1.1(v))
-  syncToServer({ action: "delete" });
+/** Usunięcie konta i wszystkich danych (żądanie „usuń moje dane").
+ *  Lokalne dane czyścimy DOPIERO po potwierdzeniu serwera (wymóg RODO /
+ *  App Store 5.1.1(v)): bez sieci konto zostaje i gracz widzi błąd. */
+export async function deleteAccount(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (backendReachable() && getToken()) {
+    try {
+      await api("/api/account", { method: "POST", body: { action: "delete" }, auth: true });
+    } catch (e) {
+      // 401 = sesji już nie ma na serwerze (konto skasowane / wygasło) — lokalnie i tak czyścimy
+      if (!(e instanceof ApiError && e.status === 401)) {
+        return {
+          ok: false,
+          error:
+            e instanceof ApiError
+              ? e.message
+              : "Nie udało się usunąć konta: brak połączenia z serwerem. Spróbuj ponownie, gdy będziesz online.",
+        };
+      }
+    }
+  }
   // usuń też rekord w lokalnej atrapie offline
   try {
     const l = (localStorage.getItem("denis.login") || "").toLowerCase();
@@ -117,4 +133,5 @@ export function deleteAccount() {
     /* ignore */
   }
   clearSession();
+  return { ok: true };
 }

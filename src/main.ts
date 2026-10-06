@@ -20,7 +20,10 @@ const DPR_KEY = "denis.dprStep";
 let dprStep = 0;
 try {
   const saved = Number(localStorage.getItem(DPR_KEY));
-  if (Number.isInteger(saved) && saved >= 0 && saved < DPR_STEPS.length) dprStep = saved;
+  // Startujemy o JEDEN stopień lepiej niż zapamiętany: jedna sesja na
+  // przegrzanym telefonie nie może obniżyć jakości na zawsze. Jeśli GPU dalej
+  // nie wyrabia, adaptQuality() zejdzie z powrotem po ~3 s rozgrywki.
+  if (Number.isInteger(saved) && saved > 0 && saved < DPR_STEPS.length) dprStep = saved - 1;
 } catch {
   /* brak localStorage — zostajemy przy pełnej jakości */
 }
@@ -201,6 +204,7 @@ const ADAPT_WARMUP = 90;
 const ADAPT_WINDOW = 90;
 let adaptSeen = 0;
 let adaptSlow = 0;
+let adaptGood = 0;
 function adaptQuality(elapsedMs: number, full: boolean) {
   if (!full || elapsedMs > 250) {
     adaptSeen = 0;
@@ -214,7 +218,20 @@ function adaptQuality(elapsedMs: number, full: boolean) {
   const bad = adaptSlow / ADAPT_WINDOW >= 0.25;
   adaptSeen = ADAPT_WARMUP;
   adaptSlow = 0;
-  if (!bad) return;
+  if (!bad) {
+    // ~15 s płynnej gry na lepszym stopniu niż zapisany → zapamiętaj poprawę
+    if (++adaptGood >= 10) {
+      adaptGood = 0;
+      try {
+        const saved = Number(localStorage.getItem(DPR_KEY)) || 0;
+        if (dprStep < saved) localStorage.setItem(DPR_KEY, String(dprStep));
+      } catch {
+        /* ignoruj */
+      }
+    }
+    return;
+  }
+  adaptGood = 0;
   const cur = Math.min(window.devicePixelRatio || 1, DPR_STEPS[dprStep]);
   let next = dprStep + 1;
   while (next < DPR_STEPS.length && DPR_STEPS[next] >= cur) next++;
@@ -238,7 +255,11 @@ function frame(now: number, gen: number) {
   const elapsed = (now - last) / 1000;
   // poza grą ograniczamy do ~30 kl./s (mniej pracy GPU/CPU, telefon się nie grzeje)
   const full = game.highFps();
-  const minStep = full ? 0 : 0.031;
+  // W grze: max ~60 kl./s. Na ekranach 120 Hz (Android) rAF strzela co 8,3 ms
+  // i gra rysowała 2× więcej klatek niż trzeba (bateria, grzanie, a próg
+  // adaptQuality zakłada 60 Hz). Próg 10 ms: 120 Hz → co druga klatka (60),
+  // 90 Hz → bez zmian (11,1 ms), 60 Hz → bez zmian.
+  const minStep = full ? 0.01 : 0.031;
   if (elapsed < minStep) return;
 
   const dt = Math.min(elapsed, 0.05);

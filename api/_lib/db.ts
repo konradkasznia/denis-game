@@ -12,6 +12,15 @@ import { SCHEMA_SQL, MIGRATIONS_SQL } from "./schema.js";
 let _client: Client | null = null;
 let _schema: Promise<void> | null = null;
 
+/** Lokalna kopia loginKey z util.ts (util importuje db — bez cyklu). */
+const loginKey = (s: string) => String(s || "").trim().normalize("NFC").toLowerCase();
+
+/** Tylko testy (test/api.handlers.test.mjs): podmiana klienta na lokalny plik. */
+export function __setClientForTests(c: Client | null) {
+  _client = c;
+  _schema = null;
+}
+
 export function db(): Client {
   if (_client) return _client;
   const url = process.env.TURSO_DATABASE_URL;
@@ -39,6 +48,9 @@ export function ensureSchema(): Promise<void> {
       }
       if (cols.length && !cols.includes("unlocked")) {
         await c.execute("ALTER TABLE users ADD COLUMN unlocked TEXT NOT NULL DEFAULT ''");
+      }
+      if (cols.length && !cols.includes("login_key")) {
+        await c.execute("ALTER TABLE users ADD COLUMN login_key TEXT");
       }
     } catch {
       /* users jeszcze nie istnieje — CREATE TABLE poniżej */
@@ -69,6 +81,20 @@ export function ensureSchema(): Promise<void> {
     }
     for (const sql of MIGRATIONS_SQL) await c.execute(sql);
     await c.batch(SCHEMA_SQL, "write");
+    // uzupełnij login_key dla kont sprzed tej kolumny (jednorazowo; potem pusto)
+    const missing = await c.execute("SELECT id, login FROM users WHERE login_key IS NULL");
+    for (const r of missing.rows) {
+      try {
+        await c.execute({
+          sql: "UPDATE users SET login_key = ? WHERE id = ?",
+          args: [loginKey(String(r.login)), Number(r.id)],
+        });
+      } catch (e) {
+        // kolizja (np. „Łukasz" i „łukasz" założone przed poprawką) — to konto
+        // zostaje bez klucza i dalej loguje się po starym porównaniu lower()
+        console.error("login_key backfill", r.id, e);
+      }
+    }
   })().catch((e) => {
     // nie zatruwaj całej instancji lambdy odrzuconą obietnicą — kolejne
     // żądanie spróbuje jeszcze raz (audyt A8)

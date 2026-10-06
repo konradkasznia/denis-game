@@ -4,7 +4,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "../_lib/db.js";
 import { limitReq } from "../_lib/ratelimit.js";
-import { allow, json, validLogin } from "../_lib/util.js";
+import { allow, json, loginKey, validLogin } from "../_lib/util.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET"])) return;
@@ -17,8 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { ok: true, available: false, reason: "format" });
     const c = db();
     const r = await c.execute({
-      sql: "SELECT 1 FROM users WHERE lower(login) = lower(?) LIMIT 1",
-      args: [login],
+      sql: "SELECT 1 FROM users WHERE login_key = ? OR lower(login) = lower(?) OR (nick <> '' AND lower(nick) = ?) LIMIT 1",
+      args: [loginKey(login), login, loginKey(login)],
     });
     return json(res, 200, { ok: true, available: r.rows.length === 0 });
   } catch (e) {
