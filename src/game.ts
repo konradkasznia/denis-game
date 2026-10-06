@@ -25,6 +25,7 @@ import {
   monetyWord,
 } from "./coins.ts";
 import { isNative } from "./native.ts";
+import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, apiBase, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
@@ -705,6 +706,7 @@ export class Game {
    *  a to jest jedyna informacja, która pozwala zdiagnozować cudze urządzenie,
    *  do którego nie mamy konsoli (patrz problem z Galaxy Tab). */
   private setPrepStep(s: string) {
+    diag(`prep ${s}`);
     const now = performance.now();
     if (this.prepStep && this.prepStageAt) {
       this.prepLog.push(`${this.prepStep} ${Math.round(now - this.prepStageAt)}ms`);
@@ -881,6 +883,7 @@ export class Game {
     setHapticsEnabled(hapticsPref()); // wg przełącznika w ustawieniach (domyślnie włączone)
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
     registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
+    if (diagActive) setInterval(() => diag(`scene=${this.scene} prep=${this.preparing ? this.prepStep : "-"} hit=${this.hitIndex}`), 1000);
     void this.syncSession(); // sprawdź sesję na serwerze
     void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
     void checkForUpdate(APP_VERSION).then((info) => {

@@ -8,6 +8,7 @@
 
 import type { SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
+import { diag } from "./diag.ts";
 
 /** iOS (WebKit 17+): Web Audio domyślnie leci w kategorii „ambient", którą
  *  ucisza przełącznik/tryb wyciszenia — w natywnej apce (WKWebView) dawało to
@@ -982,7 +983,9 @@ export class AudioEngine {
         const res = await fetch(url, { signal: ctrl.signal });
         if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
         arr = await res.arrayBuffer();
+        diag(`track fetched ${url} ${(arr.byteLength / 1e6).toFixed(1)}MB`);
       } catch (e) {
+        diag(`track fetch FAIL ${url} ${(e as Error)?.message}`);
         throw new AudioLoadError("fetch", (e as Error)?.message || String(e));
       } finally {
         clearTimeout(to);
@@ -992,10 +995,13 @@ export class AudioEngine {
     // decodeAudioData „odłącza" (detach) przekazany ArrayBuffer — dajemy kopię,
     // żeby przy błędzie/timeout dekodowania oryginał w trackRaw nadał się do retry
     try {
+      diag(`track decode start`);
       const buf = await this.decode(arr.slice(0));
+      diag(`track decoded ${buf.duration.toFixed(0)}s ${buf.numberOfChannels}ch ${buf.sampleRate}Hz`);
       this.trackBuffers.set(url, buf);
       this.trackRaw.delete(url);
     } catch (e) {
+      diag(`track decode FAIL ${(e as Error)?.message}`);
       throw new AudioLoadError("decode", (e as Error)?.message || String(e));
     }
   }
@@ -1528,12 +1534,16 @@ export class AudioEngine {
     this._running = true;
 
     // 1) prawdziwy plik audio
+    diag(`start buf=${!!(song.audioUrl && this.trackBuffers.has(song.audioUrl))} synthBuf=${!!this.synthBuf} ctx=${ctx.state} sr=${ctx.sampleRate}`);
     if (song.audioUrl && this.trackBuffers.has(song.audioUrl)) {
       this.playBuffer(this.trackBuffers.get(song.audioUrl)!, t0);
       return;
     }
     // 2) STRUMIEŃ z pliku — gra w locie, bez rozpakowywania całości do RAM
-    if (song.audioUrl && this.canStream() && this.playStream(song.audioUrl)) return;
+    if (song.audioUrl && this.canStream() && this.playStream(song.audioUrl)) {
+      diag("start STREAM");
+      return;
+    }
     // 3) pre-renderowany podkład syntezowany — jeden węzeł, jak plik
     if (this.synthBuf && this.synthBufId === song.id) {
       this.playBuffer(this.synthBuf, t0);

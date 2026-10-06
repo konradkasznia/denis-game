@@ -1,6 +1,27 @@
 import UIKit
 import Capacitor
 import AVFoundation
+import WebKit
+import os
+
+/// Diagnostyka: JS woła window.webkit.messageHandlers.diag.postMessage("...")
+/// (src/diag.ts) i trafia to do logu systemowego iPhone'a z prefiksem DENISDIAG.
+/// Bez Maca nie ma Web Inspectora, a log systemowy da się czytać z Windowsa (go-ios).
+class DiagHandler: NSObject, WKScriptMessageHandler {
+    private let log = Logger(subsystem: "pl.impulsywni.denis", category: "diag")
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        let text = String(describing: message.body)
+        log.notice("DENISDIAG \(text, privacy: .public)")
+    }
+}
+
+/// Podpięty w Main.storyboard zamiast gołego CAPBridgeViewController.
+class MainViewController: CAPBridgeViewController {
+    override func capacitorDidLoad() {
+        super.capacitorDidLoad()
+        webView?.configuration.userContentController.add(DiagHandler(), name: "diag")
+    }
+}
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {

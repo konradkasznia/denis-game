@@ -104,12 +104,22 @@ export const HEAD_SHADOWS: TextShadow[] = [
 const imgCache = new Map<string, HTMLImageElement>();
 
 /** Leniwie ładuje obraz z `src` (z cache). Zwraca element (może być jeszcze niegotowy). */
+const imgRetryAt = new Map<string, number>();
+
 export function loadImg(src: string): HTMLImageElement {
   let img = imgCache.get(src);
+  // nieudane wczytanie (np. chwilowy brak sieci) NIE może zostać w cache na
+  // zawsze — wcześniej na sliderze do przeładowania strony wisiała grafika
+  // zapasowa. Ponawiamy co 3 s, żeby offline nie strzelać żądaniem co klatkę.
+  if (img && img.complete && img.naturalWidth === 0 && img.src && performance.now() >= (imgRetryAt.get(src) ?? 0)) {
+    img = undefined;
+  }
   if (!img) {
-    img = new Image();
-    img.src = src;
-    imgCache.set(src, img);
+    const im = new Image();
+    im.onerror = () => imgRetryAt.set(src, performance.now() + 3000);
+    im.src = src;
+    imgCache.set(src, im);
+    img = im;
   }
   return img;
 }

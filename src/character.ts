@@ -17,6 +17,7 @@
 //   Arkusz trzyma tylko unikalne klatki; długość frameMs/holds = długość sequence.
 
 import { clamp } from "./ui.ts";
+import { diag } from "./diag.ts";
 
 interface AnimMeta {
   type?: "sheet" | "frames";
@@ -152,6 +153,7 @@ export class Character {
       const rows = meta.rows ?? Math.ceil(meta.frames / cols);
       const img = new Image();
       img.onload = () => {
+        diag(`sheet ${dir} ${img.width}x${img.height}`);
         entry.fw = img.width / cols;
         entry.fh = img.height / rows;
         entry.ready = true;
