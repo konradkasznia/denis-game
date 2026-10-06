@@ -15,9 +15,13 @@ import { diag } from "./diag.ts";
  *  grę bez dźwięku. „playback" = dźwięk zawsze, jak w każdej grze muzycznej.
  *  Natywnie dubluje to AVAudioSession(.playback) w AppDelegate.swift. */
 function setPlaybackAudioSession() {
+  setAudioSessionType("playback");
+}
+
+function setAudioSessionType(type: "playback" | "ambient") {
   try {
     const as = (navigator as any).audioSession;
-    if (as && as.type !== "playback") as.type = "playback";
+    if (as && as.type !== type) as.type = type;
   } catch {
     /* brak API (Android, starszy iOS) */
   }
@@ -1055,6 +1059,31 @@ export class AudioEngine {
       return;
     }
     if ((ctx.state as string) === "running") void ctx.suspend();
+  }
+
+  /** Apka/karta zeszła w tło. Kategoria „playback" + działający kontekst
+   *  (keep-alive gra ciszę) = iOS pokazuje grę jako odtwarzacz na ekranie
+   *  blokady („localhost" z przyciskiem pauzy). W tle zawieszamy kontekst i
+   *  wracamy do „ambient", który odtwarzaczem się nie staje. */
+  enterBackground() {
+    try {
+      const ms = (navigator as any).mediaSession;
+      if (ms) {
+        ms.metadata = null;
+        ms.playbackState = "none";
+      }
+    } catch {
+      /* ignore */
+    }
+    const ctx = this.ctx;
+    if (ctx && (ctx.state as string) === "running") void ctx.suspend().catch(() => {});
+    setAudioSessionType("ambient");
+  }
+
+  /** Powrót z tła: znów „playback" (dźwięk mimo trybu wyciszenia). Kontekst
+   *  wznawia resumePlayback() (menu) albo GRAJ w menu pauzy (rozgrywka). */
+  enterForeground() {
+    setPlaybackAudioSession();
   }
 
   /** Wznawia po pauzie (wołać z gestu użytkownika). */

@@ -2109,11 +2109,13 @@ export class Game {
       if (!this.paused) this.pauseGame();
       else this.audio.pause(); // już w menu pauzy — dobij suspend
     }
+    this.audio.enterBackground(); // bez odtwarzacza „localhost" na ekranie blokady iOS
   }
 
   /** Apka wróciła na wierzch. NIE wznawiamy utworu automatycznie — jeśli byliśmy
    *  w grze, jesteśmy teraz w menu pauzy i gracz sam klika GRAJ!. */
   onAppForeground() {
+    this.audio.enterForeground();
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
   }
