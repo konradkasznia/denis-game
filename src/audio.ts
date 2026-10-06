@@ -9,6 +9,19 @@
 import type { SongDef } from "./chart.ts";
 import { isNative } from "./native.ts";
 
+/** iOS (WebKit 17+): Web Audio domyślnie leci w kategorii „ambient", którą
+ *  ucisza przełącznik/tryb wyciszenia — w natywnej apce (WKWebView) dawało to
+ *  grę bez dźwięku. „playback" = dźwięk zawsze, jak w każdej grze muzycznej.
+ *  Natywnie dubluje to AVAudioSession(.playback) w AppDelegate.swift. */
+function setPlaybackAudioSession() {
+  try {
+    const as = (navigator as any).audioSession;
+    if (as && as.type !== "playback") as.type = "playback";
+  } catch {
+    /* brak API (Android, starszy iOS) */
+  }
+}
+
 /** Błąd z `loadTrack()` — z etapem, na którym padło. Rozróżnienie ważne dla
  *  wołającego (game.ts): „fetch" nieudany = plik może być gdzie indziej (np.
  *  wersja wysłana z edytora), warto spróbować ponownie pod innym adresem.
@@ -194,6 +207,7 @@ export class AudioEngine {
     // wtedy dźwięk paczkami ~170 ms, a w rundzie Pogrzebówki złapano przerwę
     // 346 ms (= zgubiona paczka, słyszalny zgrzyt). Ciągła muzyka waży więcej niż
     // szybszy winyl pauzy, więc zostaje tryb domyślny.
+    setPlaybackAudioSession();
     this.ctx = new Ctx();
     if (!this.sfxCtx) this.buildSfxCtx(Ctx);
     this.master = this.ctx.createGain();

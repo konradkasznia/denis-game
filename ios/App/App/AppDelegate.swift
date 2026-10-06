@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AVFoundation
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +8,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Gra muzyczna: kategoria .playback, żeby dźwięk z Web Audio (WKWebView)
+        // nie był uciszany przełącznikiem/trybem wyciszenia (domyślnie
+        // soloAmbient → gra bez dźwięku). Patrz też setPlaybackAudioSession() w src/audio.ts.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
+        try? AVAudioSession.sharedInstance().setActive(true)
         return true
     }
 
