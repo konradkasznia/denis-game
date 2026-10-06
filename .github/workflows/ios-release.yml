@@ -26,6 +26,11 @@ name: iOS (release, do TestFlight)
 
 on:
   workflow_dispatch:
+    inputs:
+      dev_shell:
+        description: "Dev-shell: apka ładuje grę na żywo z https://denis-game.vercel.app (szybkie testy bez nowych buildów). NIE do App Store."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,8 +58,12 @@ jobs:
           VITE_API_BASE: https://denis-game.vercel.app
           VITE_ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
 
+      # dev_shell = server.url w capacitor.config.ts (CAP_SERVER_URL): zmiany w
+      # src/ i public/ widać po samym `vercel deploy`, bez nowego buildu iOS
       - name: Capacitor sync
         run: npx cap sync ios
+        env:
+          CAP_SERVER_URL: ${{ inputs.dev_shell && 'https://denis-game.vercel.app' || '' }}
 
       - name: Klucz App Store Connect API z sekretu
         run: |
