@@ -11,7 +11,10 @@ import { platform } from "./native.ts";
 const handler: { postMessage(m: string): void } | undefined =
   typeof window !== "undefined" ? (window as any).webkit?.messageHandlers?.diag : undefined;
 
-export const diagActive = typeof window !== "undefined" && platform === "ios";
+// Domyślnie WYŁĄCZONE (wersja w App Store nie wysyła żadnych logów). Na czas
+// szukania błędów: build z VITE_DIAG=1 (np. `VITE_DIAG=1 npm run build` + deploy).
+const diagEnabled = (import.meta as { env?: Record<string, string> }).env?.VITE_DIAG === "1";
+export const diagActive = diagEnabled && typeof window !== "undefined" && platform === "ios";
 
 const t0 = performance.now();
 const sid = Math.random().toString(36).slice(2, 8);
