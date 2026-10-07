@@ -14,6 +14,16 @@ import { diag } from "./diag.ts";
  *  ucisza przełącznik/tryb wyciszenia — w natywnej apce (WKWebView) dawało to
  *  grę bez dźwięku. „playback" = dźwięk zawsze, jak w każdej grze muzycznej.
  *  Natywnie dubluje to AVAudioSession(.playback) w AppDelegate.swift. */
+/** Czy odpowiedź na pobranie pliku z paczki jest użyteczna. Capacitor iOS
+ *  serwuje pliki mp3 (WebViewAssetHandler, gałąź isMediaExtension) jako
+ *  NIE-HTTP odpowiedź — fetch widzi wtedy `status 0` i `ok === false`, choć
+ *  treść jest kompletna. Odrzucaliśmy więc KAŻDY dźwięk z paczki: cisza w menu,
+ *  przyciskach, pauzie i odliczaniu, a utwór szedł zapasową ścieżką. */
+function assetOk(res: Response): boolean {
+  if (!res.ok) diag(`asset status=${res.status} type=${res.type} ${res.url.slice(-48)}`);
+  return res.ok || (res.status === 0 && res.type !== "opaque" && res.type !== "error");
+}
+
 function setPlaybackAudioSession() {
   setAudioSessionType("playback");
 }
@@ -106,7 +116,7 @@ export class AudioEngine {
     if (this.loopRaw) return;
     try {
       const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
-      if (res.ok) this.loopRaw = await res.arrayBuffer();
+      if (assetOk(res)) this.loopRaw = await res.arrayBuffer();
     } catch {
       /* muzyka tła jest opcjonalna — loadLoopClip() i tak spróbuje sam */
     }
@@ -254,7 +264,7 @@ export class AudioEngine {
         if (this.uiBuffers.has(k)) return;
         try {
           const res = await fetch(`assets/ui/Sounds/${k}.mp3`);
-          if (!res.ok) return;
+          if (!assetOk(res)) return;
           const buf = await this.decode((await res.arrayBuffer()).slice(0));
           this.uiBuffers.set(k, buf);
         } catch {
@@ -315,7 +325,7 @@ export class AudioEngine {
       let raw = this.loopRaw;
       if (!raw) {
         const res = await fetch("assets/ui/Sounds/loopbackground2.mp3");
-        if (res.ok) raw = await res.arrayBuffer();
+        if (assetOk(res)) raw = await res.arrayBuffer();
       }
       if (raw) {
         const buf = await this.decode(raw.slice(0));
@@ -932,7 +942,7 @@ export class AudioEngine {
     const to = setTimeout(() => ctrl.abort(), 30000);
     try {
       const res = await fetch(url, { signal: ctrl.signal });
-      if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
+      if (!assetOk(res)) throw new Error(`audio HTTP ${res.status}`);
       this.trackRaw.set(url, await res.arrayBuffer());
     } finally {
       clearTimeout(to);
@@ -985,7 +995,7 @@ export class AudioEngine {
       const to = setTimeout(() => ctrl.abort(), localAsset ? 8000 : 15000);
       try {
         const res = await fetch(url, { signal: ctrl.signal });
-        if (!res.ok) throw new Error(`audio HTTP ${res.status}`);
+        if (!assetOk(res)) throw new Error(`audio HTTP ${res.status}`);
         arr = await res.arrayBuffer();
         diag(`track fetched ${url} ${(arr.byteLength / 1e6).toFixed(1)}MB`);
       } catch (e) {

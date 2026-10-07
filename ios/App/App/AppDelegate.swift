@@ -1,6 +1,5 @@
 import UIKit
 import Capacitor
-import AVFoundation
 import WebKit
 import os
 
@@ -29,11 +28,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Gra muzyczna: kategoria .playback, żeby dźwięk z Web Audio (WKWebView)
-        // nie był uciszany przełącznikiem/trybem wyciszenia (domyślnie
-        // soloAmbient → gra bez dźwięku). Patrz też setPlaybackAudioSession() w src/audio.ts.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Kategorię audio gry ustawia strona (navigator.audioSession w src/audio.ts):
+        // WebKit gra Web Audio we własnej sesji procesu GPU, więc AVAudioSession
+        // apki nic tu nie zmieniało, a .playback + setActive przy starcie
+        // przerywało muzykę innych apek (np. Spotify) już przy otwarciu gry.
         return true
     }
 
