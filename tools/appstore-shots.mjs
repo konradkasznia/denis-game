@@ -9,6 +9,7 @@ const URL = `http://127.0.0.1:${PORT}/`;
 
 const DEVICES = [
   { dir: "iphone-69", viewport: { width: 440, height: 956 }, dpr: 3 }, // 1320x2868
+  { dir: "iphone-63", viewport: { width: 402, height: 874 }, dpr: 3 }, // 1206x2622
   { dir: "ipad-13", viewport: { width: 1032, height: 1376 }, dpr: 2 }, // 2064x2752
 ];
 
