@@ -21,6 +21,9 @@ name: iOS (release, do TestFlight)
 # (widoczna wersja, np. 0.9.1) ustawiona ręcznie w project.pbxproj — synchronizuj
 # z APP_VERSION w src/game.ts / versionName w android/app/build.gradle przy
 # każdym realnym wydaniu (patrz istniejący komentarz w api/app-version.ts).
+# MARKETING_VERSION występuje w project.pbxproj 4 razy: App + rozszerzenie
+# OneSignalNotificationServiceExtension (obrazki w push) — muszą być RÓWNE,
+# inaczej App Store odrzuca upload. Zmieniaj wszystkie naraz.
 #
 # Android: ten plik niczego tam nie zmienia — osobna platforma, osobny pipeline.
 
