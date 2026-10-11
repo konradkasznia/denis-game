@@ -5580,7 +5580,7 @@ export class Game {
     }
     // wyśrodkowane, tuż nad tekstem (na tym ekranie celowo nie w rogu — patrz REW_COINS)
     this.drawCoinPill(ctx, REW_COINS, coins());
-    wrapText("Obserwuj nasze social media, aby nie przegapić żadnego konkursu!", 35).forEach((ln, i) =>
+    wrapText("Obserwuj Denisa na TikToku i bądź na bieżąco z nowościami!", 35).forEach((ln, i) =>
       text(ctx, ln, VW / 2, 896 + i * 40, {
         size: 28,
         weight: "900",
