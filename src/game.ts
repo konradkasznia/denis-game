@@ -25,6 +25,7 @@ import {
   monetyWord,
 } from "./coins.ts";
 import { isNative } from "./native.ts";
+import { preloadSliderAnim, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
@@ -73,6 +74,7 @@ import {
   roundRect,
   shade,
   text,
+  trimBounds,
   trimmedImage,
   wrapText,
 } from "./ui.ts";
@@ -2476,6 +2478,11 @@ export class Game {
   /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
   private preloadedAudioFor = "";
   private preloadHitAudio() {
+    // animacje postaci: bieżący utwór + sąsiedzi (gotowe, zanim gracz przesunie)
+    for (const d of [0, 1, -1]) {
+      const m = SONGS[this.hitIndex + d];
+      if (m) preloadSliderAnim(m.id);
+    }
     const meta = SONGS[this.hitIndex];
     if (!meta || !meta.playable || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
     this.preloadedAudioFor = meta.id;
@@ -5530,6 +5537,20 @@ export class Game {
     const dx = VW / 2 - w / 2;
     const dy = box.y + box.h - h;
     this.charRect = { x: dx, y: dy, w, h };
+    // animowana postać (Lottie) w miejscu statycznej grafiki — tylko dla
+    // odblokowanego poziomu; zablokowany zostaje szarym statycznym PNG
+    const anim = unlocked && src === named ? sliderAnimFrame(meta.id) : null;
+    if (anim) {
+      // animacja ma rozmiar ORYGINAŁU (z marginesami), a statyczny obrazek jest
+      // przycięty — nakładamy ją tak, żeby postać trafiła dokładnie w to samo
+      // miejsce; elementy wychodzące poza obrys (dym, ręka) mogą wystawać
+      const tb = trimBounds(src);
+      const k = w / tb.w;
+      const ax = anim.width / src.naturalWidth;
+      const ay = anim.height / src.naturalHeight;
+      ctx.drawImage(anim, dx - tb.x * k, dy - tb.y * k, (anim.width / ax) * k, (anim.height / ay) * k);
+      return;
+    }
     ctx.drawImage(unlocked ? pic : desaturated(pic), dx, dy, w, h);
   }
 

@@ -3,6 +3,8 @@ import { Game } from "./game.ts";
 import { initInput } from "./input.ts";
 import { hideSplash, initNativeShell } from "./nativeShell.ts";
 import { initSplash, splashGameReady } from "./splash.ts";
+import sliderLottie from "lottie-web/build/player/lottie_light_canvas";
+import { registerSliderLottie } from "./sliderAnim.ts";
 import { VH, VW, viewport } from "./viewport.ts";
 
 initSplash();
@@ -92,6 +94,8 @@ function resize() {
   ctx.imageSmoothingQuality = "medium";
 }
 
+// animowane postacie na sliderze (lottie wstrzykiwane tu, nie w game.ts — patrz sliderAnim.ts)
+registerSliderLottie(sliderLottie);
 const game = new Game(canvas);
 initNativeShell(game);
 

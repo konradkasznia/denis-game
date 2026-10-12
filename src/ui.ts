@@ -133,6 +133,16 @@ const dimsOf = (img: ImgSrc): [number, number] =>
   "naturalWidth" in img ? [img.naturalWidth, img.naturalHeight] : [img.width, img.height];
 
 const trimCache = new Map<HTMLImageElement, HTMLCanvasElement>();
+/** Gdzie w oryginale leży przycięty prostokąt (px oryginału) — patrz trimBounds(). */
+const trimRects = new Map<HTMLImageElement, { x: number; y: number; w: number; h: number }>();
+
+/** Prostokąt treści (bez przezroczystych marginesów) w pikselach oryginału.
+ *  Pozwala nałożyć animację o rozmiarze oryginału DOKŁADNIE tam, gdzie jest
+ *  przycięta grafika statyczna. */
+export function trimBounds(img: HTMLImageElement): { x: number; y: number; w: number; h: number } {
+  trimmedImage(img);
+  return trimRects.get(img) ?? { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+}
 
 /** Przycina przezroczyste marginesy obrazu do prostokąta obejmującego alfę.
  *  Dzięki temu grafika postaci realnie wypełnia przydzielone miejsce niezależnie
@@ -178,6 +188,7 @@ export function trimmedImage(img: HTMLImageElement): HTMLCanvasElement {
   c.height = ch;
   c.getContext("2d")!.drawImage(src, x0, y0, cw, ch, 0, 0, cw, ch);
   trimCache.set(img, c);
+  trimRects.set(img, { x: x0, y: y0, w: cw, h: ch });
   return c;
 }
 
