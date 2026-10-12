@@ -884,7 +884,14 @@ export class Game {
     setHapticsEnabled(hapticsPref()); // wg przełącznika w ustawieniach (domyślnie włączone)
     this.audio.setSfxEnabled(true); // dźwięk zawsze włączony — gra bazuje na muzyce
     registerUiAudio(this.audio); // dźwięki UI przez ten sam AudioContext (iOS)
-    if (diagActive) setInterval(() => diag(`scene=${this.scene} prep=${this.preparing ? this.prepStep : "-"} hit=${this.hitIndex}`), 1000);
+    if (diagActive)
+      setInterval(
+        () =>
+          diag(
+            `scene=${this.scene} prep=${this.preparing ? this.prepStep : "-"} paused=${this.paused} resumeAt=${this.resumeAt ? Math.round(this.resumeAt - performance.now()) : 0} t=${this.songTime.toFixed(2)} rolling=${this.rolling} [${this.audio.diag()}]`,
+          ),
+        1000,
+      );
     void this.syncSession(); // sprawdź sesję na serwerze
     void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
     void checkForUpdate(APP_VERSION).then((info) => {
@@ -1014,6 +1021,7 @@ export class Game {
       // wyjdziemy z pauzy, żeby pierwsza klatka nie odczytała czasu zawyżonego
       // o to, ile AudioContext „nabił" podczas odliczania (nutki przyspieszały).
       this.songTime = this.audio.reanchorResume();
+      diag(`resume: koniec odliczania t=${this.songTime.toFixed(2)}`);
       this.paused = false;
       this.resumeAt = 0;
       // odbudowa źródła podkładu + keep-alive — iOS po powrocie z tła potrafi je ubić
@@ -2114,6 +2122,7 @@ export class Game {
 
   /** Apka zeszła w tło — wstrzymaj rozgrywkę i dźwięk (nic się nie „przewija"). */
   onAppBackground() {
+    diag(`onAppBackground scene=${this.scene} paused=${this.paused}`);
     // muzyka tła menu nie ma grać, gdy apka jest w tle; wróci sama po powrocie
     // (pętla update() zobaczy, że `loopOn` jest false, a scena to nie „play")
     this.audio.stopLoop(0.1);
@@ -2129,6 +2138,7 @@ export class Game {
   /** Apka wróciła na wierzch. NIE wznawiamy utworu automatycznie — jeśli byliśmy
    *  w grze, jesteśmy teraz w menu pauzy i gracz sam klika GRAJ!. */
   onAppForeground() {
+    diag(`onAppForeground scene=${this.scene} paused=${this.paused}`);
     this.audio.enterForeground();
     this.audioKickPending = true;
     if (this.scene !== "play") void this.audio.resumePlayback();
@@ -3032,6 +3042,7 @@ export class Game {
   }
 
   private pauseGame() {
+    diag(`pauseGame t=${this.songTime.toFixed(2)}`);
     this.paused = true;
     this.resumeAt = 0;
     this.resumeCheckAt = 0;
@@ -3049,6 +3060,7 @@ export class Game {
   private handlePauseTap(x: number, y: number) {
     y -= this.pauseShift(); // menu pauzy jest wyśrodkowane w pionie
     if (x < 0 || inRect(PZ_RESUME, x, y)) {
+      diag("pause: GRAJ (wznów)");
       this.audio.ensureMainCtx(); // Android: kontekst muzyki był zniszczony przy pauzie
       this.audio.countdownCue(); // „3-2-1 + winyl" jak na starcie rundy
       // odliczanie trwa DOKŁADNIE tyle co klip 321.mp3 → muzyka wraca gdy winyl

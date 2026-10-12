@@ -11,6 +11,7 @@ import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import type { Game } from "./game.ts";
 import { setLoopActive } from "./main.ts";
+import { diag } from "./diag.ts";
 import { isNative } from "./native.ts";
 import { showSplashAgain } from "./splash.ts";
 
@@ -42,6 +43,7 @@ export function initNativeShell(game: Game) {
   });
 
   void App.addListener("appStateChange", ({ isActive }) => {
+    diag(`appStateChange isActive=${isActive}`);
     if (isActive) {
       setLoopActive(true);
       game.onAppForeground();

@@ -3,18 +3,29 @@
 //    prefiks DENISDIAG), gdy handler `diag` jest dostępny;
 //  - paczkami co sekundę na serwer (`/api/diag` → logi Vercela), bo log systemowy
 //    bywa niedostępny, a bez Maca nie ma Web Inspectora.
-// Na webie i Androidzie to no-op.
+// Domyślnie WYŁĄCZONE. Włączenie: build z VITE_DIAG=1 ALBO adres gry z `?diag=1`
+// (np. https://denis-game.vercel.app/?diag=1 w Safari na iPhonie — bez buildu;
+// flaga trzyma się do końca sesji karty, `?diag=0` wyłącza).
 
 import { apiBase } from "./net.ts";
-import { platform } from "./native.ts";
 
 const handler: { postMessage(m: string): void } | undefined =
   typeof window !== "undefined" ? (window as any).webkit?.messageHandlers?.diag : undefined;
 
-// Domyślnie WYŁĄCZONE (wersja w App Store nie wysyła żadnych logów). Na czas
-// szukania błędów: build z VITE_DIAG=1 (np. `VITE_DIAG=1 npm run build` + deploy).
-const diagEnabled = (import.meta as { env?: Record<string, string> }).env?.VITE_DIAG === "1";
-export const diagActive = diagEnabled && typeof window !== "undefined" && platform === "ios";
+function urlFlag(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get("diag");
+    if (q === "1") sessionStorage.setItem("denis.diag", "1");
+    if (q === "0") sessionStorage.removeItem("denis.diag");
+    return sessionStorage.getItem("denis.diag") === "1";
+  } catch {
+    return false;
+  }
+}
+const diagEnabled =
+  typeof window !== "undefined" &&
+  ((import.meta as { env?: Record<string, string> }).env?.VITE_DIAG === "1" || urlFlag());
+export const diagActive = diagEnabled;
 
 const t0 = performance.now();
 const sid = Math.random().toString(36).slice(2, 8);
@@ -91,9 +102,29 @@ function hookAllocations() {
     let ctxCount = 0;
     const Wrapped = function (...a: any[]) {
       ctxCount++;
-      diag(`new AudioContext #${ctxCount}`);
-      return new origCtor(...a);
+      const n = ctxCount;
+      const c = new origCtor(...a);
+      diag(`new AudioContext #${n} state=${c.state}`);
+      try {
+        c.addEventListener("statechange", () => diag(`ctx#${n} statechange -> ${c.state} t=${c.currentTime.toFixed(2)}`));
+      } catch {
+        /* ignore */
+      }
+      return c;
     } as any;
+    for (const m of ["resume", "suspend"] as const) {
+      const orig = origCtor.prototype[m];
+      origCtor.prototype[m] = function (this: AudioContext, ...a: any[]) {
+        const t = performance.now();
+        diag(`ctx.${m}() from state=${this.state}`);
+        const pr = orig.apply(this, a);
+        Promise.resolve(pr).then(
+          () => diag(`ctx.${m}() OK ${Math.round(performance.now() - t)}ms state=${this.state}`),
+          (e: unknown) => diag(`ctx.${m}() FAIL ${String(e).slice(0, 80)}`),
+        );
+        return pr;
+      };
+    }
     Wrapped.prototype = origCtor.prototype;
     if ((window as any).AudioContext) (window as any).AudioContext = Wrapped;
     else (window as any).webkitAudioContext = Wrapped;
@@ -132,4 +163,8 @@ if (diagActive) {
   window.addEventListener("unhandledrejection", (e) => diag(`REJ ${String((e as PromiseRejectionEvent).reason).slice(0, 200)}`));
   diag(`boot ${location.origin} dpr=${devicePixelRatio} ${innerWidth}x${innerHeight} handler=${!!handler}`);
   addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => diag(`visibility=${document.visibilityState}`));
+  addEventListener("blur", () => diag("window blur"));
+  addEventListener("focus", () => diag("window focus"));
+  addEventListener("pointercancel", (e) => diag(`pointercancel id=${(e as PointerEvent).pointerId}`), true);
 }
