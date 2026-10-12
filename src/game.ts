@@ -25,7 +25,7 @@ import {
   monetyWord,
 } from "./coins.ts";
 import { isNative } from "./native.ts";
-import { preloadSliderAnim, sliderAnimFrame } from "./sliderAnim.ts";
+import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
@@ -74,7 +74,6 @@ import {
   roundRect,
   shade,
   text,
-  trimBounds,
   trimmedImage,
   wrapText,
 } from "./ui.ts";
@@ -898,8 +897,9 @@ export class Game {
       "stage-bg.jpg", "wybierz-hit.png", "gear.png",
       "star-full.png", "star-half.png", "star-empty.png",
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
-      "reward-denis.png", "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
-      ...SONGS.map((s) => `select-${s.id}.png`),
+      "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
+      // postacie z animacją Lottie (sliderAnim.ts) nie mają już statycznego PNG
+      ...SONGS.filter((s) => !hasSliderAnim(s.id)).map((s) => `select-${s.id}.png`),
       ...[...SLIDER_BG_SONGS].map((id) => `slider-bg/${id}.jpg`),
       "Warning/BOMBA.png", "Warning/FLASZKA.png", "Warning/LATARKA.png",
     ]) {
@@ -2478,11 +2478,6 @@ export class Game {
   /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
   private preloadedAudioFor = "";
   private preloadHitAudio() {
-    // animacje postaci: bieżący utwór + sąsiedzi (gotowe, zanim gracz przesunie)
-    for (const d of [0, 1, -1]) {
-      const m = SONGS[this.hitIndex + d];
-      if (m) preloadSliderAnim(m.id);
-    }
     const meta = SONGS[this.hitIndex];
     if (!meta || !meta.playable || !levelUnlocked(this.hitIndex) || this.preloadedAudioFor === meta.id) return;
     this.preloadedAudioFor = meta.id;
@@ -5506,6 +5501,33 @@ export class Game {
     const box: Rect = { x: 0, y: top, w: VW, h: Math.max(320, bottom - top) };
     this.charRect = box;
 
+    // wypełnij WYSOKOŚĆ pasa; szerokość może lekko wyjść poza ekran —
+    // ograniczamy do ~1,12×VW, żeby nie ucinać sylwetki
+    const fit = (ar: number) => {
+      let h = box.h;
+      let w = h * ar;
+      if (w > VW * 1.12) {
+        w = VW * 1.12;
+        h = w / ar;
+      }
+      return { x: VW / 2 - w / 2, y: box.y + box.h - h, w, h };
+    };
+
+    // animowana postać (Lottie) — jedyna grafika tych utworów (statycznych PNG
+    // już nie ma); zablokowany poziom = ta sama animacja w odcieniach szarości.
+    // Obrys z pierwszej klatki dopasowuje postać tak jak dawny przycięty PNG;
+    // elementy wychodzące poza obrys (dym, ręka) mogą wystawać.
+    if (hasSliderAnim(meta.id)) {
+      const frame = sliderAnimFrame(meta.id, !unlocked);
+      const tb = sliderAnimBounds(meta.id);
+      if (!frame || !tb) return; // ułamek sekundy przy starcie, zanim się wczyta
+      const r = fit(tb.w / tb.h);
+      this.charRect = r;
+      const k = r.w / tb.w;
+      ctx.drawImage(frame, r.x - tb.x * k, r.y - tb.y * k, frame.width * k, frame.height * k);
+      return;
+    }
+
     let src: HTMLImageElement | null = null;
     const named = this.uiImg(`select-${meta.id}.png`);
     if (imgReady(named)) src = named;
@@ -5525,33 +5547,9 @@ export class Game {
     // przytnij przezroczyste marginesy PNG — inaczej „puste" zapasy grafiki
     // zostawiają dziurę mimo dopasowania do wysokości
     const pic = trimmedImage(src);
-    const ar = pic.width / pic.height;
-    // wypełnij WYSOKOŚĆ pasa; szerokość może lekko wyjść poza ekran —
-    // ograniczamy do ~1,12×VW, żeby nie ucinać sylwetki
-    let h = box.h;
-    let w = h * ar;
-    if (w > VW * 1.12) {
-      w = VW * 1.12;
-      h = w / ar;
-    }
-    const dx = VW / 2 - w / 2;
-    const dy = box.y + box.h - h;
-    this.charRect = { x: dx, y: dy, w, h };
-    // animowana postać (Lottie) w miejscu statycznej grafiki — tylko dla
-    // odblokowanego poziomu; zablokowany zostaje szarym statycznym PNG
-    const anim = unlocked && src === named ? sliderAnimFrame(meta.id) : null;
-    if (anim) {
-      // animacja ma rozmiar ORYGINAŁU (z marginesami), a statyczny obrazek jest
-      // przycięty — nakładamy ją tak, żeby postać trafiła dokładnie w to samo
-      // miejsce; elementy wychodzące poza obrys (dym, ręka) mogą wystawać
-      const tb = trimBounds(src);
-      const k = w / tb.w;
-      const ax = anim.width / src.naturalWidth;
-      const ay = anim.height / src.naturalHeight;
-      ctx.drawImage(anim, dx - tb.x * k, dy - tb.y * k, (anim.width / ax) * k, (anim.height / ay) * k);
-      return;
-    }
-    ctx.drawImage(unlocked ? pic : desaturated(pic), dx, dy, w, h);
+    const r = fit(pic.width / pic.height);
+    this.charRect = r;
+    ctx.drawImage(unlocked ? pic : desaturated(pic), r.x, r.y, r.w, r.h);
   }
 
   /** Rysuje ukośną pieczątkę PNG wyśrodkowaną na postaci (WKRÓTCE / zablokowane). */
@@ -5593,10 +5591,11 @@ export class Game {
       shadows: HEAD_SHADOWS,
     });
 
-    const rd = this.uiImg("reward-denis.png");
-    if (imgReady(rd)) {
+    // animowany Denis z prezentem (Lottie; dawny reward-denis.png, ten sam kadr)
+    const rd = sliderAnimFrame("prezent");
+    if (rd) {
       const w = 380;
-      const h = (rd.naturalHeight / rd.naturalWidth) * w;
+      const h = (rd.height / rd.width) * w;
       ctx.drawImage(rd, VW / 2 - w / 2, 220, w, h);
     }
     // wyśrodkowane, tuż nad tekstem (na tym ekranie celowo nie w rogu — patrz REW_COINS)
