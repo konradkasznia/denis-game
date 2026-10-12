@@ -50,6 +50,15 @@ export function initInput(canvas: HTMLCanvasElement, h: InputHandlers) {
     { passive: false },
   );
 
+  // iOS/Android: samo preventDefault na pointerdown NIE blokuje gestu
+  // długiego przytrzymania (zaznaczenie, menu kontekstowe, podgląd, lupa).
+  // Blokujemy go na poziomie touchstart — zdarzenia pointer nadal przychodzą,
+  // a system nie przejmuje dotyku (bez pointercancel w trakcie trzymanej nuty).
+  canvas.addEventListener("touchstart", (ev) => ev.preventDefault(), { passive: false });
+  for (const type of ["contextmenu", "selectstart", "dragstart"] as const) {
+    canvas.addEventListener(type, (ev) => ev.preventDefault());
+  }
+
   canvas.addEventListener("pointermove", (ev) => {
     if (!swipe || swipe.id !== ev.pointerId) return;
     const p = toGame(ev.clientX, ev.clientY, canvas);
