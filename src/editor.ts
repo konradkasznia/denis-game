@@ -5,7 +5,13 @@
 // (z podglądem animacji na bieżąco) i eksportujesz `<id>.json` w formacie,
 // którego oczekuje gra (`public/charts/<id>.json`).
 
+import lottie from "lottie-web/build/player/lottie_light_canvas";
 import { Character } from "./character.ts";
+import { registerLottie } from "./lottieLib.ts";
+
+// ujęcia postaci mogą być animacjami Lottie (character.ts) — podgląd w edytorze
+// musi mieć bibliotekę tak samo jak gra (main.ts)
+registerLottie(lottie);
 
 const LANES = 4;
 const WAVE = 46; // 1. kolumna: fala dźwiękowa — klik = przewiń utwór do tego miejsca

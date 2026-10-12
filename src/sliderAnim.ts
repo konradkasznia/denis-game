@@ -16,20 +16,9 @@
 // z gray=true). Szarość robimy trybami mieszania canvasu ("saturation"), a nie
 // ctx.filter, bo filter na canvasie działa w Safari dopiero od iOS 18.
 //
-// Biblioteka zbundlowana STATYCZNIE (jak w splash.ts — dynamiczny import()
-// potrafił po cichu paść w WebView APK), ale importuje ją main.ts i przekazuje
-// przez registerSliderLottie(): game.ts (testowany w Node, bez DOM) nie ciągnie
-// wtedy lottie.
+// Biblioteka lottie: wspólny rejestr w lottieLib.ts (rejestruje main.ts).
 
-import type lottieType from "lottie-web/build/player/lottie_light_canvas";
-
-type Lottie = typeof lottieType;
-let lottie: Lottie | null = null;
-
-/** Woła main.ts ze statycznie zaimportowaną biblioteką. */
-export function registerSliderLottie(lib: Lottie): void {
-  lottie = lib;
-}
+import { getLottie, loadLottieCanvas, type LottieAnim } from "./lottieLib.ts";
 
 // "prezent" = Denis z prezentem na ekranie NAGRODY
 const ANIMATED = new Set(["panna-mloda", "ksiaze-z-bajki", "pogrzebowka", "prezent"]);
@@ -39,7 +28,6 @@ export function hasSliderAnim(id: string): boolean {
   return ANIMATED.has(id);
 }
 
-type AnimItem = ReturnType<Lottie["loadAnimation"]>;
 type Rect = { x: number; y: number; w: number; h: number };
 
 interface Entry {
@@ -47,7 +35,7 @@ interface Entry {
   canvas: HTMLCanvasElement;
   gray: HTMLCanvasElement | null;
   grayFrame: number;
-  anim?: AnimItem;
+  anim?: LottieAnim;
   fr: number;
   frames: number;
   lastFrame: number;
@@ -84,68 +72,32 @@ function alphaBounds(c: HTMLCanvasElement): Rect {
 }
 
 function load(id: string): Entry {
-  const canvas = document.createElement("canvas");
-  const e: Entry = { state: "loading", canvas, gray: null, grayFrame: -1, fr: 30, frames: 1, lastFrame: -1, bounds: null };
+  const e: Entry = {
+    state: "loading",
+    canvas: document.createElement("canvas"),
+    gray: null,
+    grayFrame: -1,
+    fr: 30,
+    frames: 1,
+    lastFrame: -1,
+    bounds: null,
+  };
   entries.set(id, e);
-  void (async () => {
-    try {
-      const res = await fetch(`assets/ui/slider-anim/${id}.json`);
-      // status 0 = odpowiedź z paczki apki bez nagłówków HTTP (patrz audio.ts assetOk)
-      if (!res.ok && res.status !== 0) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      canvas.width = Math.max(1, Math.round(data.w));
-      canvas.height = Math.max(1, Math.round(data.h));
-      e.fr = Number(data.fr) || 30;
-      e.frames = Math.max(1, Math.round((Number(data.op) || 1) - (Number(data.ip) || 0)));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("brak kontekstu 2d");
-      if (!lottie) throw new Error("lottie niezarejestrowane");
-      const anim = lottie.loadAnimation({
-        renderer: "canvas",
-        loop: true,
-        autoplay: false,
-        animationData: data,
-        rendererSettings: { context: ctx, clearCanvas: true, preserveAspectRatio: "xMidYMid meet" },
-      } as Parameters<Lottie["loadAnimation"]>[0]);
+  loadLottieCanvas(`assets/ui/slider-anim/${id}.json`).then(
+    ({ anim, canvas, fr, frames }) => {
       e.anim = anim;
-      // obrazki osadzone w base64 dekodują się asynchronicznie — zanim się
-      // wczytają, klatka byłaby pusta (to ułamek sekundy przy starcie gry)
-      let imagesOk = false;
-      let domOk = false;
-      const markReady = () => {
-        if (!(imagesOk && domOk) || e.state !== "loading") return;
-        try {
-          anim.goToAndStop(0, true);
-          e.lastFrame = 0;
-          e.bounds = alphaBounds(canvas); // obrys postaci z pierwszej klatki
-        } catch {
-          e.bounds = { x: 0, y: 0, w: canvas.width, h: canvas.height };
-        }
-        e.state = "ready";
-      };
-      anim.addEventListener("loaded_images", () => {
-        imagesOk = true;
-        markReady();
-      });
-      anim.addEventListener("DOMLoaded", () => {
-        domOk = true;
-        markReady();
-      });
-      anim.addEventListener("data_failed", () => {
-        e.state = "failed";
-      });
-      // bezpiecznik: część wersji lottie nie emituje loaded_images
-      setTimeout(() => {
-        if (e.state === "loading" && domOk) {
-          imagesOk = true;
-          markReady();
-        }
-      }, 4000);
-    } catch (err) {
+      e.canvas = canvas;
+      e.fr = fr;
+      e.frames = frames;
+      e.lastFrame = 0;
+      e.bounds = alphaBounds(canvas); // obrys postaci z pierwszej klatki
+      e.state = "ready";
+    },
+    (err) => {
       console.warn(`[sliderAnim] ${id}:`, err);
       e.state = "failed";
-    }
-  })();
+    },
+  );
   return e;
 }
 
@@ -181,7 +133,7 @@ function grayOf(e: Entry): HTMLCanvasElement {
  *  gdy jeszcze się wczytuje. `gray` = wersja szara (zablokowany poziom).
  *  Bezpieczne do wołania co klatkę. */
 export function sliderAnimFrame(id: string, gray = false): HTMLCanvasElement | null {
-  if (!lottie || !ANIMATED.has(id)) return null;
+  if (!getLottie() || !ANIMATED.has(id)) return null;
   const e = entries.get(id) ?? load(id);
   if (e.state !== "ready" || !e.anim) return null;
   const frame = Math.floor((performance.now() / 1000) * e.fr) % e.frames;
@@ -208,6 +160,6 @@ export function sliderAnimBounds(id: string): Rect | null {
 /** Wczytuje wszystkie animacje — woła main.ts przy starcie gry, żeby były
  *  gotowe, zanim gracz dojdzie do slidera / nagród. */
 export function initSliderAnims(): void {
-  if (!lottie) return;
+  if (!getLottie()) return;
   for (const id of ANIMATED) if (!entries.has(id)) load(id);
 }

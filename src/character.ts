@@ -18,9 +18,18 @@
 
 import { clamp } from "./ui.ts";
 import { diag } from "./diag.ts";
+import { loadLottieCanvas, type LottieAnim } from "./lottieLib.ts";
 
 interface AnimMeta {
-  type?: "sheet" | "frames";
+  /** "lottie" = animacja Lottie (src = plik .json z osadzonymi obrazkami,
+   *  z narzędzia lottie-jezdziec). Kadr animacji to fragment dawnej klatki
+   *  arkusza: refW×refH = rozmiar klatki, do której odnosi się wysokość postaci
+   *  w grze, offX/offY = gdzie w tej klatce leży lewy górny róg animacji. */
+  type?: "sheet" | "frames" | "lottie";
+  refW?: number;
+  refH?: number;
+  offX?: number;
+  offY?: number;
   src: string;
   frames: number;
   cols?: number;
@@ -38,6 +47,7 @@ interface AnimMeta {
 
 interface LoadedAnim {
   meta: AnimMeta;
+  lottie?: { anim: LottieAnim; canvas: HTMLCanvasElement; fr: number; frames: number; last: number };
   sheet?: HTMLImageElement;
   frameImgs?: HTMLImageElement[];
   fw: number;
@@ -59,6 +69,7 @@ const CROSSFADE = 0.4;
 /** Zamienia frameMs / holds z anim.json na skumulowane końce kroków w ms. */
 function buildTiming(meta: AnimMeta): { ends: number[]; total: number } | null {
   const steps = meta.sequence?.length ?? meta.frames;
+  if (meta.type === "lottie" || !steps) return null; // Lottie ma własny zegar klatek
   let ms: number[] | null = null;
   if (meta.frameMs?.length === steps) {
     ms = meta.frameMs.slice();
@@ -78,12 +89,16 @@ function buildTiming(meta: AnimMeta): { ends: number[]; total: number } | null {
 
 export class Character {
   private anims = new Map<string, LoadedAnim>();
+  /** foldery w trakcie wczytywania anim.json — bez tego każde wywołanie load()
+   *  przed odpowiedzią startowało kolejne wczytanie (przy Lottie: osobna
+   *  animacja w pamięci za każdym razem) */
+  private pending = new Set<string>();
   private segments: CharSegment[] = [];
   private single: HTMLImageElement | null = null;
   private singleReady = false;
 
   reset() {
-    this.anims.clear();
+    for (const dir of [...this.anims.keys()]) this.dropAnim(dir);
     this.segments = [];
     this.single = null;
     this.singleReady = false;
@@ -102,10 +117,11 @@ export class Character {
       this.segments = [...opts.characters].sort((a, b) => a.at - b.at);
       const wanted = new Set(this.segments.map((s) => s.sprite));
       // eksmituj arkusze innych utworów (pamięć), zachowaj potrzebne
-      for (const dir of [...this.anims.keys()]) if (!wanted.has(dir)) this.anims.delete(dir);
-      for (const s of this.segments) if (!this.anims.has(s.sprite)) void this.loadAnim(s.sprite);
+      for (const dir of [...this.anims.keys()]) if (!wanted.has(dir)) this.dropAnim(dir);
+      for (const s of this.segments)
+        if (!this.anims.has(s.sprite) && !this.pending.has(s.sprite)) void this.loadAnim(s.sprite);
     } else if (opts.character) {
-      this.anims.clear();
+      for (const dir of [...this.anims.keys()]) this.dropAnim(dir);
       const img = new Image();
       img.onload = () => {
         this.singleReady = true;
@@ -119,16 +135,44 @@ export class Character {
     return this.singleReady || [...this.anims.values()].some((a) => a.ready);
   }
 
+  /** Usuwa ujęcie z pamięci (Lottie: także instancję animacji i jej obrazki). */
+  private dropAnim(dir: string) {
+    try {
+      this.anims.get(dir)?.lottie?.anim.destroy();
+    } catch {
+      /* ignore */
+    }
+    this.anims.delete(dir);
+  }
+
   private async loadAnim(dir: string) {
     let meta: AnimMeta;
+    this.pending.add(dir);
     try {
       meta = (await (await fetch(`${dir}/anim.json`)).json()) as AnimMeta;
-      if (!meta || !meta.src || !meta.frames) return;
+      if (!meta || !meta.src || (meta.type !== "lottie" && !meta.frames)) return;
     } catch {
       return;
+    } finally {
+      this.pending.delete(dir);
     }
     const entry: LoadedAnim = { meta, fw: 0, fh: 0, ready: false, timing: buildTiming(meta) };
     this.anims.set(dir, entry);
+
+    if (meta.type === "lottie") {
+      // ten sam zegar co arkusze (czas utworu) — animacja staje w pauzie
+      loadLottieCanvas(`${dir}/${meta.src}`).then(
+        (l) => {
+          entry.lottie = { ...l, last: 0 };
+          entry.fw = meta.refW ?? l.canvas.width;
+          entry.fh = meta.refH ?? l.canvas.height;
+          entry.ready = true;
+          diag(`lottie ${dir} ${l.canvas.width}x${l.canvas.height}`);
+        },
+        (err) => console.warn(`[character] lottie ${dir}:`, err),
+      );
+      return;
+    }
 
     if ((meta.type ?? "sheet") === "frames") {
       const pad = meta.pad ?? 0;
@@ -220,6 +264,32 @@ export class Character {
     alpha: number,
   ): boolean {
     if (!a || !a.ready) return false;
+    if (a.lottie) {
+      const L = a.lottie;
+      const fr = Math.floor(Math.max(0, t) * L.fr) % L.frames;
+      if (fr !== L.last) {
+        L.last = fr;
+        try {
+          L.anim.goToAndStop(fr, true);
+        } catch {
+          /* klatka z poprzedniego razu zostaje */
+        }
+      }
+      // skala jak dla klatki arkusza (refW×refH ↔ targetH), kadr animacji
+      // wklejony w swoje miejsce tej klatki (offX/offY)
+      const k = targetH / a.fh;
+      ctx.save();
+      ctx.globalAlpha = clamp(alpha, 0, 1);
+      ctx.drawImage(
+        L.canvas,
+        x - (a.fw * k) / 2 + (a.meta.offX ?? 0) * k,
+        y - targetH + (a.meta.offY ?? 0) * k,
+        L.canvas.width * k,
+        L.canvas.height * k,
+      );
+      ctx.restore();
+      return true;
+    }
     const seq = a.meta.sequence;
     const steps = seq?.length ?? a.meta.frames;
     let step: number;

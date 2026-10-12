@@ -17,7 +17,7 @@ const CHAR_DIR = join(DIST, "assets", "char");
 const SOUNDS_DIR = join(DIST, "assets", "ui", "Sounds");
 
 // w dist/assets/char zostawiamy wyłącznie to, czego używa silnik w runtime
-const CHAR_KEEP = new Set(["dance.png", "anim.json"]);
+const CHAR_KEEP = new Set(["dance.png", "anim.json", "lottie.json"]);
 
 // pliki robocze do usunięcia w dowolnym miejscu pod dist/assets
 const JUNK_RE =
