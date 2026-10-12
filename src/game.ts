@@ -2121,6 +2121,14 @@ export class Game {
   }
 
   /** Apka zeszła w tło — wstrzymaj rozgrywkę i dźwięk (nic się nie „przewija"). */
+  /** Apka nieaktywna, ale widoczna (Centrum sterowania, włączanie nagrywania
+   *  ekranu, baner połączenia). Tylko zwykła pauza rozgrywki — bez ruszania
+   *  silnika dźwięku i sesji audio (patrz nativeShell.ts). */
+  onAppInactive() {
+    diag(`onAppInactive scene=${this.scene} paused=${this.paused}`);
+    if (this.scene === "play" && !this.paused && !this.awaitingStart) this.pauseGame();
+  }
+
   onAppBackground() {
     diag(`onAppBackground scene=${this.scene} paused=${this.paused}`);
     // muzyka tła menu nie ma grać, gdy apka jest w tle; wróci sama po powrocie

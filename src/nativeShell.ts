@@ -42,21 +42,36 @@ export function initNativeShell(game: Game) {
     if (!game.handleBack()) void App.exitApp();
   });
 
+  // DWA różne sygnały iOS (na Androidzie analogicznie):
+  //  - appStateChange(isActive=false) = willResignActive: apka NIEAKTYWNA, ale
+  //    nadal widoczna — wysunięte Centrum sterowania, włączanie NAGRYWANIA EKRANU,
+  //    baner połączenia. Wcześniej traktowaliśmy to jak zejście do tła (stop
+  //    pętli, zawieszenie AudioContextu, przełączenie navigator.audioSession),
+  //    a razem z nagrywaniem, które przejmuje sesję audio, gra zostawała w
+  //    stanie bez wyjścia — nie dało się wznowić po pauzie. Teraz: tylko zwykła
+  //    pauza rozgrywki, jak przycisk pauzy (Safari w tej sytuacji nic nie robi
+  //    i działało poprawnie).
+  //  - pause / resume = didEnterBackground / willEnterForeground: PRAWDZIWE tło
+  //    (ekran główny, przełączenie apki) — pełna obsługa jak dotąd.
   void App.addListener("appStateChange", ({ isActive }) => {
     diag(`appStateChange isActive=${isActive}`);
-    if (isActive) {
-      setLoopActive(true);
-      game.onAppForeground();
-      // powrót po dłuższej nieobecności → znów pokaż splash z animacją
-      if (backgroundedAt && Date.now() - backgroundedAt > SPLASH_REARM_MS) {
-        showSplashAgain();
-      }
-      backgroundedAt = 0;
-    } else {
-      backgroundedAt = Date.now();
-      game.onAppBackground(); // pauza PRZED zatrzymaniem pętli
-      setLoopActive(false); // w tle pętla renderu całkiem stoi (bateria / temperatura)
+    if (!isActive) game.onAppInactive();
+  });
+  void App.addListener("pause", () => {
+    diag("app pause (tło)");
+    backgroundedAt = Date.now();
+    game.onAppBackground(); // pauza PRZED zatrzymaniem pętli
+    setLoopActive(false); // w tle pętla renderu całkiem stoi (bateria / temperatura)
+  });
+  void App.addListener("resume", () => {
+    diag("app resume (z tła)");
+    setLoopActive(true);
+    game.onAppForeground();
+    // powrót po dłuższej nieobecności → znów pokaż splash z animacją
+    if (backgroundedAt && Date.now() - backgroundedAt > SPLASH_REARM_MS) {
+      showSplashAgain();
     }
+    backgroundedAt = 0;
   });
 
   // klawiatura (resize:"none" w config) — gra sama podnosi układ logowania,
