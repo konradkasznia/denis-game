@@ -78,6 +78,17 @@ jobs:
           echo "${{ secrets.ASC_API_KEY_P8_BASE64 }}" | base64 -d \
             > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
 
+      # Każdy runner tworzy przy archive NOWY certyfikat deweloperski (klucz
+      # znika razem z runnerem) — bez sprzątania konto dobija do limitu
+      # certyfikatów i archive pada. Zapisujemy stan przed buildem, a krok
+      # "Sprzątanie certyfikatu" na końcu usuwa tylko ten utworzony teraz.
+      - name: Certyfikaty przed buildem (do sprzątania)
+        run: node tools/asc-dev-certs.mjs snapshot "$RUNNER_TEMP/certs-before.json" || true
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_KEY_PATH: /Users/runner/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+
       - name: Archive (podpisywanie w chmurze przez API key)
         run: |
           BUILD_NUMBER=$(git rev-list --count HEAD)
@@ -108,3 +119,12 @@ jobs:
       - name: Log eksportu (na wypadek błędu wysyłki)
         if: always()
         run: find build/export -maxdepth 2 -type f 2>/dev/null || true
+
+      - name: Sprzątanie certyfikatu deweloperskiego z tego buildu
+        if: always()
+        run: node tools/asc-dev-certs.mjs cleanup "$RUNNER_TEMP/certs-before.json" || true
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_KEY_PATH: /Users/runner/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+
