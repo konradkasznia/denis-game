@@ -26,7 +26,7 @@ function keyFor(songId: string) {
 // pokazywałby stary wynik z lokalnego cache'a, mimo pustej bazy. Podbij
 // CURRENT_RESET_VERSION przy każdym kolejnym takim zerowaniu.
 const RESET_VERSION_KEY = "denis.scoresResetV";
-const CURRENT_RESET_VERSION = 1;
+const CURRENT_RESET_VERSION = 2; // 2 = start produkcji (tools/reset-leaderboard.mjs)
 (function invalidateStaleLocalBests() {
   try {
     const stored = Number(localStorage.getItem(RESET_VERSION_KEY) || 0);
