@@ -41,6 +41,12 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      # Gra nie uzywa lokalizacji. Bez tego onesignal-cordova-plugin dokłada
+      # moduł OneSignalLocation: Apple ostrzega ITMS-90683 (brak opisu
+      # NSLocationWhenInUseUsageDescription), a Android dostaje uprawnienia
+      # lokalizacji. Flaga musi działać przy cap sync ORAZ przy budowaniu.
+      ONESIGNAL_DISABLE_LOCATION: true
     steps:
       # fetch-depth: 0 — potrzebne do policzenia numeru builda z liczby commitów
       - uses: actions/checkout@v5
