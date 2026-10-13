@@ -2962,6 +2962,12 @@ export class Game {
         new Promise((r) => setTimeout(r, AUDIO_BUDGET_MS)),
       ]);
       if (!guard()) return;
+      // ujęcia postaci (Lottie z paczki apki) muszą być rozpakowane, zanim
+      // ruszy odliczanie — inaczej pierwsze sekundy rundy byłyby bez postaci.
+      // Zwykle już gotowe (wczytywane na sliderze); limit to tylko bezpiecznik.
+      this.setPrepStep("wczytywanie postaci");
+      await this.character.whenReady(6000);
+      if (!guard()) return;
       this.song = song;
     } catch (e) {
       if (guard()) {

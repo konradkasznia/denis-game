@@ -1,14 +1,8 @@
 {
-  "type": "sheet",
-  "src": "dance.png",
-  "frames": 5,
-  "cols": 5,
-  "fps": 10,
-  "frameMs": [
-    100,
-    100,
-    100,
-    100,
-    100
-  ]
+  "type": "lottie",
+  "src": "lottie.json",
+  "refW": 300,
+  "refH": 520,
+  "offX": 0,
+  "offY": 0
 }

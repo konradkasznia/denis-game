@@ -131,6 +131,22 @@ export class Character {
     }
   }
 
+  /** Czy wszystkie ujęcia bieżącego utworu są wczytane (dla Lottie: rozpakowane). */
+  allReady(): boolean {
+    if (this.segments.length) return this.segments.every((s) => this.anims.get(s.sprite)?.ready);
+    if (this.single) return this.singleReady;
+    return true;
+  }
+
+  /** Czeka, aż wszystkie ujęcia będą gotowe (najwyżej timeoutMs). */
+  async whenReady(timeoutMs = 6000): Promise<boolean> {
+    const t0 = performance.now();
+    while (!this.allReady() && performance.now() - t0 < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return this.allReady();
+  }
+
   hasContent() {
     return this.singleReady || [...this.anims.values()].some((a) => a.ready);
   }
