@@ -7399,29 +7399,16 @@ export class Game {
     roundRect(ctx, bx, by, Math.max(6, bw * this.health), 14, 7);
     ctx.fill();
 
-    // panele lewej strony
+    // panele lewej strony: COMBO, MNOŻNIK, FLOW (ten sam boks, co 118 px).
+    // Combo wcześniej było dużą liczbą na środku nad postacią — teraz w boksie,
+    // z krótkim „podbiciem" wartości przy każdym kolejnym trafieniu.
+    const comboPop = clamp(1 - (this.songTime - this.comboPopAt) / 0.16, 0, 1);
+    this.hudChip(ctx, 18, 582, "COMBO", `×${this.combo}`, this.combo >= 4, comboPop);
     this.hudChip(ctx, 18, 700, "MNOŻNIK", `×${this.multiplier()}`, this.multiplier() > 1);
     this.hudChip(ctx, 18, 818, "FLOW", String(this.flow), this.flow > 0);
 
     // pionowy miernik flow (prawa strona)
     this.drawFlowMeter(ctx);
-
-    // combo
-    if (this.combo >= 4) {
-      const pop = clamp(1 - (this.songTime - this.comboPopAt) / 0.16, 0, 1);
-      ctx.save();
-      ctx.translate(VW / 2, 328);
-      ctx.scale(1 + pop * 0.22, 1 + pop * 0.22);
-      text(ctx, String(this.combo), 0, 0, {
-        size: 76,
-        weight: "800",
-        color: "#fff7ec",
-        glow: "#ffd24c",
-        glowBlur: 22,
-      });
-      text(ctx, "COMBO", 0, 52, { size: 18, color: "#ffce8a", letterSpacing: "6px" });
-      ctx.restore();
-    }
 
     // baner (kamień milowy)
     const bl = (this.songTime - this.bannerAt) / 1.0;
@@ -7450,6 +7437,7 @@ export class Game {
     label: string,
     value: string,
     active: boolean,
+    pop = 0,
   ) {
     const w = 128;
     const h = 92;
@@ -7457,11 +7445,17 @@ export class Game {
     roundRect(ctx, x, y, w, h, 10);
     ctx.fill();
     text(ctx, label, x + w / 2, y + 22, { size: 15, weight: "800", color: "#1a0d12" });
-    text(ctx, value, x + w / 2, y + 60, {
-      size: 38,
+    // wartość dopasowana do szerokości boksu (combo bywa trzycyfrowe: ×128)
+    const size = Math.min(38, Math.floor(((w - 14) / Math.max(1, value.length)) * 1.7));
+    ctx.save();
+    ctx.translate(x + w / 2, y + 60);
+    if (pop > 0) ctx.scale(1 + pop * 0.18, 1 + pop * 0.18);
+    text(ctx, value, 0, 0, {
+      size,
       weight: "800",
       color: active ? "#e0521f" : "#1a0d12",
     });
+    ctx.restore();
   }
 
   private drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: number) {
