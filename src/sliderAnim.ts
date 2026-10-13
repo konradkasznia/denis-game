@@ -21,7 +21,14 @@
 import { getLottie, loadLottieCanvas, type LottieAnim } from "./lottieLib.ts";
 
 // "prezent" = Denis z prezentem na ekranie NAGRODY
-const ANIMATED = new Set(["panna-mloda", "ksiaze-z-bajki", "pogrzebowka", "prezent"]);
+const ANIMATED = new Set([
+  "panna-mloda",
+  "ksiaze-z-bajki",
+  "pogrzebowka",
+  "pani-policjantko",
+  "byleby-nie-byla-ciepla",
+  "prezent",
+]);
 
 /** Czy dana postać jest animacją (a nie statycznym select-<id>.png). */
 export function hasSliderAnim(id: string): boolean {
@@ -159,7 +166,7 @@ export function sliderAnimBounds(id: string): Rect | null {
 
 /** Wczytuje wszystkie animacje — woła main.ts przy starcie gry, żeby były
  *  gotowe, zanim gracz dojdzie do slidera / nagród. */
-export function initSliderAnims(): void {
+export function initSliderAnims(skip?: (id: string) => boolean): void {
   if (!getLottie()) return;
-  for (const id of ANIMATED) if (!entries.has(id)) load(id);
+  for (const id of ANIMATED) if (!entries.has(id) && !skip?.(id)) load(id);
 }

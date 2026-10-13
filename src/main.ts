@@ -6,6 +6,7 @@ import { initSplash, splashGameReady } from "./splash.ts";
 import sliderLottie from "lottie-web/build/player/lottie_light_canvas";
 import { registerLottie } from "./lottieLib.ts";
 import { initSliderAnims } from "./sliderAnim.ts";
+import { devUnlocked, SONGS } from "./songs.ts";
 import { VH, VW, viewport } from "./viewport.ts";
 
 initSplash();
@@ -97,7 +98,9 @@ function resize() {
 
 // animacje postaci: slider, NAGRODY, ujęcia w rundzie (lottie wstrzykiwane tu, nie w game.ts — patrz lottieLib.ts)
 registerLottie(sliderLottie);
-initSliderAnims(); // z paczki apki, od razu przy starcie — gotowe przed sliderem
+// z paczki apki, od razu przy starcie — gotowe przed sliderem; poziomy testowe
+// (devOnly) tylko dla konta, które je widzi (reszta i tak wczyta się leniwie)
+initSliderAnims((id) => !!SONGS.find((s) => s.id === id)?.devOnly && !devUnlocked());
 const game = new Game(canvas);
 initNativeShell(game);
 
