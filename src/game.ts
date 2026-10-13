@@ -131,6 +131,10 @@ const RECEPTOR_R = 52; // promień pustego kółka na linii
 const HOLD_RELEASE_TOL = 0.12; // s: tolerancja puszczenia nuty trzymanej
 
 const LANE_COLORS = ["#ff9f43", "#ff6b3d", "#ffd24c", "#ff5e7e"];
+/** Zimowy motyw planszy (tory lodowe, szron, śnieg, zimne światła). */
+const FROST_SONGS = new Set(["byleby-nie-byla-ciepla"]);
+/** Zimne kolory torów — nadal 4 wyraźnie różne odcienie (gracz rozróżnia tor po kolorze). */
+const FROST_LANE_COLORS = ["#6fd6ff", "#4c8dff", "#c4f3ff", "#9b8cff"];
 
 // --- punktacja ---
 const BASE_SCORE: Record<Judgement, number> = { perfect: 300, great: 140, good: 55, miss: 0 };
@@ -3129,7 +3133,7 @@ export class Game {
       if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
       else if (NOTE_SKIN[this.trackId] === "loot") this.prewarmLoot();
       else
-        for (const col of LANE_COLORS) {
+        for (const col of this.laneCols()) {
           this.noteHeadSprite(col, false);
           this.noteHeadSprite(col, true);
         }
@@ -3659,6 +3663,149 @@ export class Game {
 
   // ---- rysowanie: wspólne tło ------------------------------------
 
+  // ---- zimowy motyw (FROST_SONGS) -------------------------------------
+  // Wszystko poza płatkami śniegu to gotowe tekstury generowane RAZ (drawImage),
+  // bo efekty liczone co klatkę (blur, gradienty per płatek) zabijały słabe
+  // telefony — patrz komentarz o shadowBlur w drawPlayfield.
+
+  private frost(): boolean {
+    return FROST_SONGS.has(this.trackId);
+  }
+
+  private laneCols(): readonly string[] {
+    return this.frost() ? FROST_LANE_COLORS : LANE_COLORS;
+  }
+
+  private snowFlakes: { x: number; y: number; r: number; v: number; ph: number; a: number }[] = [];
+
+  /** Padający śnieg w tle (za torami i postacią). ~60 kropek, bez gradientów. */
+  private drawSnow(ctx: CanvasRenderingContext2D) {
+    const top = -this.vdy;
+    const vh = this.sh();
+    if (!this.snowFlakes.length) {
+      for (let i = 0; i < 60; i++) {
+        this.snowFlakes.push({
+          x: Math.random() * VW,
+          y: Math.random(),
+          r: 1.2 + Math.random() * 2.8,
+          v: 0.03 + Math.random() * 0.06, // ułamek wysokości ekranu na sekundę
+          ph: Math.random() * Math.PI * 2,
+          a: 0.35 + Math.random() * 0.5,
+        });
+      }
+    }
+    // czas utworu: śnieg staje w pauzie razem z resztą
+    const t = Math.max(0, this.songTime);
+    ctx.save();
+    ctx.fillStyle = "#eef9ff";
+    for (const f of this.snowFlakes) {
+      const yy = top + (((f.y + t * f.v) % 1) + 1) % 1 * vh;
+      const xx = f.x + Math.sin(t * 0.9 + f.ph) * 14;
+      ctx.globalAlpha = f.a;
+      ctx.beginPath();
+      ctx.arc(xx, yy, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Lodowe refleksy na torze: dwie cienkie jasne smugi wzdłuż toru. */
+  private drawIceSheen(
+    ctx: CanvasRenderingContext2D,
+    l: number,
+    cTop: number,
+    cBot: number,
+    yTop: number,
+    yBot: number,
+    hwT: number,
+    hwB: number,
+  ) {
+    ctx.save();
+    ctx.lineCap = "round";
+    const off = l % 2 ? 0.35 : -0.3;
+    ctx.strokeStyle = "rgba(235,250,255,0.16)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cTop + hwT * off, yTop);
+    ctx.lineTo(cBot + hwB * off, yBot);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(235,250,255,0.08)";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(cTop + hwT * (off * -0.6), yTop);
+    ctx.lineTo(cBot + hwB * (off * -0.6), yBot);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private frostEdgesCache: { key: string; cv: HTMLCanvasElement } | null = null;
+
+  /** Szron na krawędziach ekranu: gałązki kryształków + mleczna mgiełka przy
+   *  brzegach. Generowany raz na rozmiar ekranu, potem jeden drawImage. */
+  private drawFrostEdges(ctx: CanvasRenderingContext2D) {
+    const vh = Math.round(this.sh());
+    const key = `${vh}`;
+    if (!this.frostEdgesCache || this.frostEdgesCache.key !== key) {
+      this.frostEdgesCache = { key, cv: this.makeFrostEdges(VW, vh) };
+    }
+    ctx.drawImage(this.frostEdgesCache.cv, 0, -this.vdy, VW, vh);
+  }
+
+  private makeFrostEdges(w: number, h: number): HTMLCanvasElement {
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const c = cv.getContext("2d");
+    if (!c) return cv;
+    // deterministyczny „los", żeby szron wyglądał tak samo przy każdym wejściu
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    // mleczna mgiełka przy brzegach
+    const edge = (x0: number, y0: number, x1: number, y1: number) => {
+      const g = c.createLinearGradient(x0, y0, x1, y1);
+      g.addColorStop(0, "rgba(225,245,255,0.30)");
+      g.addColorStop(1, "rgba(225,245,255,0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, w, h);
+    };
+    edge(0, 0, 70, 0);
+    edge(w, 0, w - 70, 0);
+    edge(0, 0, 0, 90);
+    // kryształki: rozgałęzione kreski wyrastające z brzegów i rogów
+    c.strokeStyle = "rgba(235,250,255,0.55)";
+    c.lineCap = "round";
+    const branch = (x: number, y: number, ang: number, len: number, depth: number) => {
+      if (depth <= 0 || len < 4) return;
+      const x2 = x + Math.cos(ang) * len;
+      const y2 = y + Math.sin(ang) * len;
+      c.lineWidth = Math.max(0.6, depth * 0.55);
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x2, y2);
+      c.stroke();
+      branch(x2, y2, ang + (rnd() - 0.5) * 0.5, len * 0.72, depth - 1);
+      if (rnd() < 0.8) branch(x + (x2 - x) * 0.5, y + (y2 - y) * 0.5, ang + 0.9 + rnd() * 0.3, len * 0.45, depth - 1);
+      if (rnd() < 0.8) branch(x + (x2 - x) * 0.5, y + (y2 - y) * 0.5, ang - 0.9 - rnd() * 0.3, len * 0.45, depth - 1);
+    };
+    // rogi
+    for (let i = 0; i < 7; i++) branch(0, rnd() * 60, rnd() * 1.2, 40 + rnd() * 50, 5);
+    for (let i = 0; i < 7; i++) branch(w, rnd() * 60, Math.PI - rnd() * 1.2, 40 + rnd() * 50, 5);
+    // boki (rzadziej, krócej — nie zasłaniają panelu COMBO/MNOŻNIK/FLOW)
+    for (let y = 120; y < h; y += 70 + rnd() * 90) {
+      branch(0, y, (rnd() - 0.5) * 0.9, 18 + rnd() * 26, 4);
+      branch(w, y + 30, Math.PI + (rnd() - 0.5) * 0.9, 18 + rnd() * 26, 4);
+    }
+    // drobne iskierki szronu
+    c.fillStyle = "rgba(255,255,255,0.7)";
+    for (let i = 0; i < 90; i++) {
+      const side = rnd() < 0.5;
+      const x = side ? rnd() * 60 : w - rnd() * 60;
+      const y = rnd() * h;
+      c.fillRect(x, y, 1.5, 1.5);
+    }
+    return cv;
+  }
+
   private drawStage(ctx: CanvasRenderingContext2D, darken: number, pulse: number) {
     // tło rozgrywki: własne tło utworu (`assets/bg/<id>.jpg`) albo ciemna scena
     // z reflektorami (postać animowana rysuje się osobno)
@@ -3689,6 +3836,14 @@ export class Game {
       this.drawFlyingSpotlights(ctx, pulse);
       return;
     }
+    const frost = this.frost();
+    if (frost) {
+      // chłodny odcień całej sceny (lodówka / mróz)
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      this.fillViewport(ctx, "rgba(40,110,190,0.10)");
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -3700,14 +3855,16 @@ export class Game {
     for (const [lx, ly] of lights) {
       const r = 120 + pulse * 60;
       const rg = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      rg.addColorStop(0, `rgba(255,180,90,${0.32 + pulse * 0.28})`);
-      rg.addColorStop(1, "rgba(255,180,90,0)");
+      const lc = frost ? "150,215,255" : "255,180,90";
+      rg.addColorStop(0, `rgba(${lc},${0.32 + pulse * 0.28})`);
+      rg.addColorStop(1, `rgba(${lc},0)`);
       ctx.fillStyle = rg;
       ctx.beginPath();
       ctx.arc(lx, ly, r, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
+    if (frost) this.drawSnow(ctx);
   }
 
   // ---- „latające reflektory" — bajer tła dla Pani Policjantko (bez wpływu
@@ -5921,6 +6078,7 @@ export class Game {
     this.drawSpotlight(ctx); // ciemność + snop światła (przeszkoda z edytora)
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
+    if (this.frost()) this.drawFrostEdges(ctx);
 
     if (dxf) {
       // podwójne widzenie — drugi, przesunięty i przyciemniony przebieg nut
@@ -6105,21 +6263,34 @@ export class Game {
       ctx.lineTo(cBotE + hwB, yBot);
       ctx.lineTo(cTop + hwT, yTop);
       ctx.closePath();
-      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}`;
+      const frost = this.frost();
+      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}|${frost ? 1 : 0}`;
       let lg = this.laneGradCache.get(laneKey);
       if (!lg) {
         lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
-        lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
-        lg.addColorStop(
-          1,
-          held ? "rgba(255,170,90,0.30)" : l % 2 ? "rgba(150,25,35,0.34)" : "rgba(120,20,30,0.40)",
-        );
+        if (frost) {
+          // tafla lodu: przy horyzoncie prawie przezroczysta, przy linii mleczny błękit
+          lg.addColorStop(0, l % 2 ? "rgba(150,210,255,0.08)" : "rgba(120,190,245,0.10)");
+          lg.addColorStop(0.6, l % 2 ? "rgba(140,205,255,0.20)" : "rgba(110,180,240,0.24)");
+          lg.addColorStop(
+            1,
+            held ? "rgba(200,245,255,0.42)" : l % 2 ? "rgba(170,225,255,0.34)" : "rgba(130,195,250,0.40)",
+          );
+        } else {
+          lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
+          lg.addColorStop(
+            1,
+            held ? "rgba(255,170,90,0.30)" : l % 2 ? "rgba(150,25,35,0.34)" : "rgba(120,20,30,0.40)",
+          );
+        }
         this.laneGradCache.set(laneKey, lg);
       }
       ctx.fillStyle = lg;
       ctx.fill();
 
-      ctx.strokeStyle = `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
+      ctx.strokeStyle = frost
+        ? `rgba(215,245,255,${0.22 + flash * 0.5 + (held ? 0.35 : 0)})`
+        : `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(cTop - hwT, yTop);
@@ -6127,6 +6298,7 @@ export class Game {
       ctx.moveTo(cTop + hwT, yTop);
       ctx.lineTo(cBotE + hwB, yBot);
       ctx.stroke();
+      if (frost) this.drawIceSheen(ctx, l, cTop, cBotE, yTop, yBot, hwT, hwB);
     }
 
     // Poświaty linii trafienia, klawiszy i receptorów to sprite'y (drawImage), NIE
@@ -6137,9 +6309,9 @@ export class Game {
     const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
     const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
     const glowH = 46 + pulse * 34;
-    ctx.drawImage(this.hitLineGlowSprite(), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
+    ctx.drawImage(this.hitLineGlowSprite(this.frost()), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
     ctx.save();
-    ctx.strokeStyle = "rgba(255,228,185,0.85)";
+    ctx.strokeStyle = this.frost() ? "rgba(220,248,255,0.9)" : "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(hlx0, hitY);
@@ -6168,7 +6340,7 @@ export class Game {
         const gh = yB - yT + 90;
         ctx.save();
         ctx.globalAlpha = clamp((lit - 0.3) / 0.7, 0, 1) * 0.85;
-        ctx.drawImage(this.laneGlowSprite(LANE_COLORS[l]), (xT + xB) / 2 - gw / 2, (yT + yB) / 2 - gh / 2 - 10, gw, gh);
+        ctx.drawImage(this.laneGlowSprite(this.laneCols()[l]), (xT + xB) / 2 - gw / 2, (yT + yB) / 2 - gh / 2 - 10, gw, gh);
         ctx.restore();
       }
       ctx.save();
@@ -6203,7 +6375,7 @@ export class Game {
         const gd = 2 * 96 * gs;
         ctx.save();
         ctx.globalAlpha = recAlpha * (0.5 + glowAmt * 0.5);
-        ctx.drawImage(this.receptorGlowSprite(LANE_COLORS[l]), x - gd / 2, hitY - gd / 2, gd, gd);
+        ctx.drawImage(this.receptorGlowSprite(this.laneCols()[l]), x - gd / 2, hitY - gd / 2, gd, gd);
         ctx.restore();
         ctx.save();
         ctx.globalAlpha = recAlpha;
@@ -6241,6 +6413,24 @@ export class Game {
 
   private glowSpriteCache = new Map<string, HTMLCanvasElement>();
   private hitLineGlowCache: HTMLCanvasElement | null = null;
+  private hitLineGlowFrost: HTMLCanvasElement | null = null;
+
+  private makeHitLineGlow(rgb: string): HTMLCanvasElement {
+    const H = 96;
+    const cv = document.createElement("canvas");
+    cv.width = 4;
+    cv.height = H;
+    const c = cv.getContext("2d");
+    if (c) {
+      const g = c.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, `rgba(${rgb},0)`);
+      g.addColorStop(0.5, `rgba(${rgb},0.6)`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      c.fillStyle = g;
+      c.fillRect(0, 0, 4, H);
+    }
+    return cv;
+  }
 
   private static rgbOf(hex: string): string {
     const n = parseInt(hex.slice(1), 16);
@@ -6248,7 +6438,8 @@ export class Game {
   }
 
   /** Pozioma poświata linii trafienia (pionowy gradient, rozciągany na szerokość). */
-  private hitLineGlowSprite(): HTMLCanvasElement {
+  private hitLineGlowSprite(frost = false): HTMLCanvasElement {
+    if (frost) return (this.hitLineGlowFrost ??= this.makeHitLineGlow("160,225,255"));
     if (this.hitLineGlowCache) return this.hitLineGlowCache;
     const H = 96;
     const cv = document.createElement("canvas");
@@ -6361,7 +6552,7 @@ export class Game {
         // poświata trzymanego ogona: gruby, półprzezroczysty obrys tej samej
         // ścieżki zamiast shadowBlur 34 (rozmycie dużej powierzchni co klatkę,
         // do 4 torów naraz, było najdroższym elementem rozgrywki na GPU)
-        ctx.strokeStyle = LANE_COLORS[n.lane];
+        ctx.strokeStyle = this.laneCols()[n.lane];
         ctx.globalAlpha = 0.22 * this.noteAlphaMul;
         ctx.lineWidth = 30;
         ctx.lineJoin = "round";
@@ -6371,7 +6562,7 @@ export class Game {
         ctx.stroke();
         ctx.globalAlpha = this.noteAlphaMul;
       }
-      ctx.fillStyle = n.holding ? shade(LANE_COLORS[n.lane], 70) : LANE_COLORS[n.lane];
+      ctx.fillStyle = n.holding ? shade(this.laneCols()[n.lane], 70) : this.laneCols()[n.lane];
       ctx.fill();
       if (n.holding) {
         ctx.strokeStyle = "rgba(255,255,255,0.85)";
@@ -6405,7 +6596,7 @@ export class Game {
       const x = this.laneXAtE(n.lane, ec);
       const y = this.yForE(ec);
       const r = RECEPTOR_R * this.sizeAtE(e);
-      const col = LANE_COLORS[n.lane];
+      const col = this.laneCols()[n.lane];
       const a = clamp(alpha, 0, 1) * this.noteAlphaMul;
 
       if (n.bomb) {
