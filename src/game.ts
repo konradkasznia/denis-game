@@ -3299,9 +3299,10 @@ export class Game {
       // monety za wynik — 1 za każde pełne 10 000 pkt
       this.coinsEarned = coinsFromScore(this.score);
       if (this.coinsEarned > 0) addCoins(this.coinsEarned);
-      // cytryny złapane w tej rundzie (zapisane już przy złapaniu) → modal „magiczny składnik"
+      // cytryny złapane w tej rundzie → zapis + modal „magiczny składnik"
       this.lemonModal = 0;
       if (this.roundLemons.length) {
+        addLemons(this.roundLemons);
         this.lemonModal = this.roundLemons.length;
         this.lemonModalAt = performance.now();
         this.roundLemons = [];
@@ -3964,9 +3965,6 @@ export class Game {
       l.got = true;
       l.gotAt = this.songTime;
       this.roundLemons.push(l.key);
-      // zapis OD RAZU (nie dopiero na koniec rundy): po wyjściu z gry, „od nowa"
-      // czy zamknięciu apki złapana cytryna nie może się pojawić drugi raz
-      addLemons([l.key]);
       this.pushPopup("CYTRYNA!", "#ffe135", lane);
       this.audio.sfx("flow");
       haptic("combo");
