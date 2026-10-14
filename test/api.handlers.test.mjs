@@ -232,6 +232,29 @@ const long = await call(h.scores, {
 ok(long.status === 400, "bardzo długie songId odrzucone");
 const real = await call(h.scores, { method: "POST", token: tokA, body: { songId: "panna-mloda", score: 250_000, stars: 4 } });
 ok(real.status === 200 && real.body.coinsGained === 25, `prawdziwy utwór: 25 monet (${real.body?.coinsGained})`);
+{
+  // konto deweloperskie: wynik nie trafia do bazy ani do rankingu, monety tak
+  const regK = await call(h.register, {
+    method: "POST",
+    body: { login: "Konrad", password: "Haslo123!", password2: "Haslo123!", terms: true },
+  });
+  const tokK = regK.body.token;
+  const kp = await call(h.scores, { method: "POST", token: tokK, body: { songId: "panna-mloda", score: 290_000, stars: 5 } });
+  ok(kp.status === 200 && kp.body.coinsGained === 29, "konrad: monety za przebieg");
+  const kRows = await client.execute(
+    "SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE lower(u.login) = 'konrad'",
+  );
+  ok(Number(kRows.rows[0].n) === 0, "konrad: wynik nie zapisany w bazie");
+  // stary wpis sprzed zmiany — też niewidoczny w rankingu
+  const kid = Number((await client.execute("SELECT id FROM users WHERE lower(login) = 'konrad'")).rows[0].id);
+  await client.execute({
+    sql: "INSERT INTO scores (user_id, song_id, score, stars, updated_at, nick) VALUES (?, 'panna-mloda', 999999, 5, ?, 'Konrad')",
+    args: [kid, new Date().toISOString()],
+  });
+  const board = await call(h.scores, { query: { songId: "panna-mloda", period: "all" } });
+  ok(!board.body.top.some((e) => e.nick === "Konrad"), "konrad: niewidoczny w rankingu (też stare wpisy)");
+  await client.execute({ sql: "DELETE FROM scores WHERE user_id = ?", args: [kid] });
+}
 const again = await call(h.scores, { method: "POST", token: tokA, body: { songId: "panna-mloda", score: 250_000, stars: 4 } });
 ok(again.body.coinsGained === 0, "anty-farm dalej działa (0 monet przed czasem)");
 {

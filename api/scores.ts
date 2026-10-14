@@ -74,18 +74,27 @@ async function songMeta(c: Client, songId: string): Promise<{ notes: number; sec
 // spoza top przychodzi osobno w polu `me`.
 const TOP_LIMIT = 200;
 
+// Konta deweloperskie (testy, rekordy „z edytora") — ich wyniki NIE trafiają do
+// bazy i nie pokazują się w żadnym rankingu (także stare wpisy sprzed tej zmiany),
+// żeby nie zniechęcać graczy nieosiągalnymi wynikami. Monety dostają normalnie.
+const HIDDEN_LOGINS = ["konrad", "konraddd"];
+const isHidden = (login: string) => HIDDEN_LOGINS.includes(String(login || "").trim().toLowerCase());
+// warunek SQL na tabeli users aliasowanej jako `u` (albo bez aliasu: NOT_HIDDEN_PLAIN)
+const NOT_HIDDEN = `lower(u.login) NOT IN (${HIDDEN_LOGINS.map((l) => `'${l}'`).join(",")})`;
+const NOT_HIDDEN_PLAIN = NOT_HIDDEN.replace("u.login", "login");
+
 const maxScoreFor =(notes: number) => Math.round(notes * 3800 + 150000);
 
 async function rankAll(songId: string, score: number): Promise<number> {
   const r = await db().execute({
-    sql: "SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.score > ?",
+    sql: `SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.score > ? AND ${NOT_HIDDEN}`,
     args: [songId, score],
   });
   return Number(r.rows[0]?.n ?? 0) + 1;
 }
 async function rankMonth(songId: string, m: string, score: number): Promise<number> {
   const r = await db().execute({
-    sql: "SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ? AND s.score > ?",
+    sql: `SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ? AND s.score > ? AND ${NOT_HIDDEN}`,
     args: [songId, m, score],
   });
   return Number(r.rows[0]?.n ?? 0) + 1;
@@ -110,18 +119,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (songId === "koperty") {
         const top = await c.execute({
           sql: `SELECT COALESCE(NULLIF(nick,''), login) AS nick, envelope_total AS score, id AS uid
-                FROM users WHERE envelope_total > 0
+                FROM users WHERE envelope_total > 0 AND ${NOT_HIDDEN_PLAIN}
                 ORDER BY envelope_total DESC, id ASC LIMIT ?`,
           args: [TOP_LIMIT],
         });
-        const cnt = await c.execute("SELECT COUNT(*) AS n FROM users WHERE envelope_total > 0");
+        const cnt = await c.execute(`SELECT COUNT(*) AS n FROM users WHERE envelope_total > 0 AND ${NOT_HIDDEN_PLAIN}`);
         const meU = await sessionUser(req).catch(() => null);
         let mineK: { rank: number; score: number } | null = null;
         if (meU) {
           const r = await c.execute({ sql: "SELECT envelope_total AS t FROM users WHERE id = ?", args: [meU.id] });
           const t = Number(r.rows[0]?.t ?? 0);
           if (t > 0) {
-            const above = await c.execute({ sql: "SELECT COUNT(*) AS n FROM users WHERE envelope_total > ?", args: [t] });
+            const above = await c.execute({
+              sql: `SELECT COUNT(*) AS n FROM users WHERE envelope_total > ? AND ${NOT_HIDDEN_PLAIN}`,
+              args: [t],
+            });
             mineK = { rank: Number(above.rows[0]?.n ?? 0) + 1, score: t };
           }
         }
@@ -145,7 +157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ? {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
                     FROM scores_monthly s JOIN users u ON u.id = s.user_id
-                    WHERE s.song_id = ? AND s.ym = ?
+                    WHERE s.song_id = ? AND s.ym = ? AND ${NOT_HIDDEN}
                     ORDER BY s.score DESC, s.updated_at ASC
                     LIMIT ?`,
               args: [songId, m, TOP_LIMIT],
@@ -153,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           : {
               sql: `SELECT COALESCE(NULLIF(u.nick,''), u.login) AS nick, s.score AS score, s.user_id AS uid
                     FROM scores s JOIN users u ON u.id = s.user_id
-                    WHERE s.song_id = ?
+                    WHERE s.song_id = ? AND ${NOT_HIDDEN}
                     ORDER BY s.score DESC, s.updated_at ASC
                     LIMIT ?`,
               args: [songId, TOP_LIMIT],
@@ -161,8 +173,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       const total = await c.execute(
         monthly
-          ? { sql: "SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ?", args: [songId, m] }
-          : { sql: "SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ?", args: [songId] },
+          ? {
+              sql: `SELECT COUNT(*) AS n FROM scores_monthly s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND s.ym = ? AND ${NOT_HIDDEN}`,
+              args: [songId, m],
+            }
+          : {
+              sql: `SELECT COUNT(*) AS n FROM scores s JOIN users u ON u.id = s.user_id WHERE s.song_id = ? AND ${NOT_HIDDEN}`,
+              args: [songId],
+            },
       );
 
       const me = await sessionUser(req).catch(() => null);
@@ -207,6 +225,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (score > cap) {
       console.warn(`scores: odrzucony wynik ${score} (cap ${cap}) user ${u.id} song ${songId}`);
       return json(res, 422, { error: "Wynik poza dopuszczalnym zakresem." });
+    }
+
+    // konto deweloperskie: żadnego zapisu wyniku, tylko monety za przebieg
+    if (isHidden(u.login)) {
+      const coinsGained = Math.floor(score / 10_000);
+      await c.execute({ sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [coinsGained, u.id] });
+      const cr = await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [u.id] });
+      return json(res, 200, {
+        ok: true,
+        best: score,
+        stars,
+        rank: await rankAll(songId, score),
+        coins: Math.max(0, Number(cr.rows[0]?.coins ?? 0)),
+        coinsGained,
+      });
     }
 
     const prev = await c.execute({
