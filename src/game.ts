@@ -4413,6 +4413,32 @@ export class Game {
     const top = HIT_STARS_Y + 26;
     const bottom = this.hb(HIT_GRAJ).y - 14;
     const boxH = Math.max(320, bottom - top);
+    // bez zaproszenia: zamiast postaci i garniturów — sama koperta (zaproszenie
+    // do zdobycia); widok Denis + garnitury dopiero po zaproszeniu
+    if (!unlocked) {
+      this.charRect = { x: 0, y: top, w: VW, h: boxH };
+      const envId = "pan-mlody-koperta";
+      if (hasSliderAnim(envId)) {
+        const frame = sliderAnimFrame(envId, false);
+        const tb = sliderAnimBounds(envId);
+        if (frame && tb) {
+          const k = Math.min(boxH / tb.h, (VW * 0.9) / tb.w);
+          const rx = VW / 2 - (tb.w * k) / 2;
+          const ry = top + (boxH - tb.h * k) / 2;
+          ctx.drawImage(frame, rx - tb.x * k, ry - tb.y * k, frame.width * k, frame.height * k);
+        }
+      } else {
+        const t = performance.now() / 1000;
+        const ecy = top + boxH * 0.52 + Math.sin(t * 1.8) * 8;
+        this.drawHearts(ctx, VW / 2, ecy + 60, t, 220);
+        ctx.save();
+        ctx.translate(VW / 2, ecy);
+        ctx.rotate(Math.sin(t * 1.3) * 0.04);
+        this.drawEnvelope(ctx, 0, 0, Math.min(VW * 0.78, 520), 0);
+        ctx.restore();
+      }
+      return;
+    }
     const worn = SUITS.find((x) => x.id === wornSuit()) ?? null;
     // postać — lewe ~60% szerokości
     const charW = VW * 0.6;
