@@ -37,6 +37,7 @@ import {
   wearSuit,
   WEDDING,
   WEDDING_AFTER,
+  WEDDING_TIKTOK_URL,
   wornSuit,
 } from "./wedding.ts";
 import { addLemons, LEMON_ROUND, lemonCount, LEMONS_NEEDED, lemonSet, mergeServerLemons, syncLemons } from "./lemons.ts";
@@ -2791,11 +2792,14 @@ export class Game {
     if (inRect(this.hb(HIT_GRAJ), x, y)) {
       if (meta.id === WEDDING && !levelUnlocked(this.hitIndex)) {
         uiSound("buttons");
-        this.infoModal = {
-          icon: "💌",
-          title: "TYLKO Z ZAPROSZENIEM",
-          body: "Na wesele wchodzą tylko zaproszeni goście. Śledź Denisa na TikToku, żeby nie przegapić zaproszeń.",
-        };
+        // „Otrzymaj zaproszenie" → film na TikToku, pod którym wpisuje się login
+        if (WEDDING_TIKTOK_URL) openExternal(WEDDING_TIKTOK_URL);
+        else
+          this.infoModal = {
+            icon: "💌",
+            title: "TYLKO Z ZAPROSZENIEM",
+            body: "Na wesele wchodzą tylko zaproszeni goście. Śledź Denisa na TikToku, żeby nie przegapić zaproszeń.",
+          };
         return;
       }
       if (meta.id === WEDDING && !wornSuit()) {
@@ -6927,7 +6931,7 @@ export class Game {
     // GRAJ! albo „ODBLOKUJ za X monet"
     const graj = this.hb(HIT_GRAJ);
     if (meta.id === WEDDING && !unlocked) {
-      this.grayBtn(ctx, graj, "TYLKO Z ZAPROSZENIEM");
+      this.styledBtn(ctx, graj, "OTRZYMAJ ZAPROSZENIE", "gold");
     } else if (meta.id === WEDDING && !wornSuit()) {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
     } else if (meta.id === WEDDING_AFTER && !unlocked) {

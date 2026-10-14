@@ -17,6 +17,12 @@ export const WEDDING_AFTER = "wesele-trwa";
 export const ENVELOPE_MIN = 1000;
 export const ENVELOPE_STEP = 100;
 
+/** Film na TikToku, pod którym gracze piszą login, żeby dostać zaproszenie.
+ *  Pusty = akcja jeszcze nie ruszyła: Pan Młody widoczny tylko dla zaproszonych
+ *  i konta dewelopera. Po wpisaniu linku runda pokazuje się WSZYSTKIM, z
+ *  przyciskiem „Otrzymaj zaproszenie" prowadzącym do tego filmu. */
+export const WEDDING_TIKTOK_URL = "";
+
 export interface Suit {
   id: string;
   name: string;
