@@ -85,19 +85,29 @@ export function outfitSprite(sprite: string): string {
   return `assets/char/pan-mlody/${suit}/${m[1]}`;
 }
 
-const INVITE_SEEN_KEY = "denis.invite.seen";
+// Modal „Otrzymałeś zaproszenie weselne": pokazuje się przy KAŻDYM uruchomieniu
+// apki (raz na uruchomienie), aż gracz choć raz zagra Pana Młodego — od tej pory nigdy.
+const PLAYED_KEY = "denis.wedding.played";
+let shownThisLaunch = false;
 
 export function inviteSeen(): boolean {
+  if (shownThisLaunch) return true;
   try {
-    return localStorage.getItem(INVITE_SEEN_KEY) === "1";
+    return localStorage.getItem(PLAYED_KEY) === "1";
   } catch {
     return true;
   }
 }
 
+/** Modal już był w tym uruchomieniu apki (zamknięty / „Idę na wesele"). */
 export function markInviteSeen(): void {
+  shownThisLaunch = true;
+}
+
+/** Gracz zagrał Pana Młodego — modal zaproszenia nie wraca. */
+export function markWeddingPlayed(): void {
   try {
-    localStorage.setItem(INVITE_SEEN_KEY, "1");
+    localStorage.setItem(PLAYED_KEY, "1");
   } catch {
     /* ignore */
   }

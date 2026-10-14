@@ -32,6 +32,7 @@ import {
   invited,
   inviteSeen,
   markInviteSeen,
+  markWeddingPlayed,
   type Suit,
   suitPrice,
   SUITS,
@@ -1780,7 +1781,7 @@ export class Game {
     }
     if (this.updateModal) this.drawUpdateModal(ctx);
 
-    // zaproszenie weselne — przy pierwszym wejściu na karuzelę po zaproszeniu
+    // zaproszenie weselne — raz na każde uruchomienie apki, dopóki gracz nie zagra Pana Młodego
     if (
       !this.inviteModal &&
       this.scene === "hits" &&
@@ -1792,7 +1793,8 @@ export class Game {
       !this.envModal &&
       !this.preparing &&
       invited() &&
-      !inviteSeen()
+      !inviteSeen() &&
+      bestStars(WEDDING) === 0 // ukończony na innym telefonie (postęp z serwera) = już grał
     ) {
       this.inviteModal = true;
       this.inviteModalAt = performance.now();
@@ -3268,6 +3270,7 @@ export class Game {
     this.scene = "play";
     this.preparing = false;
     markDiscovered(this.song.id);
+    if (this.song.id === WEDDING) markWeddingPlayed(); // zaproszenie już nie wyskakuje
     // audio odblokowane w geście GRAJ! → startujemy od razu, bez ekranu „stuknij"
     this.beginSong();
   }
