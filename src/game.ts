@@ -3520,9 +3520,8 @@ export class Game {
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
-    if (this.lemonModal && this.scene === "results") return true; // bujająca się cytryna
-    if (this.inviteModal || this.envModal || this.suitBusy) return true; // animacje wesela
-    if (this.scene === "hits" && SONGS[this.hitIndex]?.id === WEDDING) return true; // bujanie kart garniturów
+    // modale cytryny/wesela i bujanie kart garniturów celowo NIE wymuszają 60 kl./s —
+    // ~30 kl./s menu w zupełności wystarcza dla tych łagodnych animacji (bateria)
     if (this.unlockBusy || this.authBusy || this.changePwBusy || this.fx.length) return true; // loader + konfetti
     return false;
   }
