@@ -5,7 +5,7 @@
 //   POST { action: "unlock", songId }          → odblokowanie poziomu za monety
 //   POST { action: "lemons", keys }            → dopisanie zebranych cytryn (suma zbiorów)
 //   POST { action: "envelope", amount }        → koperta na weselu (Pan Młody): monety
-//        przepadają, min. 1000 jednorazowo odblokowuje rundę „Wesele trwa"
+//        przepadają; łącznie min. 1000 (suma wszystkich kopert) odblokowuje „Wesele trwa"
 //   POST { action: "delete" }                  → usunięcie konta i wszystkich danych
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -135,14 +135,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (amount === 0) {
         return json(res, 200, { ok: true, coins: Math.max(0, Number(st.rows[0]?.coins ?? 0)), unlocked: unlocked0 });
       }
-      // atomowo: zabierz monety (tylko gdy starczy) i przy >= ENVELOPE_MIN dopisz
-      // rundę „Wesele trwa" (jeśli jej jeszcze nie ma)
+      // atomowo: zabierz monety (tylko gdy starczy), dolicz do sumy kopert i gdy
+      // SUMA (poprzednie koperty + ta) >= ENVELOPE_MIN dopisz „Wesele trwa".
+      // W SET SQLite widzi stare wartości kolumn, więc envelope_total = sprzed tej wpłaty.
       const upd = await c.execute({
         sql: `UPDATE users
               SET coins = coins - ?,
                   envelope_total = envelope_total + ?,
                   unlocked = CASE
-                    WHEN ? >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
+                    WHEN envelope_total + ? >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
                     THEN TRIM(unlocked || ',' || ?, ',')
                     ELSE unlocked END
               WHERE id = ? AND coins >= ?

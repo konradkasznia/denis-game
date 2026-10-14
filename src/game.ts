@@ -27,7 +27,6 @@ import {
 } from "./coins.ts";
 import {
   ENVELOPE_HELP_URL,
-  ENVELOPE_MIN,
   ENVELOPE_STEP,
   GIVERS_BOARD,
   invited,
@@ -2829,7 +2828,7 @@ export class Game {
         this.infoModal = {
           icon: "✉️",
           title: "KOPERTA DLA MŁODEJ PARY",
-          body: `Ta runda odblokuje się, gdy na weselu (runda Pan Młody) włożysz do koperty jednorazowo co najmniej ${fmtCoinsFull(ENVELOPE_MIN)} monet.`,
+          body: "Na tę imprezę wchodzą najhojniejsi goście. Włóż więcej do koperty na weselu (runda Pan Młody), a zabawa potrwa dłużej!",
         };
         return;
       }
@@ -4768,8 +4767,9 @@ export class Game {
     this.envPlusRect = { x: px + pw - 46 - 84, y: rowY - 38, w: 84, h: 84 };
     this.roundSignBtn(ctx, this.envMinusRect, "-", this.envAmount > 0 && !this.envBusy);
     this.roundSignBtn(ctx, this.envPlusRect, "+", this.envAmount < coins() && !this.envBusy);
-    if (this.envAmount >= ENVELOPE_MIN) {
-      text(ctx, "Hojny gość! ♥", VW / 2, rowY + 70, { size: 20, weight: "800", color: "#ff8fab" });
+    if (this.envAmount > 0) {
+      // bez zdradzania progu odblokowania Wesele trwa
+      text(ctx, "Młoda Para dziękuje! ♥", VW / 2, rowY + 70, { size: 20, weight: "800", color: "#ff8fab" });
     }
 
     this.envGoRect = { x: px + 30, y: py + ph - MODAL_OK.h - 34 - 92, w: pw - 60, h: MODAL_OK.h };
@@ -7018,7 +7018,7 @@ export class Game {
     } else if (meta.id === WEDDING && !wornSuit()) {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
     } else if (meta.id === WEDDING_AFTER && !unlocked) {
-      this.grayBtn(ctx, graj, `WŁÓŻ ${fmtCoinsFull(ENVELOPE_MIN)} MONET DO KOPERTY`);
+      this.grayBtn(ctx, graj, "WŁÓŻ WIĘCEJ DO KOPERTY");
     } else if (lemonGated(idx)) {
       this.grayBtn(ctx, graj, `ZBIERZ CYTRYNY I ${fmtCoinsFull(coinPrice)} MONET`);
     } else if (coinPrice > 0) {
