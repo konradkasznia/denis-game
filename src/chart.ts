@@ -33,6 +33,18 @@ export interface Note {
   judgedAt: number;
 }
 
+/** Cytryna — znajdźka lecąca torem jak nuta, ale poza punktacją (patrz lemons.ts). */
+export interface LemonNote {
+  lane: number;
+  time: number;
+  /** stały klucz "<utwór>@<sekunda>" — złapana raz liczy się na zawsze */
+  key: string;
+  // --- stan runtime ---
+  got: boolean;
+  /** songTime złapania — do animacji */
+  gotAt: number;
+}
+
 /** Zdarzenie na osi czasu utworu (poza nutami) — „przeszkoda" z edytora. */
 export interface SongEvent {
   type: "ice" | "spotlight" | "drunk";
@@ -67,6 +79,8 @@ export interface SongDef {
   notes: Note[];
   /** zdarzenia na osi czasu (np. lód) */
   events?: SongEvent[];
+  /** cytryny-znajdźki (osobno od nut: nie liczą się do wyniku ani końca rundy) */
+  lemons?: LemonNote[];
   /** całkowita długość utworu w sekundach */
   duration: number;
 }

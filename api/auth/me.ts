@@ -30,6 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // monety + poziomy odblokowane za monety (autorytatywne — klient nadpisuje cache)
     let coins = 0;
     let unlocked: string[] = [];
+    let lemons: string[] = [];
     try {
       const cr = await db().execute({ sql: "SELECT coins, unlocked FROM users WHERE id = ?", args: [u.id] });
       coins = Math.max(0, Number(cr.rows[0]?.coins ?? 0));
@@ -40,6 +41,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch {
       /* stara baza bez kolumn — zero monet */
     }
+    // cytryny osobno: brak kolumny nie może wyzerować monet z zapytania wyżej
+    try {
+      const lr = await db().execute({ sql: "SELECT lemons FROM users WHERE id = ?", args: [u.id] });
+      lemons = String(lr.rows[0]?.lemons ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } catch {
+      /* kolumna jeszcze nie istnieje */
+    }
 
     return json(res, 200, {
       ok: true,
@@ -49,6 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       progress,
       coins,
       unlocked,
+      lemons,
     });
   } catch (e) {
     console.error("me", e);

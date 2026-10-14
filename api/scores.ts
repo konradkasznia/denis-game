@@ -39,6 +39,7 @@ const STATIC_SONGS = new Set([
   "pani-policjantko",
   "byleby-nie-byla-ciepla",
   "pan-strazak",
+  "wodka-cytrynowka",
   "pan-mlody",
 ]);
 

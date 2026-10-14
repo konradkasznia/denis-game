@@ -43,6 +43,8 @@ interface Note {
   dur: number;
   bomb?: boolean;
   fire?: boolean;
+  /** cytryna — znajdźka do odblokowania Wódki Cytrynówki (bez punktów) */
+  lemon?: boolean;
 }
 interface Seg {
   at: number;
@@ -69,6 +71,7 @@ const metroChk = $<HTMLInputElement>("metro");
 const ntickChk = $<HTMLInputElement>("ntick");
 const bombChk = $<HTMLInputElement>("bombmode");
 const fireChk = $<HTMLInputElement>("firemode");
+const lemonChk = $<HTMLInputElement>("lemonmode");
 const touchChk = $<HTMLInputElement>("touchmode");
 const touchLanesEl = $<HTMLDivElement>("touchLanes");
 const playBtn = $<HTMLButtonElement>("play");
@@ -714,6 +717,25 @@ function draw() {
       ctx2d.textBaseline = "alphabetic";
       continue;
     }
+    if (n.lemon) {
+      // cytryna — żółta „pestka" z zielonym listkiem
+      const cx = x + bw / 2;
+      ctx2d.save();
+      ctx2d.translate(cx, y);
+      ctx2d.fillStyle = "#3f8f2a";
+      ctx2d.beginPath();
+      ctx2d.ellipse(6, -8, 5, 2.5, -0.6, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.fillStyle = "#ffe23d";
+      ctx2d.strokeStyle = "#a88a00";
+      ctx2d.lineWidth = 1.5;
+      ctx2d.beginPath();
+      ctx2d.ellipse(0, 0, 13, 9, -0.25, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.stroke();
+      ctx2d.restore();
+      continue;
+    }
     if (n.fire) {
       // płonąca nuta — pomarańczowy krążek z literką „O"
       const cx = x + bw / 2;
@@ -914,7 +936,8 @@ cv.addEventListener("pointerdown", (e) => {
   const startT = Math.max(0, snapTime(tOf(y)));
   pushHistory();
   const note: Note = { lane, time: startT, dur: 0 };
-  if (bombChk.checked) note.bomb = true; // tryb bomb — stawiamy bombę zamiast nuty
+  if (lemonChk.checked) note.lemon = true; // tryb cytryn — znajdźka (zawsze krótki tap)
+  else if (bombChk.checked) note.bomb = true; // tryb bomb — stawiamy bombę zamiast nuty
   else if (fireChk.checked) note.fire = true; // tryb ogień — nuta do zgaszenia gaśnicą
   notes.push(note);
   drag = { mode: "create", note, startT };
@@ -926,6 +949,7 @@ cv.addEventListener("pointermove", (e) => {
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
   if (drag.mode === "create") {
+    if (drag.note.lemon) return; // cytryna nie ma ogona
     drag.note.dur = Math.max(0, +(snapTime(tOf(y)) - drag.startT).toFixed(4));
   } else if (drag.mode === "move") {
     drag.note.time = Math.max(0, snapTime(tOf(y) - drag.grabDT));
@@ -1178,7 +1202,7 @@ interface RawChart {
   title?: string;
   bpm?: number;
   gridOffset?: number;
-  notes?: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean }[];
+  notes?: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean; lemon?: boolean }[];
   characters?: { at: number; sprite: string }[];
   events?: { type: string; at: number; taps?: number; dur?: number }[];
 }
@@ -1190,7 +1214,7 @@ function mapRawChart(raw: RawChart): { notes: Note[]; segments: Seg[]; obstacles
     lane: n.lane,
     time: n.time,
     dur: n.dur || 0,
-    ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : {}),
+    ...(n.bomb ? { bomb: true as const } : n.fire ? { fire: true as const } : n.lemon ? { lemon: true as const } : {}),
   }));
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
   let segments: Seg[] = (raw.characters || []).map((c) => ({
@@ -1253,7 +1277,7 @@ function buildChart() {
         lane: n.lane,
         time: +n.time.toFixed(3),
         dur: n.dur ? +n.dur.toFixed(3) : 0,
-        ...(n.bomb ? { bomb: true } : n.fire ? { fire: true } : {}),
+        ...(n.bomb ? { bomb: true } : n.fire ? { fire: true } : n.lemon ? { lemon: true } : {}),
       })),
   };
 }
@@ -1558,6 +1582,13 @@ async function startup() {
     bpm: 140,
     ujecia: [1, 2, 3, 4],
     realAudio: true,
+  });
+  await persistSeed({
+    id: "wodka-cytrynowka",
+    title: "Wódka Cytrynówka",
+    bpm: 140,
+    ujecia: [1, 2, 3, 4],
+    realAudio: true, // brak mp3 na razie — dociągnie się samo, gdy się pojawi
   });
 
   refreshProjectList();

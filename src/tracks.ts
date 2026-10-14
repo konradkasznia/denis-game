@@ -6,7 +6,8 @@
 // Beatmapy trzymamy jako zwykłe assety (fetch), nie importy — dzięki temu
 // edytor będzie mógł je nadpisywać, a testy czytać przez `fs`.
 
-import { buildSynthSong, LANES, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
+import { buildSynthSong, LANES, type LemonNote, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
+import { lemonKey } from "./lemons.ts";
 import { diag } from "./diag.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
@@ -123,6 +124,12 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
       { lane: 3, time: 36 },
     ],
   },
+  "wodka-cytrynowka": {
+    title: "Wódka Cytrynówka",
+    artist: "Denis",
+    bpm: 140, // tymczasowe — brak jeszcze mp3/chartu/postaci
+    bars: 30,
+  },
 };
 
 interface RawChart {
@@ -138,7 +145,7 @@ interface RawChart {
   characters?: { at: number; sprite: string }[];
   characterScale?: number;
   characterY?: number;
-  notes: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean }[];
+  notes: { lane: number; time: number; dur?: number; bomb?: boolean; fire?: boolean; lemon?: boolean }[];
   events?: SongEvent[];
 }
 
@@ -152,7 +159,13 @@ const clampLane = (l: number) => Math.max(0, Math.min(LANES - 1, Math.round(l)))
 const MIN_SAME_LANE_GAP = 0.045;
 
 export function rawToSong(raw: RawChart): SongDef {
+  // cytryny to znajdźki, nie nuty — osobna lista (bez punktów, combo, końca rundy)
+  const lemons: LemonNote[] = raw.notes
+    .filter((n) => n.lemon)
+    .map((n) => ({ lane: clampLane(n.lane), time: +n.time.toFixed(4), key: lemonKey(raw.id, n.time), got: false, gotAt: 0 }))
+    .sort((a, b) => a.time - b.time);
   const sorted = raw.notes
+    .filter((n) => !n.lemon)
     .map((n) => mkNote(clampLane(n.lane), n.time, n.dur || 0, !!n.bomb, !!n.fire))
     .sort((a, b) => a.time - b.time || a.lane - b.lane);
   const lastIdxByLane = new Map<number, number>();
@@ -197,6 +210,7 @@ export function rawToSong(raw: RawChart): SongDef {
     characterY: raw.characterY,
     notes,
     events: raw.events,
+    lemons,
     duration,
   };
 }

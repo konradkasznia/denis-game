@@ -22,8 +22,10 @@ import {
   coinsFromScore,
   fmtCoins,
   fmtCoinsFull,
+  isUnlocked,
   monetyWord,
 } from "./coins.ts";
+import { addLemons, LEMON_ROUND, lemonCount, LEMONS_NEEDED, lemonSet, mergeServerLemons, syncLemons } from "./lemons.ts";
 import { isNative } from "./native.ts";
 import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
@@ -53,6 +55,8 @@ import {
   coinUnlockPrice,
   devUnlocked,
   isBonusRound,
+  lemonGated,
+  lemonsActive,
   levelNumber,
   levelUnlocked,
   markCompleted,
@@ -141,6 +145,9 @@ const FIRE_SONGS = new Set(["pan-strazak"]);
  *  błękit wody. Celowo BEZ pomarańczu/żółci — płomienie na płonących nutach
  *  muszą się odcinać od koloru toru. */
 const FIRE_LANE_COLORS = ["#ff4d4d", "#c6ff3d", "#e8eef5", "#4fc3ff"];
+/** Cytrynowy motyw planszy (żółto-zielone tory, latające cytryny i liście). */
+const CITRUS_SONGS = new Set(["wodka-cytrynowka"]);
+const CITRUS_LANE_COLORS = ["#ffe135", "#7ddc4a", "#fff7b0", "#2fbf71"];
 
 // --- punktacja ---
 const BASE_SCORE: Record<Judgement, number> = { perfect: 300, great: 140, good: 55, miss: 0 };
@@ -878,6 +885,14 @@ export class Game {
   // odblokowanie poziomu za monety
   private coinLackModal = 0; // cena poziomu, gdy pokazujemy „za mało monet" (0 = zamknięty)
   private unlockError = false; // odblokowanie nie przeszło (offline / błąd serwera)
+  // cytryny: klucze złapane w TEJ rundzie (zapis dopiero na koniec rundy)
+  private roundLemons: string[] = [];
+  /** modal „magiczny składnik" na podsumowaniu (liczba nowych cytryn; 0 = zamknięty) */
+  private lemonModal = 0;
+  private lemonModalAt = 0;
+  private lemonOkRect: Rect | null = null;
+  /** modal z karuzeli: „zbierz cytryny" (stuknięcie w wyszarzony przycisk) */
+  private lemonInfo = false;
   private unlockBusy = false;
 
   constructor(canvas?: HTMLCanvasElement | null) {
@@ -940,6 +955,7 @@ export class Game {
       // monety i odblokowania — serwer autorytatywny (są wydawane, nie tylko rosną)
       applyServerCoins(me.coins);
       applyServerUnlocked(me.unlocked);
+      mergeServerLemons(me.lemons);
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
@@ -1676,6 +1692,15 @@ export class Game {
     if (this.logoutModal) this.drawLogoutModal(ctx);
     if (this.obstacleModal) this.drawObstacleModal(ctx);
     if (this.tutModal) this.drawTutModal(ctx);
+    if (this.lemonModal && this.scene === "results") this.drawLemonModal(ctx);
+    if (this.lemonInfo) {
+      this.drawModal(
+        ctx,
+        "🍋",
+        "ZBIERZ CYTRYNY",
+        `W innych rundach ukryły się cytryny. Złap je w trakcie gry, tak jak zwykłe nuty. Zebrane: ${Math.min(lemonCount(), LEMONS_NEEDED)}/${LEMONS_NEEDED}. Z kompletem cytryn odblokujesz tę rundę za 1000 monet.`,
+      );
+    }
     if (this.coinLackModal) {
       const have = coins();
       const need = Math.max(0, this.coinLackModal - have);
@@ -1904,6 +1929,20 @@ export class Game {
       }
       return;
     }
+    if (this.lemonModal && this.scene === "results") {
+      if (!this.lemonOkRect || inRect(this.lemonOkRect, x, y)) {
+        uiSound("buttons");
+        this.lemonModal = 0;
+      }
+      return;
+    }
+    if (this.lemonInfo) {
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
+        uiSound("buttons");
+        this.lemonInfo = false;
+      }
+      return;
+    }
     if (this.coinLackModal || this.unlockError) {
       if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
         uiSound("buttons");
@@ -2081,6 +2120,16 @@ export class Game {
       // (bez `markHowToSeen` — pokaże się znów przy następnym GRAJ)
       uiSound("back");
       this.tutModal = false;
+      return true;
+    }
+    if (this.lemonModal && this.scene === "results") {
+      uiSound("back");
+      this.lemonModal = 0;
+      return true;
+    }
+    if (this.lemonInfo) {
+      uiSound("back");
+      this.lemonInfo = false;
       return true;
     }
     if (this.coinLackModal || this.unlockError) {
@@ -2604,6 +2653,13 @@ export class Game {
       this.enterBoard();
       return;
     }
+    // Wódka Cytrynówka bez kompletu cytryn — wyszarzony przycisk, tap = podpowiedź
+    if (lemonGated(this.hitIndex) && inRect(this.hb(HIT_GRAJ), x, y)) {
+      uiSound("buttons");
+      haptic("tick");
+      this.lemonInfo = true;
+      return;
+    }
     // przycisk „ODBLOKUJ za X monet" (Pogrzebówka po bramce gwiazdkowej)
     const price = meta.playable ? coinUnlockPrice(this.hitIndex) : 0;
     if (price > 0 && inRect(this.hb(HIT_GRAJ), x, y)) {
@@ -2661,6 +2717,8 @@ export class Game {
     uiSound("buttons");
     haptic("tick");
     try {
+      // serwer sprawdza komplet cytryn — dośli lokalne, gdyby wcześniej nie poszły
+      if (songId === LEMON_ROUND) await syncLemons();
       const r = await api<{ ok?: boolean; coins?: number; unlocked?: string[] }>("/api/account", {
         method: "POST",
         body: { action: "unlock", songId },
@@ -3133,6 +3191,18 @@ export class Game {
     this.bombLockMs = 0;
     this.fireLanes = [null, null, null, null];
     this.songHasFire = this.song.notes.some((n) => n.fire);
+    // cytryny: tylko gdy runda-cel jest widoczna i jeszcze nie kupiona; już
+    // złapane (w poprzednich podejściach) nie wracają
+    this.roundLemons = [];
+    if (this.song.lemons?.length) {
+      const have = lemonSet();
+      const on = lemonsActive() && !isUnlocked(LEMON_ROUND);
+      this.song.lemons = on ? this.song.lemons.filter((l) => !have.has(l.key)) : [];
+      for (const l of this.song.lemons) {
+        l.got = false;
+        l.gotAt = 0;
+      }
+    }
     this.audio.stop(); // ucisz poprzedni przebieg
     // sprite'y z góry (w czasie odliczania) — bez zacięcia w trakcie gry
     if (typeof document !== "undefined") {
@@ -3229,6 +3299,14 @@ export class Game {
       // monety za wynik — 1 za każde pełne 10 000 pkt
       this.coinsEarned = coinsFromScore(this.score);
       if (this.coinsEarned > 0) addCoins(this.coinsEarned);
+      // cytryny złapane w tej rundzie → zapis + modal „magiczny składnik"
+      this.lemonModal = 0;
+      if (this.roundLemons.length) {
+        addLemons(this.roundLemons);
+        this.lemonModal = this.roundLemons.length;
+        this.lemonModalAt = performance.now();
+        this.roundLemons = [];
+      }
       // submitScore -> postScore odświeża obie zakładki po zapisie
       // brak internetu → wynik nie trafił do bazy (info na podsumowaniu)
       let online = true;
@@ -3259,6 +3337,7 @@ export class Game {
       } else if (performance.now() - this.resultsAt < 2600) return true;
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
+    if (this.lemonModal && this.scene === "results") return true; // bujająca się cytryna
     if (this.unlockBusy || this.authBusy || this.changePwBusy || this.fx.length) return true; // loader + konfetti
     return false;
   }
@@ -3318,6 +3397,7 @@ export class Game {
     // ogłuszenie po bombie — tapy nie działają przez 3 s (zegar ścienny, żeby
     // skoki zegara audio nie skróciły blokady); nuty lecą dalej (kara)
     if (this.bombLocked()) return;
+    this.tryCatchLemon(lane);
     // płonąca nuta jeszcze w drodze → tap gasi ogień (nie liczy się jako trafienie)
     const burning = this.fireLanes[lane];
     if (burning) {
@@ -3682,10 +3762,375 @@ export class Game {
     return FIRE_SONGS.has(this.trackId);
   }
 
+  private citrus(): boolean {
+    return CITRUS_SONGS.has(this.trackId);
+  }
+
   private laneCols(): readonly string[] {
     if (this.frost()) return FROST_LANE_COLORS;
     if (this.fire()) return FIRE_LANE_COLORS;
+    if (this.citrus()) return CITRUS_LANE_COLORS;
     return LANE_COLORS;
+  }
+
+  // ---- cytryny: sprite'y + motyw cytrynowy (CITRUS_SONGS) ---------------
+
+  private lemonSprites: { color?: HTMLCanvasElement; gray?: HTMLCanvasElement } = {};
+
+  /** Cytryna 128×128 (bok, lekko przechylona, z listkiem). Wersja szara =
+   *  jeszcze niezebrana (karuzela). Rysowana raz, potem tylko drawImage. */
+  private lemonSprite(gray = false): HTMLCanvasElement {
+    const hit = gray ? this.lemonSprites.gray : this.lemonSprites.color;
+    if (hit) return hit;
+    const cv = document.createElement("canvas");
+    cv.width = 128;
+    cv.height = 128;
+    const c = cv.getContext("2d");
+    if (c) {
+      const P = gray
+        ? { hi: "#f2f2f2", mid: "#bdbdbd", lo: "#8a8a8a", rim: "#5e5e5e", leaf: "#9a9a9a", vein: "#6e6e6e", dot: "rgba(0,0,0,0.12)" }
+        : { hi: "#fff9c4", mid: "#ffe135", lo: "#f0b400", rim: "#a87b00", leaf: "#4caf3a", vein: "#2b7a20", dot: "rgba(160,110,0,0.28)" };
+      c.translate(64, 70);
+      c.rotate(-0.32);
+      // listek (za owocem)
+      c.save();
+      c.translate(26, -34);
+      c.rotate(-0.7);
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.quadraticCurveTo(14, -16, 36, -2);
+      c.quadraticCurveTo(14, 12, 0, 0);
+      c.fillStyle = P.leaf;
+      c.fill();
+      c.strokeStyle = P.vein;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(2, 0);
+      c.lineTo(32, -2);
+      c.stroke();
+      c.restore();
+      // owoc: owal z „noskami" na końcach
+      c.beginPath();
+      c.moveTo(-56, 0);
+      c.bezierCurveTo(-52, -8, -46, -36, -2, -37);
+      c.bezierCurveTo(44, -36, 52, -8, 56, 0);
+      c.bezierCurveTo(52, 8, 44, 36, -2, 37);
+      c.bezierCurveTo(-46, 36, -52, 8, -56, 0);
+      c.closePath();
+      const g = c.createRadialGradient(-16, -16, 4, 0, 0, 62);
+      g.addColorStop(0, P.hi);
+      g.addColorStop(0.45, P.mid);
+      g.addColorStop(1, P.lo);
+      c.fillStyle = g;
+      c.fill();
+      c.strokeStyle = P.rim;
+      c.lineWidth = 3;
+      c.stroke();
+      // pory skórki
+      c.fillStyle = P.dot;
+      for (const [dx, dy] of [[14, 10], [26, -6], [-8, 18], [-24, 6], [6, -20], [34, 14], [-30, -10]]) {
+        c.beginPath();
+        c.arc(dx, dy, 1.6, 0, Math.PI * 2);
+        c.fill();
+      }
+      // odblask
+      c.fillStyle = "rgba(255,255,255,0.55)";
+      c.beginPath();
+      c.ellipse(-18, -18, 16, 6, -0.25, 0, Math.PI * 2);
+      c.fill();
+    }
+    if (gray) this.lemonSprites.gray = cv;
+    else this.lemonSprites.color = cv;
+    return cv;
+  }
+
+  private citrusSliceCache: HTMLCanvasElement | null = null;
+
+  /** Plasterek cytryny (przekrój: skórka, biała warstwa, 8 cząstek). */
+  private citrusSlice(): HTMLCanvasElement {
+    if (this.citrusSliceCache) return this.citrusSliceCache;
+    const cv = document.createElement("canvas");
+    cv.width = 112;
+    cv.height = 112;
+    const c = cv.getContext("2d");
+    if (c) {
+      c.translate(56, 56);
+      c.fillStyle = "#f2c200";
+      c.beginPath();
+      c.arc(0, 0, 52, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = "#fff6d2";
+      c.beginPath();
+      c.arc(0, 0, 45, 0, Math.PI * 2);
+      c.fill();
+      for (let i = 0; i < 8; i++) {
+        const a0 = (i / 8) * Math.PI * 2 + 0.06;
+        const a1 = ((i + 1) / 8) * Math.PI * 2 - 0.06;
+        c.beginPath();
+        c.moveTo(Math.cos((a0 + a1) / 2) * 5, Math.sin((a0 + a1) / 2) * 5);
+        c.arc(0, 0, 40, a0, a1);
+        c.closePath();
+        c.fillStyle = i % 2 ? "#ffe55c" : "#ffdc3a";
+        c.fill();
+      }
+    }
+    this.citrusSliceCache = cv;
+    return cv;
+  }
+
+  private citrusLeafCache: HTMLCanvasElement | null = null;
+
+  /** Listek cytryny (do opadających liści w tle). */
+  private citrusLeaf(): HTMLCanvasElement {
+    if (this.citrusLeafCache) return this.citrusLeafCache;
+    const cv = document.createElement("canvas");
+    cv.width = 80;
+    cv.height = 40;
+    const c = cv.getContext("2d");
+    if (c) {
+      c.beginPath();
+      c.moveTo(4, 20);
+      c.quadraticCurveTo(36, -6, 76, 20);
+      c.quadraticCurveTo(36, 46, 4, 20);
+      const g = c.createLinearGradient(0, 0, 0, 40);
+      g.addColorStop(0, "#7ed957");
+      g.addColorStop(1, "#2f8f2a");
+      c.fillStyle = g;
+      c.fill();
+      c.strokeStyle = "rgba(20,70,15,0.7)";
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(6, 20);
+      c.lineTo(72, 20);
+      c.stroke();
+    }
+    this.citrusLeafCache = cv;
+    return cv;
+  }
+
+  private citrusDrift: { x: number; y: number; s: number; v: number; rot: number; vr: number; kind: number; ph: number }[] = [];
+
+  /** W tle (za torami): unoszące się cytryny i plasterki + opadające liście.
+   *  Ruch z czasu utworu, przygaszone, żeby nie odciągały wzroku od nut. */
+  private drawCitrusDrift(ctx: CanvasRenderingContext2D) {
+    const top = -this.vdy;
+    const vh = this.sh();
+    if (!this.citrusDrift.length) {
+      for (let i = 0; i < 16; i++) {
+        const kind = i < 4 ? 0 : i < 8 ? 1 : 2; // 0 cytryna, 1 plasterek, 2 liść
+        this.citrusDrift.push({
+          x: Math.random() * VW,
+          y: Math.random(),
+          s: kind === 2 ? 26 + Math.random() * 18 : 34 + Math.random() * 26,
+          v: kind === 2 ? 0.05 + Math.random() * 0.05 : 0.025 + Math.random() * 0.03,
+          rot: Math.random() * Math.PI * 2,
+          vr: (Math.random() - 0.5) * (kind === 2 ? 1.6 : 0.8),
+          kind,
+          ph: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+    const t = Math.max(0, this.songTime);
+    const lemon = this.lemonSprite();
+    const slice = this.citrusSlice();
+    const leaf = this.citrusLeaf();
+    ctx.save();
+    for (const d of this.citrusDrift) {
+      // cytryny/plasterki unoszą się do góry, liście opadają
+      const dir = d.kind === 2 ? 1 : -1;
+      const k = (((d.y + dir * t * d.v) % 1) + 1) % 1;
+      const yy = top - 60 + k * (vh + 120);
+      const xx = d.x + Math.sin(t * 0.9 + d.ph) * 26;
+      const spr = d.kind === 0 ? lemon : d.kind === 1 ? slice : leaf;
+      const w = d.s * (d.kind === 2 ? 1.6 : 1);
+      const h = (w * spr.height) / spr.width;
+      ctx.globalAlpha = d.kind === 2 ? 0.55 : 0.38;
+      ctx.translate(xx, yy);
+      ctx.rotate(d.rot + t * d.vr);
+      ctx.drawImage(spr, -w / 2, -h / 2, w, h);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.restore();
+  }
+
+  /** Cytryny złapane w rundzie — tap w torze w oknie trafienia. Nie ocenia
+   *  nut, nie daje punktów; ten sam tap może dalej trafić zwykłą nutę. */
+  private tryCatchLemon(lane: number) {
+    const ls = this.song.lemons;
+    if (!ls || !ls.length) return;
+    const t = this.inputSongTime() - this.offsetSec();
+    for (const l of ls) {
+      if (l.got || l.lane !== lane) continue;
+      if (Math.abs(t - l.time) > 0.2) continue;
+      l.got = true;
+      l.gotAt = this.songTime;
+      this.roundLemons.push(l.key);
+      this.pushPopup("CYTRYNA!", "#ffe135", lane);
+      this.audio.sfx("flow");
+      haptic("combo");
+      return;
+    }
+  }
+
+  /** Cytryny na torach + krótka animacja po złapaniu (podskok, obrót, błysk). */
+  private drawLemons(ctx: CanvasRenderingContext2D) {
+    const ls = this.song.lemons;
+    if (!ls || !ls.length) return;
+    const spr = this.lemonSprite();
+    for (const l of ls) {
+      if (!l.got) {
+        const e = this.eForTime(l.time);
+        if (e > 1.25 || e < -0.2) continue;
+        const ec = clamp(e, 0, 1.25);
+        const x = this.laneXAtE(l.lane, ec);
+        const y = this.yForE(ec);
+        const r = RECEPTOR_R * this.sizeAtE(e);
+        const a = (e > 1 ? clamp(1 - (e - 1) * 5, 0, 1) : 1) * this.noteAlphaMul;
+        if (a <= 0) continue;
+        const d = r * 2.9;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(this.songTime * 5 + l.lane) * 0.18);
+        ctx.drawImage(spr, -d / 2, -d / 2, d, d);
+        ctx.restore();
+        continue;
+      }
+      const dt = this.songTime - l.gotAt;
+      if (dt < 0 || dt > 0.75) continue;
+      const k = dt / 0.75;
+      const x = this.hitX(l.lane);
+      const y = this.hitY() - k * 110;
+      const d = RECEPTOR_R * 2.9 * (1 + 0.25 * Math.sin(Math.PI * Math.min(1, k * 1.6)));
+      ctx.save();
+      // błysk: rozchodzący się żółty pierścień
+      ctx.globalAlpha = (1 - k) * 0.8;
+      ctx.strokeStyle = "#fff27a";
+      ctx.lineWidth = 4 * (1 - k) + 1;
+      ctx.beginPath();
+      ctx.arc(x, this.hitY(), RECEPTOR_R * (0.8 + k * 2.2), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1 - k * k;
+      ctx.translate(x, y);
+      ctx.rotate(k * Math.PI * 1.5);
+      ctx.drawImage(spr, -d / 2, -d / 2, d, d);
+      ctx.restore();
+    }
+  }
+
+  /** Rząd 5 cytryn (kolorowe = zebrane, szare = brakujące). */
+  private drawLemonRow(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, have: number) {
+    const gap = size * 1.05;
+    const x0 = cx - ((LEMONS_NEEDED - 1) * gap) / 2;
+    for (let i = 0; i < LEMONS_NEEDED; i++) {
+      const spr = this.lemonSprite(i >= have);
+      ctx.drawImage(spr, x0 + i * gap - size / 2, cy - size / 2, size, size);
+    }
+  }
+
+  /** Modal na podsumowaniu: „znalazłeś magiczny składnik". */
+  private drawLemonModal(ctx: CanvasRenderingContext2D) {
+    this.fillViewport(ctx, "rgba(4,4,10,0.84)");
+    const t = (performance.now() - this.lemonModalAt) / 1000;
+    const pw = VW - 72;
+    const px = 36;
+    const lines = wrapText("Znalazłeś magiczny składnik, który pozwoli Ci przygotować coś specjalnego!", 30);
+    const lineH = 34;
+    const ph = 330 + lines.length * lineH + 135 + MODAL_OK.h + 40;
+    const py = Math.max(20, (VH - ph) / 2);
+    // panel wjeżdża z lekkim „sprężynowaniem"
+    const pop = t < 0.45 ? 1 - Math.pow(1 - t / 0.45, 3) * Math.cos((t / 0.45) * Math.PI * 1.5) : 1;
+    ctx.save();
+    ctx.translate(VW / 2, py + ph / 2);
+    ctx.scale(0.85 + 0.15 * pop, 0.85 + 0.15 * pop);
+    ctx.translate(-VW / 2, -(py + ph / 2));
+    ctx.fillStyle = "#15121c";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,225,53,0.7)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+
+    // promienie za cytryną
+    const lcx = VW / 2;
+    const lcy = py + 150;
+    ctx.save();
+    ctx.translate(lcx, lcy);
+    ctx.rotate(t * 0.35);
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 12; i++) {
+      ctx.rotate((Math.PI * 2) / 12);
+      ctx.fillStyle = "rgba(255,205,40,0.2)";
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-22, -150);
+      ctx.lineTo(22, -150);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    // duża cytryna: bujanie + „oddech"
+    const big = 230 * (1 + 0.04 * Math.sin(t * 3));
+    ctx.save();
+    ctx.translate(lcx, lcy + Math.sin(t * 2.2) * 6);
+    ctx.rotate(Math.sin(t * 1.6) * 0.12);
+    ctx.drawImage(this.lemonSprite(), -big / 2, -big / 2, big, big);
+    ctx.restore();
+
+    text(ctx, "SUPER!", VW / 2, py + 300, {
+      size: 44,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffe135",
+      shadows: HEAD_SHADOWS,
+    });
+    lines.forEach((ln, i) =>
+      text(ctx, ln, VW / 2, py + 350 + i * lineH, { size: 24, weight: "700", color: "#f1e9d8" }),
+    );
+    const rowY = py + 350 + lines.length * lineH + 38;
+    const have = Math.min(LEMONS_NEEDED, lemonCount());
+    this.drawLemonRow(ctx, VW / 2, rowY, 62, have);
+    text(ctx, `Cytryny: ${have}/${LEMONS_NEEDED}`, VW / 2, rowY + 48, {
+      size: 18,
+      weight: "800",
+      color: "rgba(255,240,170,0.8)",
+    });
+    ctx.restore();
+
+    this.lemonOkRect = { x: VW / 2 - MODAL_OK.w / 2, y: py + ph - MODAL_OK.h - 30, w: MODAL_OK.w, h: MODAL_OK.h };
+    this.uiButton(ctx, this.lemonOkRect, "rozumiem", { fallback: "ROZUMIEM" });
+  }
+
+  /** Złoty przycisk w odcieniach szarości (nieaktywny, ale z czytelnym tekstem). */
+  private grayBtn(ctx: CanvasRenderingContext2D, r: Rect, label: string) {
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    this.styledBtn(ctx, r, "", "gold");
+    ctx.globalAlpha = 1;
+    // „saturation" z szarym źródłem = odbarwienie tego, co pod spodem (bez ctx.filter,
+    // którego iOS przed 18 nie ma)
+    ctx.globalCompositeOperation = "saturation";
+    ctx.fillStyle = "#808080";
+    roundRect(ctx, r.x, r.y, r.w, r.h, Math.min(r.h / 2, 26));
+    ctx.fill();
+    ctx.restore();
+    // napis już po odbarwieniu — biały na szarym, czytelny
+    const faceH = r.h - Math.round(r.h * 0.14);
+    let fsize = 30;
+    ctx.save();
+    ctx.font = `900 ${fsize}px ${HEAD_FONT}`;
+    const mw = ctx.measureText(label)?.width;
+    ctx.restore();
+    if (typeof mw === "number" && mw > r.w - 44) fsize = Math.max(18, Math.floor((fsize * (r.w - 44)) / mw));
+    text(ctx, label, r.x + r.w / 2, r.y + faceH / 2 + 1, {
+      size: fsize,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#f4f4f4",
+      stroke: "#4a4a4a",
+      strokeWidth: 5,
+    });
   }
 
   // ---- strażacki motyw (FIRE_SONGS) ------------------------------------
@@ -3962,11 +4407,15 @@ export class Game {
     }
     const frost = this.frost();
     const fire = this.fire();
-    if (frost || fire) {
-      // odcień całej sceny: chłodny (mróz) albo ciepły (pożar)
+    const citrus = this.citrus();
+    if (frost || fire || citrus) {
+      // odcień całej sceny: chłodny (mróz), ciepły (pożar) albo cytrynowy
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      this.fillViewport(ctx, frost ? "rgba(40,110,190,0.10)" : "rgba(150,40,10,0.10)");
+      this.fillViewport(
+        ctx,
+        frost ? "rgba(40,110,190,0.10)" : fire ? "rgba(150,40,10,0.10)" : "rgba(110,150,10,0.11)",
+      );
       ctx.restore();
     }
 
@@ -3981,7 +4430,7 @@ export class Game {
       const [lx, ly] = lights[li];
       const r = 120 + pulse * 60;
       const rg = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      const lc = frost ? "150,215,255" : fire ? "255,45,35" : "255,180,90";
+      const lc = frost ? "150,215,255" : fire ? "255,45,35" : citrus ? "225,255,100" : "255,180,90";
       // pożar: czerwone koguty wozu strażackiego, na zmianę lewy/prawy
       const blink = fire ? 0.35 + 0.65 * Math.max(0, Math.sin(this.songTime * 7 + li * Math.PI)) : 1;
       rg.addColorStop(0, `rgba(${lc},${(0.32 + pulse * 0.28) * blink})`);
@@ -3994,6 +4443,7 @@ export class Game {
     ctx.restore();
     if (frost) this.drawSnow(ctx);
     if (fire) this.drawEmbers(ctx);
+    if (citrus) this.drawCitrusDrift(ctx);
   }
 
   // ---- „latające reflektory" — bajer tła dla Pani Policjantko (bez wpływu
@@ -5671,6 +6121,17 @@ export class Game {
 
     // postać (b&w tylko gdy zablokowana progresją)
     this.drawSelectChar(ctx, idx, unlocked);
+    // Wódka Cytrynówka: 5 cytryn na postaci (kolorowe = zebrane), aż do zakupu
+    if (meta.id === LEMON_ROUND && !isUnlocked(LEMON_ROUND)) {
+      const c = this.charRect;
+      const rowY = Math.min(c.y + c.h - 60, this.hb(HIT_GRAJ).y - 80);
+      ctx.save();
+      ctx.fillStyle = "rgba(8,6,12,0.55)";
+      roundRect(ctx, VW / 2 - 185, rowY - 42, 370, 84, 42);
+      ctx.fill();
+      ctx.restore();
+      this.drawLemonRow(ctx, VW / 2, rowY, 66, Math.min(LEMONS_NEEDED, lemonCount()));
+    }
 
     // confetti (po kliknięciu GRAJ!)
     this.drawFx(ctx);
@@ -5777,7 +6238,9 @@ export class Game {
 
     // GRAJ! albo „ODBLOKUJ za X monet"
     const graj = this.hb(HIT_GRAJ);
-    if (coinPrice > 0) {
+    if (lemonGated(idx)) {
+      this.grayBtn(ctx, graj, `ZBIERZ CYTRYNY I ${fmtCoinsFull(coinPrice)} MONET`);
+    } else if (coinPrice > 0) {
       this.drawUnlockButton(ctx, graj, coinPrice);
     } else {
       this.uiButton(ctx, graj, "graj", { disabled: !unlocked, fallback: "GRAJ!" });
@@ -6395,7 +6858,8 @@ export class Game {
       ctx.closePath();
       const frost = this.frost();
       const fire = this.fire();
-      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}|${frost ? 1 : fire ? 2 : 0}`;
+      const citrus = this.citrus();
+      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}|${frost ? 1 : fire ? 2 : citrus ? 3 : 0}`;
       let lg = this.laneGradCache.get(laneKey);
       if (!lg) {
         lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
@@ -6415,6 +6879,14 @@ export class Game {
             1,
             held ? "rgba(255,130,50,0.36)" : l % 2 ? "rgba(185,55,15,0.36)" : "rgba(155,42,12,0.42)",
           );
+        } else if (citrus) {
+          // cytrynowo-limonkowy tor: zieleń przy horyzoncie, ciepła żółć przy linii
+          lg.addColorStop(0, l % 2 ? "rgba(70,130,20,0.10)" : "rgba(55,110,15,0.13)");
+          lg.addColorStop(0.6, l % 2 ? "rgba(150,195,30,0.22)" : "rgba(115,170,25,0.26)");
+          lg.addColorStop(
+            1,
+            held ? "rgba(255,245,130,0.44)" : l % 2 ? "rgba(235,215,40,0.34)" : "rgba(160,205,45,0.38)",
+          );
         } else {
           lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
           lg.addColorStop(
@@ -6431,7 +6903,9 @@ export class Game {
         ? `rgba(215,245,255,${0.22 + flash * 0.5 + (held ? 0.35 : 0)})`
         : fire
           ? `rgba(255,150,80,${0.2 + flash * 0.5 + (held ? 0.35 : 0)})`
-          : `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
+          : citrus
+            ? `rgba(235,255,150,${0.2 + flash * 0.5 + (held ? 0.35 : 0)})`
+            : `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(cTop - hwT, yTop);
@@ -6451,13 +6925,21 @@ export class Game {
     const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
     const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
     const glowH = 46 + pulse * 34;
-    ctx.drawImage(this.hitLineGlowSprite(this.frost() ? "frost" : this.fire() ? "fire" : ""), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
+    ctx.drawImage(
+      this.hitLineGlowSprite(this.frost() ? "frost" : this.fire() ? "fire" : this.citrus() ? "citrus" : ""),
+      hlx0,
+      hitY - glowH / 2,
+      hlx1 - hlx0,
+      glowH,
+    );
     ctx.save();
     ctx.strokeStyle = this.frost()
       ? "rgba(220,248,255,0.9)"
       : this.fire()
         ? "rgba(255,205,150,0.9)"
-        : "rgba(255,228,185,0.85)";
+        : this.citrus()
+          ? "rgba(245,255,180,0.9)"
+          : "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(hlx0, hitY);
@@ -6561,6 +7043,7 @@ export class Game {
   private hitLineGlowCache: HTMLCanvasElement | null = null;
   private hitLineGlowFrost: HTMLCanvasElement | null = null;
   private hitLineGlowFire: HTMLCanvasElement | null = null;
+  private hitLineGlowCitrus: HTMLCanvasElement | null = null;
 
   private makeHitLineGlow(rgb: string): HTMLCanvasElement {
     const H = 96;
@@ -6585,7 +7068,8 @@ export class Game {
   }
 
   /** Pozioma poświata linii trafienia (pionowy gradient, rozciągany na szerokość). */
-  private hitLineGlowSprite(theme: "" | "frost" | "fire" = ""): HTMLCanvasElement {
+  private hitLineGlowSprite(theme: "" | "frost" | "fire" | "citrus" = ""): HTMLCanvasElement {
+    if (theme === "citrus") return (this.hitLineGlowCitrus ??= this.makeHitLineGlow("225,240,60"));
     if (theme === "frost") return (this.hitLineGlowFrost ??= this.makeHitLineGlow("160,225,255"));
     if (theme === "fire") return (this.hitLineGlowFire ??= this.makeHitLineGlow("255,110,40"));
     if (this.hitLineGlowCache) return this.hitLineGlowCache;
@@ -6813,6 +7297,8 @@ export class Game {
       ctx.drawImage(spr, x - nd / 2, y - nd / 2, nd, nd);
       ctx.restore();
     }
+
+    this.drawLemons(ctx);
 
     // pierścienie trafień
     for (const fx of this.hitFx) {

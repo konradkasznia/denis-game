@@ -154,6 +154,29 @@ const n3 = await call(h.register, {
 });
 ok(n3.status === 409, "rejestracja loginu = cudzy nick → 409");
 
+console.log("· cytryny (Wódka Cytrynówka):");
+{
+  await client.execute({ sql: "UPDATE users SET coins = 2000 WHERE login = 'Basia'", args: [] });
+  const buy0 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "wodka-cytrynowka" } });
+  ok(buy0.status === 403, `bez cytryn odblokowanie odrzucone (${buy0.status})`);
+  const l1 = await call(h.account, {
+    method: "POST",
+    token: tokB,
+    body: { action: "lemons", keys: ["panna-mloda@12.50", "pogrzebowka@40.00", "zle klucze", "x@1"] },
+  });
+  ok(l1.status === 200 && l1.body.lemons.length === 2, "zapis cytryn, śmieciowe klucze odrzucone");
+  const l2 = await call(h.account, {
+    method: "POST",
+    token: tokB,
+    body: { action: "lemons", keys: ["panna-mloda@12.50", "ksiaze-z-bajki@3.10", "pan-strazak@22.00", "pogrzebowka@51.25"] },
+  });
+  ok(l2.body.lemons.length === 5, "suma zbiorów bez duplikatów (5)");
+  const me = await call(h.me, { token: tokB });
+  ok(me.body.lemons?.length === 5, "/api/auth/me zwraca cytryny");
+  const buy1 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "wodka-cytrynowka" } });
+  ok(buy1.status === 200 && buy1.body.coins === 1000 && buy1.body.unlocked.includes("wodka-cytrynowka"), "5 cytryn + 1000 monet → odblokowane");
+}
+
 console.log("· wyniki / monety:");
 const fake = await call(h.scores, { method: "POST", token: tokA, body: { songId: "a1", score: 2_000_000, stars: 5 } });
 ok(fake.status === 400, `wymyślone songId odrzucone (${fake.status})`);

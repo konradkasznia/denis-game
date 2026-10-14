@@ -49,6 +49,10 @@ export function ensureSchema(): Promise<void> {
       if (cols.length && !cols.includes("unlocked")) {
         await c.execute("ALTER TABLE users ADD COLUMN unlocked TEXT NOT NULL DEFAULT ''");
       }
+      // zebrane cytryny (klucze "<utwór>@<sekunda>", CSV) — bramka rundy Wódka Cytrynówka
+      if (cols.length && !cols.includes("lemons")) {
+        await c.execute("ALTER TABLE users ADD COLUMN lemons TEXT NOT NULL DEFAULT ''");
+      }
       if (cols.length && !cols.includes("login_key")) {
         await c.execute("ALTER TABLE users ADD COLUMN login_key TEXT");
       }

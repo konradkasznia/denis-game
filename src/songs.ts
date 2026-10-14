@@ -1,4 +1,5 @@
 import { isUnlocked, UNLOCK_COST } from "./coins.ts";
+import { LEMON_ROUND, lemonCount, LEMONS_NEEDED } from "./lemons.ts";
 
 // Rejestr utworów + śledzenie, które gracz już „poznał".
 //
@@ -75,6 +76,16 @@ export const SONGS: SongMeta[] = [
     accent: "#ff9f43",
     playable: true,
     devOnly: true, // poziom 5 — w testach, tylko konto Konrad
+  },
+  {
+    id: "wodka-cytrynowka",
+    title: "Wódka Cytrynówka",
+    artist: "Denis",
+    accent: "#e8f53a",
+    playable: true,
+    // runda bonusowa: 5 cytryn (znajdźki w innych rundach) + 1000 monet.
+    // Na razie test — tylko konto Konrad (cytryny też widzi tylko on).
+    devOnly: true,
   },
 ];
 
@@ -224,13 +235,27 @@ export function isBonusRound(id: string | undefined): boolean {
   return !!id && !!UNLOCK_COST[id];
 }
 
+/** Czy cytryny mają się pojawiać w rundach (runda-cel widoczna dla gracza). */
+export function lemonsActive(): boolean {
+  const target = SONGS.find((s) => s.id === LEMON_ROUND);
+  return !!target && (!target.devOnly || devUnlocked());
+}
+
+/** Runda czeka jeszcze na cytryny (przycisk „Zbierz cytryny i 1000 monet"). */
+export function lemonGated(index: number): boolean {
+  const id = SONGS[index]?.id;
+  return id === LEMON_ROUND && !isUnlocked(id) && lemonCount() < LEMONS_NEEDED;
+}
+
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
-  if (SONGS[index]?.devOnly) return devUnlocked(); // poziom testowy — omija progresję
   const id = SONGS[index]?.id;
-  // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts)
+  if (SONGS[index]?.devOnly && !devUnlocked()) return false;
+  // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts) —
+  // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
   if (isBonusRound(id)) return isUnlocked(id!);
+  if (SONGS[index]?.devOnly) return true; // poziom testowy — omija progresję
   if (!prevRoundCleared(index)) return false;
   return true;
 }
@@ -240,6 +265,7 @@ export function levelUnlocked(index: number): boolean {
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
   if (!isBonusRound(id) || isUnlocked(id!)) return 0;
+  if (SONGS[index]?.devOnly && !devUnlocked()) return 0;
   return UNLOCK_COST[id!];
 }
 

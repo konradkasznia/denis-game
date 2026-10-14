@@ -3,6 +3,7 @@
 //   POST { action: "password", currentPassword, newPassword } → zmiana hasła
 //        (wymaga obecnego hasła; wylogowuje pozostałe urządzenia)
 //   POST { action: "unlock", songId }          → odblokowanie poziomu za monety
+//   POST { action: "lemons", keys }            → dopisanie zebranych cytryn (suma zbiorów)
 //   POST { action: "delete" }                  → usunięcie konta i wszystkich danych
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -22,7 +23,18 @@ import {
 } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
-const UNLOCK_COST: Record<string, number> = { pogrzebowka: 50 };
+const UNLOCK_COST: Record<string, number> = { pogrzebowka: 50, "wodka-cytrynowka": 1000 };
+// Poziomy, które poza monetami wymagają zebranych cytryn (musi zgadzać się z src/lemons.ts).
+const LEMONS_REQUIRED: Record<string, number> = { "wodka-cytrynowka": 5 };
+// klucz cytryny: "<id utworu>@<sekunda z 2 miejscami>", np. "panna-mloda@42.50"
+const LEMON_KEY_RE = /^[a-z0-9][a-z0-9-]{1,40}@\d{1,4}\.\d{2}$/;
+const MAX_LEMONS = 60;
+
+const csv = (v: unknown) =>
+  String(v ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["POST"])) return;
@@ -42,6 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       songId?: string;
       newPassword?: string;
       currentPassword?: string;
+      keys?: unknown;
     }>(req);
 
     if (b.action === "nick") {
@@ -87,10 +100,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { ok: true });
     }
 
+    if (b.action === "lemons") {
+      // suma zbiorów: cytryn nigdy nie ubywa, więc kolejność/powtórki żądań nie szkodzą
+      const incoming = Array.isArray(b.keys) ? b.keys.map(String).filter((k) => LEMON_KEY_RE.test(k)) : [];
+      const r = await c.execute({ sql: "SELECT lemons FROM users WHERE id = ?", args: [u.id] });
+      const set = new Set(csv(r.rows[0]?.lemons));
+      for (const k of incoming) if (set.size < MAX_LEMONS) set.add(k);
+      const lemons = [...set];
+      await c.execute({ sql: "UPDATE users SET lemons = ? WHERE id = ?", args: [lemons.join(","), u.id] });
+      return json(res, 200, { ok: true, lemons });
+    }
+
     if (b.action === "unlock") {
       const songId = String(b.songId || "").trim().toLowerCase();
       const cost = UNLOCK_COST[songId];
       if (!cost) return json(res, 400, { error: "Tego poziomu nie odblokowuje się monetami." });
+      const needLemons = LEMONS_REQUIRED[songId] ?? 0;
+      if (needLemons) {
+        const lr = await c.execute({ sql: "SELECT lemons FROM users WHERE id = ?", args: [u.id] });
+        if (csv(lr.rows[0]?.lemons).length < needLemons)
+          return json(res, 403, { error: "Najpierw zbierz wszystkie cytryny." });
+      }
 
       const readState = async () => {
         const r = await c.execute({ sql: "SELECT coins, unlocked FROM users WHERE id = ?", args: [u.id] });
