@@ -1224,6 +1224,12 @@
       "dur": 0
     },
     {
+      "lane": 2,
+      "time": 89.571,
+      "dur": 0,
+      "lemon": true
+    },
+    {
       "lane": 3,
       "time": 89.571,
       "dur": 0
