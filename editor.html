@@ -65,6 +65,13 @@
         border: 1px solid #34344a; border-radius: 8px; padding: 10px; font: 14px system-ui; }
       #invite .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
       #invres { margin-top: 14px; font-size: 13px; white-space: pre-wrap; }
+      #invlist { margin-top: 10px; max-height: 50vh; overflow: auto; border: 1px solid #34344a; border-radius: 8px; }
+      #invlist .u { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #241f2c; font-size: 14px; }
+      #invlist .u:last-child { border-bottom: 0; }
+      #invlist .u b { color: #f1e9d8; }
+      #invlist .u .meta { color: #9a8c7e; font-size: 12px; }
+      #invlist .u button { margin-left: auto; padding: 4px 10px; font-size: 12px; }
+      #invlist .empty { padding: 14px; color: #9a8c7e; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -159,16 +166,23 @@
     <div id="invite">
       <div class="inner">
         <h1>💌 Zaproszenia na wesele (Pan Młody)</h1>
-        <p style="color:#9a8c7e; margin:0 0 10px">Wklej loginy graczy z aplikacji (po jednym w linii albo po przecinku).
+        <p style="color:#9a8c7e; margin:0 0 10px">Wklej loginy graczy z aplikacji (po jednym w linii albo po przecinku, „@” można zostawić).
           Każdy dostanie odblokowaną rundę <b>Pan Młody</b>, a po wejściu do gry okno „Otrzymałeś zaproszenie weselne”.</p>
         <textarea id="invlogins" placeholder="ania&#10;bartek123&#10;@kasia"></textarea>
         <div class="row">
           <label><input type="checkbox" id="invpush" checked /> wyślij też push</label>
           <span style="flex:1"></span>
           <button class="ghost" id="invclose">zamknij</button>
-          <button id="invsend">Wyślij zaproszenia</button>
+          <button id="invsend">Zaproś</button>
         </div>
         <div id="invres"></div>
+
+        <h2 style="font-size:17px; color:#ffce8a; margin:26px 0 8px">Zaproszeni <span id="invcount" style="color:#9a8c7e"></span></h2>
+        <div class="row" style="margin-top:0">
+          <input type="text" id="invsearch" placeholder="szukaj loginu…" style="flex:1" />
+          <button class="ghost" id="invrefresh">↻ odśwież</button>
+        </div>
+        <div id="invlist"></div>
       </div>
     </div>
     <div id="help">

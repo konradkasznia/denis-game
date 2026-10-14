@@ -1,15 +1,17 @@
 // Zaproszenia na wesele (runda bonusowa „Pan Młody") — akcja promocyjna z TikToka:
-// gracze piszą w komentarzu swój login z apki, a Konrad wkleja listę w edytorze.
+// gracze piszą w komentarzu swój login z apki, a Konrad zarządza dostępami
+// w edytorze (przycisk „💌 Zaproszenia").
 //
-//   POST /api/invite   nagłówek x-editor-key = EDITOR_PASSWORD
-//   { logins: ["ania", "Bartek", ...], push?: true }
+//   nagłówek x-editor-key = EDITOR_PASSWORD
+//   GET  /api/invite                                       → lista zaproszonych
+//   POST /api/invite { logins: [...], push?: true }        → zaproś
+//   POST /api/invite { action: "revoke", logins: [...] }   → odbierz dostęp
 //
-// Każdemu znalezionemu kontu dopisuje "pan-mlody" do `users.unlocked` (to samo
-// pole co odblokowania za monety — klient pokaże runde i modal „Otrzymałeś
-// zaproszenie weselne"). Opcjonalnie wysyła push przez OneSignal do tych osób
-// (external_id = "u<id>", ustawiane w apce przez OneSignal.login — patrz src/push.ts).
-// Push wymaga zmiennej ONESIGNAL_REST_API_KEY w Vercelu; bez niej zaproszenia
-// i tak działają, tylko bez powiadomienia.
+// Zaproszenie dopisuje "pan-mlody" do `users.unlocked` (to samo pole co
+// odblokowania za monety — klient pokaże rundę i modal „Otrzymałeś zaproszenie
+// weselne"). Opcjonalnie wysyła push przez OneSignal (external_id = "u<id>",
+// ustawiane w apce przez OneSignal.login — patrz src/push.ts). Push wymaga
+// zmiennej ONESIGNAL_REST_API_KEY w Vercelu; bez niej zaproszenia i tak działają.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db, ensureSchema } from "./_lib/db.js";
@@ -19,6 +21,7 @@ import { allow, body, json, loginKey } from "./_lib/util.js";
 const WEDDING = "pan-mlody";
 const ONESIGNAL_APP_ID = "45d6db77-411c-4ab6-a9ce-918a7325795d"; // jak DEFAULT_APP_ID w src/push.ts
 const MAX_LOGINS = 500;
+const HAS_WEDDING = "instr(',' || unlocked || ',', ',' || ? || ',') > 0";
 
 async function sendPush(ids: string[]): Promise<{ sent: number; error?: string }> {
   const key = process.env.ONESIGNAL_REST_API_KEY || "";
@@ -50,11 +53,30 @@ async function sendPush(ids: string[]): Promise<{ sent: number; error?: string }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!allow(req, res, ["POST"])) return;
+  if (!allow(req, res, ["GET", "POST"])) return;
   if (!(await requireEditor(req, res))) return;
   try {
     await ensureSchema();
-    const b = body<{ logins?: unknown; push?: unknown }>(req);
+    const c = db();
+
+    if (req.method === "GET") {
+      const r = await c.execute({
+        sql: `SELECT login, nick, unlocked FROM users WHERE ${HAS_WEDDING} ORDER BY lower(login)`,
+        args: [WEDDING],
+      });
+      const users = r.rows.map((row) => {
+        const list = String(row.unlocked ?? "").split(",");
+        return {
+          login: String(row.login),
+          nick: String(row.nick ?? ""),
+          suits: list.filter((x) => x.startsWith("garnitur-")).length,
+          weseleTrwa: list.includes("wesele-trwa"),
+        };
+      });
+      return json(res, 200, { ok: true, users });
+    }
+
+    const b = body<{ logins?: unknown; push?: unknown; action?: unknown }>(req);
     const raw = Array.isArray(b.logins) ? b.logins : [];
     // loginy z komentarzy: bez @, spacji i duplikatów
     const wanted = [...new Set(raw.map((l) => String(l).trim().replace(/^@+/, "")).filter(Boolean))].slice(
@@ -63,7 +85,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
     if (!wanted.length) return json(res, 400, { error: "Podaj przynajmniej jeden login." });
 
-    const c = db();
+    if (b.action === "revoke") {
+      // odbiera samą rundę; kupione garnitury / Wesele trwa zostają w koncie
+      // (bez zaproszenia i tak są niewidoczne, po ponownym zaproszeniu wracają)
+      const revoked: string[] = [];
+      const notFound: string[] = [];
+      for (const login of wanted) {
+        const r = await c.execute({
+          sql: `UPDATE users SET unlocked = TRIM(REPLACE(',' || unlocked || ',', ',' || ? || ',', ','), ',')
+                WHERE (login_key = ? OR lower(login) = lower(?)) AND ${HAS_WEDDING}
+                RETURNING login`,
+          args: [WEDDING, loginKey(login), login, WEDDING],
+        });
+        if (r.rows[0]) revoked.push(String(r.rows[0].login));
+        else notFound.push(login);
+      }
+      return json(res, 200, { ok: true, revoked, notFound });
+    }
+
     const invited: string[] = [];
     const already: string[] = [];
     const notFound: string[] = [];
@@ -87,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         continue;
       }
       await c.execute({
-        sql: "UPDATE users SET unlocked = TRIM(unlocked || ',' || ?, ',') WHERE id = ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0",
+        sql: `UPDATE users SET unlocked = TRIM(unlocked || ',' || ?, ',') WHERE id = ? AND NOT ${HAS_WEDDING}`,
         args: [WEDDING, row.id, WEDDING],
       });
       invited.push(String(row.login));

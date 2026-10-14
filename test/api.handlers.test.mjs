@@ -204,6 +204,16 @@ console.log("· wesele (zaproszenia, garnitury, koperta):");
   await client.execute({ sql: "UPDATE users SET coins = 1000 WHERE login = 'Basia'", args: [] });
   const e3 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 1000 } });
   ok(e3.status === 200 && e3.body.coins === 0 && e3.body.unlocked.includes("wesele-trwa"), "koperta 1000 → Wesele trwa odblokowane");
+  const list = await call(h.invite, { headers: KEY });
+  ok(list.status === 200 && list.body.users.some((u) => u.login === "Basia" && u.suits === 1 && u.weseleTrwa), "lista zaproszonych z garniturami");
+  const noKey = await call(h.invite, { headers: { "x-editor-key": "zle" } });
+  ok(noKey.status === 401, "lista bez hasła → 401");
+  const rv = await call(h.invite, { method: "POST", headers: KEY, body: { action: "revoke", logins: ["BASIA", "nikt"] } });
+  ok(rv.status === 200 && rv.body.revoked.length === 1 && rv.body.notFound.includes("nikt"), "odebranie dostępu");
+  const me2 = await call(h.me, { token: tokB });
+  ok(!me2.body.unlocked.includes("pan-mlody") && me2.body.unlocked.includes("garnitur-1"), "po odebraniu: bez rundy, garnitur zostaje");
+  const list2 = await call(h.invite, { headers: KEY });
+  ok(!list2.body.users.some((u) => u.login === "Basia"), "odebrany znika z listy");
 }
 
 console.log("· wyniki / monety:");
