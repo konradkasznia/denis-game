@@ -4,6 +4,8 @@
 //        (wymaga obecnego hasła; wylogowuje pozostałe urządzenia)
 //   POST { action: "unlock", songId }          → odblokowanie poziomu za monety
 //   POST { action: "lemons", keys }            → dopisanie zebranych cytryn (suma zbiorów)
+//   POST { action: "envelope", amount }        → koperta na weselu (Pan Młody): monety
+//        przepadają, min. 1000 jednorazowo odblokowuje rundę „Wesele trwa"
 //   POST { action: "delete" }                  → usunięcie konta i wszystkich danych
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -23,7 +25,18 @@ import {
 } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
-const UNLOCK_COST: Record<string, number> = { pogrzebowka: 50, "wodka-cytrynowka": 1000 };
+const UNLOCK_COST: Record<string, number> = {
+  pogrzebowka: 50,
+  "wodka-cytrynowka": 1000,
+  // garnitury na wesele (Pan Młody) — kupowane tak jak poziomy, wymagają zaproszenia
+  "garnitur-1": 1000,
+  "garnitur-2": 5000,
+};
+// runda-wesele (tylko z zaproszeniem) i runda odblokowywana kopertą
+const WEDDING = "pan-mlody";
+const WEDDING_AFTER = "wesele-trwa";
+const ENVELOPE_MIN = 1000;
+const ENVELOPE_MAX = 1_000_000;
 // Poziomy, które poza monetami wymagają zebranych cytryn (musi zgadzać się z src/lemons.ts).
 const LEMONS_REQUIRED: Record<string, number> = { "wodka-cytrynowka": 5 };
 // klucz cytryny: "<id utworu>@<sekunda z 2 miejscami>", np. "panna-mloda@42.50"
@@ -55,6 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       newPassword?: string;
       currentPassword?: string;
       keys?: unknown;
+      amount?: unknown;
     }>(req);
 
     if (b.action === "nick") {
@@ -111,10 +125,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { ok: true, lemons });
     }
 
+    if (b.action === "envelope") {
+      const amount = Math.floor(Number(b.amount));
+      if (!Number.isFinite(amount) || amount < 0 || amount > ENVELOPE_MAX)
+        return json(res, 400, { error: "Nieprawidłowa kwota." });
+      const st = await c.execute({ sql: "SELECT coins, unlocked FROM users WHERE id = ?", args: [u.id] });
+      const unlocked0 = csv(st.rows[0]?.unlocked);
+      if (!unlocked0.includes(WEDDING)) return json(res, 403, { error: "Brak zaproszenia na wesele." });
+      if (amount === 0) {
+        return json(res, 200, { ok: true, coins: Math.max(0, Number(st.rows[0]?.coins ?? 0)), unlocked: unlocked0 });
+      }
+      // atomowo: zabierz monety (tylko gdy starczy) i przy >= ENVELOPE_MIN dopisz
+      // rundę „Wesele trwa" (jeśli jej jeszcze nie ma)
+      const upd = await c.execute({
+        sql: `UPDATE users
+              SET coins = coins - ?,
+                  unlocked = CASE
+                    WHEN ? >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
+                    THEN TRIM(unlocked || ',' || ?, ',')
+                    ELSE unlocked END
+              WHERE id = ? AND coins >= ?
+              RETURNING coins, unlocked`,
+        args: [amount, amount, ENVELOPE_MIN, WEDDING_AFTER, WEDDING_AFTER, u.id, amount],
+      });
+      if (!upd.rows[0]) {
+        return json(res, 402, {
+          error: "Za mało monet.",
+          coins: Math.max(0, Number(st.rows[0]?.coins ?? 0)),
+          unlocked: unlocked0,
+        });
+      }
+      return json(res, 200, {
+        ok: true,
+        coins: Math.max(0, Number(upd.rows[0].coins)),
+        unlocked: csv(upd.rows[0].unlocked),
+      });
+    }
+
     if (b.action === "unlock") {
       const songId = String(b.songId || "").trim().toLowerCase();
       const cost = UNLOCK_COST[songId];
       if (!cost) return json(res, 400, { error: "Tego poziomu nie odblokowuje się monetami." });
+      if (songId.startsWith("garnitur-")) {
+        const wr = await c.execute({ sql: "SELECT unlocked FROM users WHERE id = ?", args: [u.id] });
+        if (!csv(wr.rows[0]?.unlocked).includes(WEDDING))
+          return json(res, 403, { error: "Brak zaproszenia na wesele." });
+      }
       const needLemons = LEMONS_REQUIRED[songId] ?? 0;
       if (needLemons) {
         const lr = await c.execute({ sql: "SELECT lemons FROM users WHERE id = ?", args: [u.id] });

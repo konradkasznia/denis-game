@@ -1583,6 +1583,8 @@ async function startup() {
     ujecia: [1, 2, 3, 4],
     realAudio: true,
   });
+  await persistSeed({ id: "pan-mlody", title: "Pan Młody", bpm: 140, ujecia: [1, 2, 3], realAudio: true });
+  await persistSeed({ id: "wesele-trwa", title: "Wesele trwa", bpm: 140, ujecia: [1, 2, 3], realAudio: true });
   await persistSeed({
     id: "wodka-cytrynowka",
     title: "Wódka Cytrynówka",
@@ -1598,6 +1600,63 @@ async function startup() {
 }
 
 // ---- instrukcja --------------------------------------
+
+// ---- zaproszenia na wesele (api/invite.ts) -------------------
+
+const inviteBox = $<HTMLDivElement>("invite");
+const invRes = $<HTMLDivElement>("invres");
+$<HTMLButtonElement>("invitebtn").addEventListener("click", () => inviteBox.classList.add("on"));
+$<HTMLButtonElement>("invclose").addEventListener("click", () => inviteBox.classList.remove("on"));
+$<HTMLButtonElement>("invsend").addEventListener("click", async () => {
+  const logins = $<HTMLTextAreaElement>("invlogins")
+    .value.split(/[\s,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!logins.length) {
+    invRes.textContent = "Wpisz przynajmniej jeden login.";
+    return;
+  }
+  let key = localStorage.getItem(PUBKEY) || "";
+  if (!key) {
+    key = (prompt("Hasło publikacji (to samo, którym logujesz się do edytora):") || "").trim();
+    if (!key) return;
+    localStorage.setItem(PUBKEY, key);
+  }
+  invRes.style.color = "#c9bda9";
+  invRes.textContent = "wysyłam…";
+  try {
+    const r = await fetch("/api/invite", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-editor-key": key },
+      body: JSON.stringify({ logins, push: $<HTMLInputElement>("invpush").checked }),
+    });
+    const j = (await r.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      invited?: string[];
+      already?: string[];
+      notFound?: string[];
+      push?: { sent: number; error?: string };
+    };
+    if (r.status === 401) localStorage.removeItem(PUBKEY);
+    if (!r.ok || !j.ok) {
+      invRes.style.color = "#ff8a97";
+      invRes.textContent = j.error || `błąd serwera (${r.status})`;
+      return;
+    }
+    invRes.style.color = "#7fdc9a";
+    const lines = [
+      `✓ Zaproszeni (${j.invited?.length ?? 0}): ${(j.invited ?? []).join(", ") || "-"}`,
+      `• Mieli już zaproszenie (${j.already?.length ?? 0}): ${(j.already ?? []).join(", ") || "-"}`,
+      `✗ Nie ma takiego loginu (${j.notFound?.length ?? 0}): ${(j.notFound ?? []).join(", ") || "-"}`,
+    ];
+    if (j.push) lines.push(j.push.error ? `Push: ${j.push.error}` : `Push wysłany do ${j.push.sent} os.`);
+    invRes.textContent = lines.join("\n");
+  } catch (e) {
+    invRes.style.color = "#ff8a97";
+    invRes.textContent = "Brak połączenia: " + String(e);
+  }
+});
 
 const helpBox = $<HTMLDivElement>("help");
 $<HTMLButtonElement>("helpbtn").addEventListener("click", () => helpBox.classList.add("on"));

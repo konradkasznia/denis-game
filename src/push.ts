@@ -20,6 +20,8 @@ const DEFAULT_APP_ID = "45d6db77-411c-4ab6-a9ce-918a7325795d";
 // OneSignal to wtyczka Cordova — typów nie ciągniemy, trzymamy `any` + guardy.
 type AnyOS = {
   initialize: (id: string) => void;
+  login?: (externalId: string) => void;
+  logout?: () => void;
   Notifications: {
     requestPermission: (fallbackToSettings: boolean) => Promise<boolean>;
     getPermissionAsync: () => Promise<boolean>;
@@ -102,6 +104,32 @@ function writeOptIn(v: boolean) {
 /** Szybki, synchroniczny odczyt naszej flagi — do rysowania UI bez awaita. */
 export function pushOptedInSync(): boolean {
   return readOptIn();
+}
+
+/** Wiąże urządzenie z kontem gracza (external_id = "u<id>" z /api/auth/me) —
+ *  dzięki temu serwer może wysłać push do konkretnych loginów (api/invite.ts). */
+export function pushLogin(externalId: string | undefined): void {
+  if (!externalId) return;
+  void (async () => {
+    const o = await os();
+    try {
+      o?.login?.(externalId);
+    } catch {
+      /* ignore */
+    }
+  })();
+}
+
+/** Odwiązuje urządzenie od konta (wylogowanie). */
+export function pushLogout(): void {
+  void (async () => {
+    const o = await os();
+    try {
+      o?.logout?.();
+    } catch {
+      /* ignore */
+    }
+  })();
 }
 
 /** Dokleja tag do użytkownika OneSignal (segmentacja). Bezczynne na webie. */

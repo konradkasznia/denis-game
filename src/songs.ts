@@ -1,5 +1,6 @@
 import { isUnlocked, UNLOCK_COST } from "./coins.ts";
 import { LEMON_ROUND, lemonCount, LEMONS_NEEDED } from "./lemons.ts";
+import { WEDDING, WEDDING_AFTER } from "./wedding.ts";
 
 // Rejestr utworów + śledzenie, które gracz już „poznał".
 //
@@ -21,6 +22,8 @@ export interface SongMeta {
   playable: boolean;
   /** poziom testowy — widoczny/grywalny tylko na koncie dewelopera (login Konrad) */
   devOnly?: boolean;
+  /** runda weselna — widoczna tylko dla zaproszonych (i konta dewelopera) */
+  inviteOnly?: boolean;
 }
 
 // Kolejność = kolejność rund. „Kolejna runda" prowadzi do następnego playable.
@@ -87,7 +90,41 @@ export const SONGS: SongMeta[] = [
     // Na razie test — tylko konto Konrad (cytryny też widzi tylko on).
     devOnly: true,
   },
+  {
+    id: "pan-mlody",
+    title: "Pan Młody",
+    artist: "Denis",
+    accent: "#ffd6e0",
+    playable: true,
+    // runda bonusowa z zaproszeniem (akcja na TikToku, api/invite.ts)
+    inviteOnly: true,
+  },
+  {
+    id: "wesele-trwa",
+    title: "Wesele trwa",
+    artist: "Denis",
+    accent: "#ff9fc0",
+    playable: true,
+    // odblokowuje koperta >= 1000 monet w rundzie Pan Młody
+    inviteOnly: true,
+  },
 ];
+
+/** Czy runda ma się w ogóle pokazywać na karuzeli temu graczowi. */
+export function songVisible(s: SongMeta | undefined): boolean {
+  if (!s) return false;
+  if (s.devOnly) return devUnlocked();
+  if (s.inviteOnly) return devUnlocked() || isUnlocked(WEDDING);
+  return true;
+}
+
+/** Najbliższa widoczna runda od `from` w kierunku `dir` (albo -1). */
+export function visibleStep(from: number, dir: 1 | -1): number {
+  for (let i = from + dir; i >= 0 && i < SONGS.length; i += dir) {
+    if (songVisible(SONGS[i])) return i;
+  }
+  return -1;
+}
 
 /** Konto dewelopera — odblokowuje poziomy oznaczone `devOnly`. */
 export function devUnlocked(): boolean {
@@ -104,7 +141,7 @@ export function nextRound(id: string): string | null {
   const i = SONGS.findIndex((s) => s.id === id);
   for (let j = i + 1; j < SONGS.length; j++) {
     const s = SONGS[j];
-    if (s.playable && (!s.devOnly || devUnlocked())) return s.id;
+    if (s.playable && songVisible(s)) return s.id;
   }
   return null;
 }
@@ -232,7 +269,7 @@ function prevRoundCleared(index: number): boolean {
 /** Runda BONUSOWA (kupowana za monety, poza główną numeracją poziomów —
  *  patrz levelNumber) — np. Pogrzebówka. */
 export function isBonusRound(id: string | undefined): boolean {
-  return !!id && !!UNLOCK_COST[id];
+  return !!id && (!!UNLOCK_COST[id] || id === WEDDING || id === WEDDING_AFTER);
 }
 
 /** Czy cytryny mają się pojawiać w rundach (runda-cel widoczna dla gracza). */
@@ -251,7 +288,7 @@ export function lemonGated(index: number): boolean {
 export function levelUnlocked(index: number): boolean {
   if (index <= 0) return true;
   const id = SONGS[index]?.id;
-  if (SONGS[index]?.devOnly && !devUnlocked()) return false;
+  if (!songVisible(SONGS[index])) return false;
   // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts) —
   // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
   if (isBonusRound(id)) return isUnlocked(id!);
@@ -265,8 +302,8 @@ export function levelUnlocked(index: number): boolean {
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
   if (!isBonusRound(id) || isUnlocked(id!)) return 0;
-  if (SONGS[index]?.devOnly && !devUnlocked()) return 0;
-  return UNLOCK_COST[id!];
+  if (!songVisible(SONGS[index])) return 0;
+  return UNLOCK_COST[id!] ?? 0;
 }
 
 /** Numer „POZIOM N" do wyświetlenia — liczy tylko utwory NIE-bonusowe, żeby

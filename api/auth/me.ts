@@ -61,6 +61,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       coins,
       unlocked,
       lemons,
+      // identyfikator do OneSignal.login() — push „po loginie" (api/invite.ts)
+      pushId: `u${u.id}`,
     });
   } catch (e) {
     console.error("me", e);

@@ -53,6 +53,7 @@ const h = {
   scores: (await import("../api/scores.ts")).default,
   account: (await import("../api/account.ts")).default,
   chart: (await import("../api/chart.ts")).default,
+  invite: (await import("../api/invite.ts")).default,
 };
 
 let ipSeq = 1;
@@ -175,6 +176,34 @@ console.log("· cytryny (Wódka Cytrynówka):");
   ok(me.body.lemons?.length === 5, "/api/auth/me zwraca cytryny");
   const buy1 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "wodka-cytrynowka" } });
   ok(buy1.status === 200 && buy1.body.coins === 1000 && buy1.body.unlocked.includes("wodka-cytrynowka"), "5 cytryn + 1000 monet → odblokowane");
+}
+
+console.log("· wesele (zaproszenia, garnitury, koperta):");
+{
+  const KEY = { "x-editor-key": process.env.EDITOR_PASSWORD };
+  const g0 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "garnitur-1" } });
+  ok(g0.status === 403, `garnitur bez zaproszenia odrzucony (${g0.status})`);
+  const e0 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 100 } });
+  ok(e0.status === 403, "koperta bez zaproszenia odrzucona");
+  const bad = await call(h.invite, { method: "POST", headers: { "x-editor-key": "zle" }, body: { logins: ["Basia"] } });
+  ok(bad.status === 401, "zaproszenie bez hasła edytora → 401");
+  const inv = await call(h.invite, { method: "POST", headers: KEY, body: { logins: ["@basia", "nieistnieje", "Basia"], push: true } });
+  ok(inv.status === 200 && inv.body.invited.length === 1 && inv.body.notFound.includes("nieistnieje"), "zaproszenie po loginie (bez @, wielkość liter bez znaczenia)");
+  ok(!!inv.body.push.error, "bez klucza OneSignal push pominięty z komunikatem");
+  const inv2 = await call(h.invite, { method: "POST", headers: KEY, body: { logins: ["basia"] } });
+  ok(inv2.body.already.length === 1, "ponowne zaproszenie = już zaproszony");
+  const me = await call(h.me, { token: tokB });
+  ok(me.body.unlocked.includes("pan-mlody") && /^u\d+$/.test(me.body.pushId), "/me: runda odblokowana + pushId");
+  const g1 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "garnitur-1" } });
+  ok(g1.status === 200 && g1.body.coins === 0 && g1.body.unlocked.includes("garnitur-1"), "garnitur za 1000 kupiony");
+  await client.execute({ sql: "UPDATE users SET coins = 1500 WHERE login = 'Basia'", args: [] });
+  const e1 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 999 } });
+  ok(e1.status === 200 && e1.body.coins === 501 && !e1.body.unlocked.includes("wesele-trwa"), "koperta 999 → monety zabrane, bez Wesele trwa");
+  const e2 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 600 } });
+  ok(e2.status === 402, "koperta ponad saldo → 402");
+  await client.execute({ sql: "UPDATE users SET coins = 1000 WHERE login = 'Basia'", args: [] });
+  const e3 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 1000 } });
+  ok(e3.status === 200 && e3.body.coins === 0 && e3.body.unlocked.includes("wesele-trwa"), "koperta 1000 → Wesele trwa odblokowane");
 }
 
 console.log("· wyniki / monety:");

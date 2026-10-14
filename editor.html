@@ -56,6 +56,15 @@
         padding: 1px 6px; font: 12px/1 ui-monospace, monospace; color: #ffce8a; }
       #help li { margin: 5px 0; }
       #help .close { position: fixed; top: 16px; right: 18px; }
+      #invite { position: fixed; inset: 0; z-index: 50; background: rgba(5,5,10,0.92); display: none; padding: 24px; overflow: auto; }
+      #invite.on { display: block; }
+      #invite .inner { max-width: 560px; margin: 40px auto 0; background: #15121c; border: 1px solid #34344a;
+        border-radius: 14px; padding: 20px; line-height: 1.5; }
+      #invite h1 { font-size: 20px; color: #ffce8a; margin: 0 0 6px; }
+      #invite textarea { width: 100%; box-sizing: border-box; min-height: 180px; background: #0b0b12; color: #f1e9d8;
+        border: 1px solid #34344a; border-radius: 8px; padding: 10px; font: 14px system-ui; }
+      #invite .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+      #invres { margin-top: 14px; font-size: 13px; white-space: pre-wrap; }
     </style>
   </head>
   <body>
@@ -70,6 +79,7 @@
         <button class="ghost" id="pullchart" title="Pobiera z serwera opublikowaną mapę TEGO utworu ORAZ jego mp3 (jeśli brak lokalnie) — do edycji na innym urządzeniu">⬇ Wczytaj z serwera (mapa + mp3)</button>
         <button id="publish">⬆ Wyślij do aplikacji</button>
         <button class="ghost" id="helpbtn">Instrukcja</button>
+        <button class="ghost" id="invitebtn" title="Zaproszenia na wesele: odblokowanie rundy Pan Młody wybranym graczom">💌 Zaproszenia</button>
         <div id="barOptions">
           <label>projekt
             <select id="proj"></select>
@@ -144,6 +154,21 @@
         <button class="ghost" id="loadjson">wgraj JSON</button>
         <input type="file" id="jsonfile" accept=".json,application/json" style="display:none" />
         <button id="export">eksportuj JSON</button>
+      </div>
+    </div>
+    <div id="invite">
+      <div class="inner">
+        <h1>💌 Zaproszenia na wesele (Pan Młody)</h1>
+        <p style="color:#9a8c7e; margin:0 0 10px">Wklej loginy graczy z aplikacji (po jednym w linii albo po przecinku).
+          Każdy dostanie odblokowaną rundę <b>Pan Młody</b>, a po wejściu do gry okno „Otrzymałeś zaproszenie weselne”.</p>
+        <textarea id="invlogins" placeholder="ania&#10;bartek123&#10;@kasia"></textarea>
+        <div class="row">
+          <label><input type="checkbox" id="invpush" checked /> wyślij też push</label>
+          <span style="flex:1"></span>
+          <button class="ghost" id="invclose">zamknij</button>
+          <button id="invsend">Wyślij zaproszenia</button>
+        </div>
+        <div id="invres"></div>
       </div>
     </div>
     <div id="help">

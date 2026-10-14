@@ -8,6 +8,7 @@
 
 import { buildSynthSong, LANES, type LemonNote, mkNote, type Note, type SongDef, type SongEvent } from "./chart.ts";
 import { lemonKey } from "./lemons.ts";
+import { outfitSprite, WEDDING } from "./wedding.ts";
 import { diag } from "./diag.ts";
 
 export const DEFAULT_TRACK = "panna-mloda";
@@ -124,6 +125,12 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
       { lane: 3, time: 36 },
     ],
   },
+  "wesele-trwa": {
+    title: "Wesele trwa",
+    artist: "Denis",
+    bpm: 140, // tymczasowe — brak jeszcze mp3/chartu/postaci
+    bars: 30,
+  },
   "wodka-cytrynowka": {
     title: "Wódka Cytrynówka",
     artist: "Denis",
@@ -216,6 +223,15 @@ export function rawToSong(raw: RawChart): SongDef {
 }
 
 export async function loadTrack(id: string): Promise<SongDef> {
+  const song = await loadTrackRaw(id);
+  // Pan Młody: ujęcia postaci w garniturze wybranym na sliderze
+  if (id === WEDDING && song.characters) {
+    song.characters = song.characters.map((c) => ({ ...c, sprite: outfitSprite(c.sprite) }));
+  }
+  return song;
+}
+
+async function loadTrackRaw(id: string): Promise<SongDef> {
   // JEDNA wersja mapy: plik zaszyty w paczce (public/charts/<id>.json).
   // Gra NIE pobiera map z serwera w trakcie działania. Mapy z edytora trafiają
   // do paczki przez `node tools/pull-charts.mjs` przed buildem.

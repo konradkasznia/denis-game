@@ -25,6 +25,20 @@ import {
   isUnlocked,
   monetyWord,
 } from "./coins.ts";
+import {
+  ENVELOPE_MIN,
+  ENVELOPE_STEP,
+  invited,
+  inviteSeen,
+  markInviteSeen,
+  type Suit,
+  suitPrice,
+  SUITS,
+  wearSuit,
+  WEDDING,
+  WEDDING_AFTER,
+  wornSuit,
+} from "./wedding.ts";
 import { addLemons, LEMON_ROUND, lemonCount, LEMONS_NEEDED, lemonSet, mergeServerLemons, syncLemons } from "./lemons.ts";
 import { isNative } from "./native.ts";
 import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
@@ -32,7 +46,7 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
-import { disablePush, enablePush, initPush, pushOptedInSync, syncPushState } from "./push.ts";
+import { disablePush, enablePush, initPush, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
@@ -53,7 +67,6 @@ import { fire as haptic, hapticsPref, setHapticsEnabled, setHapticsPref } from "
 import {
   bestStars,
   coinUnlockPrice,
-  devUnlocked,
   isBonusRound,
   lemonGated,
   lemonsActive,
@@ -63,8 +76,10 @@ import {
   markDiscovered,
   mergeServerStars,
   recordStars,
+  songVisible,
   SONGS,
   spotifyUrl,
+  visibleStep,
 } from "./songs.ts";
 import { VH, viewport, VW } from "./viewport.ts";
 import {
@@ -893,6 +908,26 @@ export class Game {
   private lemonOkRect: Rect | null = null;
   /** modal z karuzeli: „zbierz cytryny" (stuknięcie w wyszarzony przycisk) */
   private lemonInfo = false;
+  // ---- wesele (Pan Młody / Wesele trwa) ----
+  /** modal „Otrzymałeś zaproszenie weselne" (raz na urządzenie) */
+  private inviteModal = false;
+  private inviteModalAt = 0;
+  private inviteOkRect: Rect | null = null;
+  /** prosty modal informacyjny (ikona + tytuł + treść + ROZUMIEM) */
+  private infoModal: { icon: string; title: string; body: string } | null = null;
+  /** karty garniturów na sliderze (do trafień) */
+  private suitRects: { id: string; r: Rect }[] = [];
+  private suitBusy = ""; // id kupowanego garnituru (loader na karcie)
+  private suitPulseAt = 0; // „mrugnięcie" kart po stuknięciu w „Wybierz garnitur"
+  /** modal koperty przed rundą Pan Młody */
+  private envModal = false;
+  private envAmount = 0;
+  private envBusy = false;
+  private envAt = 0;
+  private envMinusRect: Rect | null = null;
+  private envPlusRect: Rect | null = null;
+  private envGoRect: Rect | null = null;
+  private envCloseRect: Rect | null = null;
   private unlockBusy = false;
 
   constructor(canvas?: HTMLCanvasElement | null) {
@@ -956,6 +991,7 @@ export class Game {
       applyServerCoins(me.coins);
       applyServerUnlocked(me.unlocked);
       mergeServerLemons(me.lemons);
+      pushLogin(me.pushId); // push „po loginie" (zaproszenia weselne)
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
     }
@@ -1693,6 +1729,8 @@ export class Game {
     if (this.obstacleModal) this.drawObstacleModal(ctx);
     if (this.tutModal) this.drawTutModal(ctx);
     if (this.lemonModal && this.scene === "results") this.drawLemonModal(ctx);
+    if (this.envModal) this.drawEnvelopeModal(ctx);
+    if (this.infoModal) this.drawModal(ctx, this.infoModal.icon, this.infoModal.title, this.infoModal.body);
     if (this.lemonInfo) {
       this.drawModal(
         ctx,
@@ -1731,11 +1769,32 @@ export class Game {
       !this.voteModal &&
       !this.logoutModal &&
       !this.obstacleModal &&
-      !this.tutModal
+      !this.tutModal &&
+      !this.inviteModal &&
+      !this.envModal
     ) {
       this.updateModal = true;
     }
     if (this.updateModal) this.drawUpdateModal(ctx);
+
+    // zaproszenie weselne — przy pierwszym wejściu na karuzelę po zaproszeniu
+    if (
+      !this.inviteModal &&
+      this.scene === "hits" &&
+      !this.updateModal &&
+      !this.soundModal &&
+      !this.healthModal &&
+      !this.voteModal &&
+      !this.tutModal &&
+      !this.envModal &&
+      !this.preparing &&
+      invited() &&
+      !inviteSeen()
+    ) {
+      this.inviteModal = true;
+      this.inviteModalAt = performance.now();
+    }
+    if (this.inviteModal) this.drawInviteModal(ctx);
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -1888,6 +1947,7 @@ export class Game {
         // TYLKO wylogowanie — konto, wyniki i postęp zostają na serwerze
         // i wrócą po ponownym zalogowaniu. Kasujemy jedynie lokalną kopię.
         clearSession();
+        pushLogout();
         this.hitIndex = 0;
         this.gotoStart();
       } else if (this.logoutNoRect && inRect(this.logoutNoRect, x, y)) {
@@ -1943,12 +2003,37 @@ export class Game {
       }
       return;
     }
+    if (this.inviteModal) {
+      if (!this.inviteOkRect || inRect(this.inviteOkRect, x, y)) {
+        uiSound("play");
+        haptic("combo");
+        this.inviteModal = false;
+        markInviteSeen();
+        const wi = SONGS.findIndex((s) => s.id === WEDDING);
+        if (wi >= 0 && this.scene === "hits") {
+          this.hitIndex = wi;
+          this.preloadHitAudio();
+        }
+      }
+      return;
+    }
     if (this.coinLackModal || this.unlockError) {
       if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
         uiSound("buttons");
         this.coinLackModal = 0;
         this.unlockError = false;
       }
+      return;
+    }
+    if (this.infoModal) {
+      if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
+        uiSound("buttons");
+        this.infoModal = null;
+      }
+      return;
+    }
+    if (this.envModal) {
+      this.handleEnvelopeTap(x, y);
       return;
     }
     if (this.voteModal === "thanks") {
@@ -2132,10 +2217,27 @@ export class Game {
       this.lemonInfo = false;
       return true;
     }
+    if (this.inviteModal) {
+      uiSound("back");
+      this.inviteModal = false;
+      markInviteSeen();
+      return true;
+    }
     if (this.coinLackModal || this.unlockError) {
       uiSound("back");
       this.coinLackModal = 0;
       this.unlockError = false;
+      return true;
+    }
+    if (this.infoModal) {
+      uiSound("back");
+      this.infoModal = null;
+      return true;
+    }
+    if (this.envModal) {
+      if (this.envBusy) return true;
+      uiSound("back");
+      this.envModal = false;
       return true;
     }
     if (this.preparing) {
@@ -2541,12 +2643,15 @@ export class Game {
   /** Najwyższy index strony dostępny w karuzeli. Pokazujemy wszystkie poziomy
    *  w przód (zablokowane / „wkrótce" też) — gracz widzi, co go czeka. */
   private maxHitIndex(): number {
-    if (devUnlocked()) return SONGS.length - 1; // konto Konrad — wszystkie poziomy
-    return SONGS.map((s) => !s.devOnly).lastIndexOf(true); // wszystkie publiczne
+    // ostatnia runda widoczna dla tego gracza (devOnly — konto Konrad,
+    // weselne — zaproszeni); niewidoczne po drodze karuzela przeskakuje
+    for (let i = SONGS.length - 1; i > 0; i--) if (songVisible(SONGS[i])) return i;
+    return 0;
   }
 
   private enterHits() {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
+    if (!songVisible(SONGS[this.hitIndex])) this.hitIndex = 0;
     this.scene = "hits";
     this.preloadHitAudio();
     void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
@@ -2592,17 +2697,19 @@ export class Game {
       return;
     }
     if (inRect(HIT_ARROW_L, x, y)) {
-      if (this.hitIndex > 0) {
+      const prev = visibleStep(this.hitIndex, -1);
+      if (prev >= 0) {
         uiSound("buttons");
-        this.hitIndex--;
+        this.hitIndex = prev;
         this.preloadHitAudio();
       }
       return;
     }
     if (inRect(HIT_ARROW_R, x, y)) {
-      if (this.hitIndex < this.maxHitIndex()) {
+      const nx = visibleStep(this.hitIndex, 1);
+      if (nx >= 0) {
         uiSound("buttons");
-        this.hitIndex++;
+        this.hitIndex = nx;
         this.preloadHitAudio();
       }
       return;
@@ -2652,6 +2759,68 @@ export class Game {
       this.scene = "board";
       this.enterBoard();
       return;
+    }
+    // ---- wesele ----
+    if (meta.id === WEDDING && levelUnlocked(this.hitIndex)) {
+      for (const sr of this.suitRects) {
+        if (!inRect(sr.r, x, y)) continue;
+        if (this.suitBusy) return;
+        if (isUnlocked(sr.id)) {
+          uiSound("buttons");
+          haptic("tick");
+          wearSuit(sr.id); // przebranie w drugi, kupiony garnitur
+          this.preloadedAudioFor = ""; // ujęcia postaci zależą od garnituru
+          this.preloadHitAudio();
+          return;
+        }
+        const price = suitPrice(sr.id);
+        if (!backendReachable()) {
+          uiSound("buttons");
+          this.unlockError = true;
+          return;
+        }
+        if (coins() < price) {
+          uiSound("buttons");
+          this.coinLackModal = price;
+          return;
+        }
+        void this.buySuit(sr.id, price);
+        return;
+      }
+    }
+    if (inRect(this.hb(HIT_GRAJ), x, y)) {
+      if (meta.id === WEDDING && !levelUnlocked(this.hitIndex)) {
+        uiSound("buttons");
+        this.infoModal = {
+          icon: "💌",
+          title: "TYLKO Z ZAPROSZENIEM",
+          body: "Na wesele wchodzą tylko zaproszeni goście. Śledź Denisa na TikToku, żeby nie przegapić zaproszeń.",
+        };
+        return;
+      }
+      if (meta.id === WEDDING && !wornSuit()) {
+        uiSound("buttons");
+        haptic("tick");
+        this.suitPulseAt = performance.now();
+        return;
+      }
+      if (meta.id === WEDDING) {
+        uiSound("buttons");
+        void this.audio.unlock(); // gest — iOS
+        this.envModal = true;
+        this.envAmount = 0;
+        this.envAt = performance.now();
+        return;
+      }
+      if (meta.id === WEDDING_AFTER && !levelUnlocked(this.hitIndex)) {
+        uiSound("buttons");
+        this.infoModal = {
+          icon: "✉️",
+          title: "KOPERTA DLA MŁODEJ PARY",
+          body: `Ta runda odblokuje się, gdy na weselu (runda Pan Młody) włożysz do koperty jednorazowo co najmniej ${fmtCoinsFull(ENVELOPE_MIN)} monet.`,
+        };
+        return;
+      }
     }
     // Wódka Cytrynówka bez kompletu cytryn — wyszarzony przycisk, tap = podpowiedź
     if (lemonGated(this.hitIndex) && inRect(this.hb(HIT_GRAJ), x, y)) {
@@ -2750,11 +2919,8 @@ export class Game {
   /** Przesunięcie palcem w bok na karuzeli „WYBIERZ HIT". */
   onSwipe(dir: 1 | -1) {
     if (this.scene !== "hits" || this.preparing || this.soundModal || this.healthModal) return;
-    const next = this.hitIndex + dir;
-    if (dir < 0 && next >= 0) {
-      this.hitIndex = next;
-      this.preloadHitAudio();
-    } else if (dir > 0 && next <= this.maxHitIndex()) {
+    const next = visibleStep(this.hitIndex, dir);
+    if (next >= 0) {
       this.hitIndex = next;
       this.preloadHitAudio();
     }
@@ -3338,6 +3504,8 @@ export class Game {
     }
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
     if (this.lemonModal && this.scene === "results") return true; // bujająca się cytryna
+    if (this.inviteModal || this.envModal || this.suitBusy) return true; // animacje wesela
+    if (this.scene === "hits" && SONGS[this.hitIndex]?.id === WEDDING) return true; // bujanie kart garniturów
     if (this.unlockBusy || this.authBusy || this.changePwBusy || this.fx.length) return true; // loader + konfetti
     return false;
   }
@@ -4100,6 +4268,526 @@ export class Game {
 
     this.lemonOkRect = { x: VW / 2 - MODAL_OK.w / 2, y: py + ph - MODAL_OK.h - 30, w: MODAL_OK.w, h: MODAL_OK.h };
     this.uiButton(ctx, this.lemonOkRect, "rozumiem", { fallback: "ROZUMIEM" });
+  }
+
+  // ---- wesele: garnitury, zaproszenie, koperta -------------------------
+
+  /** Zakup garnituru za monety (serwer autorytatywny), po zakupie od razu go zakłada. */
+  private async buySuit(id: string, price: number) {
+    this.suitBusy = id;
+    try {
+      await this.buyUnlock(id, price);
+      if (isUnlocked(id)) {
+        wearSuit(id);
+        this.preloadedAudioFor = "";
+        this.preloadHitAudio();
+      }
+    } finally {
+      this.suitBusy = "";
+    }
+  }
+
+  /** Marynarka (zastępcza grafika garnituru, dopóki nie ma PNG). Środek (cx,cy), szerokość w. */
+  private drawJacket(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, suit: Suit) {
+    const h = w * 1.05;
+    const x0 = cx - w / 2;
+    const y0 = cy - h / 2;
+    ctx.save();
+    // korpus z ramionami
+    ctx.fillStyle = suit.color;
+    ctx.beginPath();
+    ctx.moveTo(x0 + w * 0.3, y0);
+    ctx.lineTo(x0 + w * 0.7, y0);
+    ctx.lineTo(x0 + w * 0.98, y0 + h * 0.14);
+    ctx.lineTo(x0 + w, y0 + h * 0.86);
+    ctx.lineTo(x0 + w * 0.82, y0 + h * 0.86);
+    ctx.lineTo(x0 + w * 0.8, y0 + h);
+    ctx.lineTo(x0 + w * 0.2, y0 + h);
+    ctx.lineTo(x0 + w * 0.18, y0 + h * 0.86);
+    ctx.lineTo(x0, y0 + h * 0.86);
+    ctx.lineTo(x0 + w * 0.02, y0 + h * 0.14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // koszula (biały trójkąt)
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(x0 + w * 0.36, y0);
+    ctx.lineTo(x0 + w * 0.64, y0);
+    ctx.lineTo(cx, y0 + h * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // klapy
+    ctx.fillStyle = suit.lapel;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + side * w * 0.14, y0);
+      ctx.lineTo(cx + side * w * 0.26, y0 + h * 0.08);
+      ctx.lineTo(cx + side * w * 0.17, y0 + h * 0.2);
+      ctx.lineTo(cx + side * w * 0.02, y0 + h * 0.52);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // mucha
+    ctx.fillStyle = suit.tie;
+    const by = y0 + h * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(cx, by);
+    ctx.lineTo(cx - w * 0.11, by - h * 0.05);
+    ctx.lineTo(cx - w * 0.11, by + h * 0.05);
+    ctx.closePath();
+    ctx.moveTo(cx, by);
+    ctx.lineTo(cx + w * 0.11, by - h * 0.05);
+    ctx.lineTo(cx + w * 0.11, by + h * 0.05);
+    ctx.closePath();
+    ctx.fill();
+    // guziki + kieszonka z poszetką
+    ctx.fillStyle = suit.lapel;
+    for (const k of [0.62, 0.74]) {
+      ctx.beginPath();
+      ctx.arc(cx, y0 + h * k, w * 0.025, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = suit.tie;
+    ctx.fillRect(x0 + w * 0.66, y0 + h * 0.3, w * 0.13, h * 0.035);
+    ctx.restore();
+  }
+
+  /** Zastępcza postać Denisa (dopóki nie ma animacji): w bokserkach albo w garniturze. */
+  private drawGroomFigure(ctx: CanvasRenderingContext2D, cx: number, bottom: number, h: number, suit: Suit | null, gray: boolean) {
+    const u = h / 10;
+    const skin = gray ? "#9a9a9a" : "#e8b892";
+    const dark = gray ? "#3a3a3a" : "#2a1d16";
+    ctx.save();
+    // nogi
+    const legCol = suit ? suit.color : skin;
+    ctx.fillStyle = legCol;
+    ctx.fillRect(cx - 1.05 * u, bottom - 4.7 * u, 0.95 * u, 4.4 * u);
+    ctx.fillRect(cx + 0.1 * u, bottom - 4.7 * u, 0.95 * u, 4.4 * u);
+    // buty
+    ctx.fillStyle = suit ? "#111" : skin;
+    ctx.fillRect(cx - 1.2 * u, bottom - 0.4 * u, 1.15 * u, 0.4 * u);
+    ctx.fillRect(cx + 0.05 * u, bottom - 0.4 * u, 1.15 * u, 0.4 * u);
+    // tułów + ręce
+    ctx.fillStyle = skin;
+    roundRect(ctx, cx - 1.35 * u, bottom - 8.4 * u, 2.7 * u, 3.9 * u, 0.5 * u);
+    ctx.fill();
+    roundRect(ctx, cx - 2.0 * u, bottom - 8.2 * u, 0.6 * u, 3.5 * u, 0.3 * u);
+    ctx.fill();
+    roundRect(ctx, cx + 1.4 * u, bottom - 8.2 * u, 0.6 * u, 3.5 * u, 0.3 * u);
+    ctx.fill();
+    // szyja + głowa + włosy
+    ctx.fillRect(cx - 0.3 * u, bottom - 8.9 * u, 0.6 * u, 0.6 * u);
+    ctx.beginPath();
+    ctx.arc(cx, bottom - 9.35 * u, 0.62 * u, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.arc(cx, bottom - 9.5 * u, 0.64 * u, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    if (suit) {
+      // marynarka na tułowiu (szerokość z rękami)
+      const sc = gray ? { ...suit, color: "#777", lapel: "#555", tie: "#666" } : suit;
+      this.drawJacket(ctx, cx, bottom - 6.45 * u, 4.1 * u, sc);
+    } else {
+      // bokserki w serduszka
+      ctx.fillStyle = gray ? "#888" : "#d8263f";
+      roundRect(ctx, cx - 1.4 * u, bottom - 4.9 * u, 2.8 * u, 1.35 * u, 0.25 * u);
+      ctx.fill();
+      ctx.fillStyle = gray ? "#bbb" : "#ffd6e0";
+      for (const [dx, dy] of [[-0.8, 0.35], [0.1, 0.8], [0.8, 0.3], [-0.3, 1.0]]) {
+        text(ctx, "♥", cx + dx * u, bottom - 4.9 * u + dy * u, { size: Math.round(0.42 * u), color: ctx.fillStyle as string });
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Slider „Pan Młody": Denis (w bokserkach / garniturze) + karty garniturów obok. */
+  private drawGroomSelect(ctx: CanvasRenderingContext2D, unlocked: boolean) {
+    const top = HIT_STARS_Y + 26;
+    const bottom = this.hb(HIT_GRAJ).y - 14;
+    const boxH = Math.max(320, bottom - top);
+    const worn = SUITS.find((x) => x.id === wornSuit()) ?? null;
+    // postać — lewe ~60% szerokości
+    const charW = VW * 0.6;
+    this.charRect = { x: 0, y: top, w: charW, h: boxH };
+    const animId = `pan-mlody-${worn ? worn.id : "bokserki"}`;
+    if (hasSliderAnim(animId)) {
+      const frame = sliderAnimFrame(animId, !unlocked);
+      const tb = sliderAnimBounds(animId);
+      if (frame && tb) {
+        const k = Math.min(boxH / tb.h, (charW * 1.1) / tb.w);
+        const w = tb.w * k;
+        const rx = charW / 2 - w / 2;
+        const ry = top + boxH - tb.h * k;
+        ctx.drawImage(frame, rx - tb.x * k, ry - tb.y * k, frame.width * k, frame.height * k);
+      }
+    } else {
+      const sway = Math.sin(performance.now() / 600) * 3;
+      this.drawGroomFigure(ctx, charW / 2 + 10 + sway, top + boxH - 6, Math.min(boxH * 0.92, 560), worn, !unlocked);
+    }
+
+    // karty garniturów (bez tego, który Denis ma na sobie)
+    const cards = SUITS.filter((x) => x.id !== worn?.id);
+    const cw = VW - charW - 22;
+    const ch = 250;
+    const gap = 22;
+    const colX = charW + 4;
+    const totalH = cards.length * ch + (cards.length - 1) * gap + 40;
+    let cy = top + Math.max(0, (boxH - totalH) / 2);
+    text(ctx, worn && cards.every((x) => isUnlocked(x.id)) ? "PRZEBIERZ SIĘ" : "WYBIERZ GARNITUR", colX + cw / 2, cy + 12, {
+      size: 18,
+      weight: "900",
+      font: HEAD_FONT,
+      color: unlocked ? "#ffd24c" : "#8a8a8a",
+      letterSpacing: "1px",
+    });
+    cy += 40;
+    const now = performance.now();
+    const pulse = now - this.suitPulseAt < 1400 ? 0.5 + 0.5 * Math.sin((now - this.suitPulseAt) / 90) : 0;
+    for (const suit of cards) {
+      const r: Rect = { x: colX, y: cy, w: cw, h: ch };
+      const owned = isUnlocked(suit.id);
+      const price = suitPrice(suit.id);
+      const canBuy = unlocked && (owned || coins() >= price);
+      ctx.save();
+      if (!unlocked) ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "rgba(14,10,18,0.78)";
+      roundRect(ctx, r.x, r.y, r.w, r.h, 20);
+      ctx.fill();
+      ctx.lineWidth = 3 + pulse * 3;
+      ctx.strokeStyle = pulse ? `rgba(255,210,76,${0.5 + pulse * 0.5})` : canBuy ? "#e6a92e" : "rgba(255,255,255,0.18)";
+      roundRect(ctx, r.x, r.y, r.w, r.h, 20);
+      ctx.stroke();
+      const bob = Math.sin(now / 700 + (suit.id === "garnitur-2" ? 1.4 : 0)) * 3;
+      const img = this.uiImg(`${suit.id}.png`);
+      if (imgReady(img)) {
+        const iw = cw * 0.72;
+        const ih = (img.naturalHeight / img.naturalWidth) * iw;
+        ctx.drawImage(img, r.x + (cw - iw) / 2, r.y + 18 + bob, iw, Math.min(ih, 130));
+      } else {
+        this.drawJacket(ctx, r.x + cw / 2, r.y + 80 + bob, cw * 0.56, suit);
+      }
+      text(ctx, suit.name, r.x + cw / 2, r.y + 163, { size: 20, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
+      // cena / ZAŁÓŻ
+      const pr: Rect = { x: r.x + 14, y: r.y + r.h - 62, w: cw - 28, h: 46 };
+      if (this.suitBusy === suit.id) {
+        this.drawSpinner(ctx, pr.x + pr.w / 2, pr.y + pr.h / 2, 16);
+      } else if (owned) {
+        ctx.fillStyle = "#1e7a3c";
+        roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);
+        ctx.fill();
+        text(ctx, "ZAŁÓŻ", pr.x + pr.w / 2, pr.y + pr.h / 2 + 1, { size: 20, weight: "900", font: HEAD_FONT, color: "#fff" });
+      } else {
+        ctx.fillStyle = "#1c130b";
+        roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);
+        ctx.fill();
+        ctx.strokeStyle = coins() >= price ? "#e6a92e" : "rgba(230,169,46,0.35)";
+        ctx.lineWidth = 2.5;
+        roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);
+        ctx.stroke();
+        this.drawCoinStack(ctx, pr.x + 26, pr.y + pr.h / 2, 13);
+        text(ctx, fmtCoinsFull(price), pr.x + 26 + (pr.w - 26) / 2, pr.y + pr.h / 2 + 1, {
+          size: 21,
+          weight: "900",
+          font: HEAD_FONT,
+          color: coins() >= price ? "#fff7ec" : "#b9a88f",
+        });
+      }
+      ctx.restore();
+      if (unlocked) this.suitRects.push({ id: suit.id, r });
+      cy += ch + gap;
+    }
+  }
+
+  /** Koperta (zaproszenie / wesele). `open` 0..1 — klapka uchyla się, wysuwa się bilecik. */
+  private drawEnvelope(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, open: number, card?: string) {
+    const h = w * 0.64;
+    const x0 = cx - w / 2;
+    const y0 = cy - h / 2;
+    ctx.save();
+    const tipY = y0 + h * 0.55 - open * h * 1.05;
+    const flap = () => {
+      ctx.fillStyle = open > 0.5 ? "#f6dccd" : "#ffe7d6";
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + w, y0);
+      ctx.lineTo(cx, tipY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#e7a8b8";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    };
+    // otwarta klapka jest ZA bilecikiem
+    if (open > 0.5) flap();
+    // bilecik wysuwający się zza koperty
+    if (open > 0 && card) {
+      const cy0 = y0 + h * 0.12 - open * h * 0.75;
+      ctx.fillStyle = "#fffaf2";
+      roundRect(ctx, x0 + w * 0.1, cy0, w * 0.8, h * 0.8, 10);
+      ctx.fill();
+      ctx.strokeStyle = "#e9b9c6";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x0 + w * 0.1, cy0, w * 0.8, h * 0.8, 10);
+      ctx.stroke();
+      text(ctx, card, cx, cy0 + h * 0.22, { size: Math.round(w * 0.075), weight: "900", font: HEAD_FONT, color: "#c2185b" });
+      text(ctx, "♥", cx, cy0 + h * 0.42, { size: Math.round(w * 0.1), color: "#e5395f" });
+    }
+    // korpus
+    ctx.fillStyle = "#fff1e3";
+    roundRect(ctx, x0, y0, w, h, 12);
+    ctx.fill();
+    ctx.strokeStyle = "#e7a8b8";
+    ctx.lineWidth = 3;
+    roundRect(ctx, x0, y0, w, h, 12);
+    ctx.stroke();
+    // boczne zakładki
+    ctx.strokeStyle = "rgba(200,120,140,0.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + 6, y0 + h - 6);
+    ctx.lineTo(cx, y0 + h * 0.5);
+    ctx.lineTo(x0 + w - 6, y0 + h - 6);
+    ctx.stroke();
+    // klapka zamknięta (w dół) — na wierzchu
+    if (open <= 0.5) flap();
+    // pieczęć z serduszkiem (na zamkniętej klapce)
+    if (open < 0.4) {
+      ctx.globalAlpha = 1 - open / 0.4;
+      ctx.fillStyle = "#d81b45";
+      ctx.beginPath();
+      ctx.arc(cx, tipY - 4, w * 0.075, 0, Math.PI * 2);
+      ctx.fill();
+      text(ctx, "♥", cx, tipY - 3, { size: Math.round(w * 0.08), color: "#ffd6e0" });
+    }
+    ctx.restore();
+  }
+
+  /** Lecące w górę serduszka wokół (cx,cy) — ozdobnik modali weselnych. */
+  private drawHearts(ctx: CanvasRenderingContext2D, cx: number, cy: number, t: number, spread: number) {
+    for (let i = 0; i < 7; i++) {
+      const ph = (t * 0.45 + i / 7) % 1;
+      const x = cx + Math.sin(i * 2.3 + t * 1.3) * spread * (0.4 + (i % 3) * 0.25);
+      const y = cy - ph * spread * 1.1;
+      ctx.save();
+      ctx.globalAlpha = Math.sin(ph * Math.PI) * 0.85;
+      text(ctx, "♥", x, y, { size: 18 + (i % 3) * 8, color: i % 2 ? "#ff6f91" : "#ffb3c6" });
+      ctx.restore();
+    }
+  }
+
+  /** Modal „Otrzymałeś zaproszenie weselne". */
+  private drawInviteModal(ctx: CanvasRenderingContext2D) {
+    this.fillViewport(ctx, "rgba(4,4,10,0.86)");
+    const t = (performance.now() - this.inviteModalAt) / 1000;
+    const pw = VW - 72;
+    const px = 36;
+    const lines = wrapText("Denis zaprasza Cię na swoje wesele! Runda bonusowa Pan Młody czeka już w grze.", 30);
+    const ph = 520 + lines.length * 34 + MODAL_OK.h + 40;
+    const py = Math.max(20, (VH - ph) / 2);
+    ctx.fillStyle = "#1a1220";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,150,180,0.7)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+    const open = clamp((t - 0.5) / 0.8, 0, 1);
+    const ease = 1 - Math.pow(1 - open, 3);
+    this.drawHearts(ctx, VW / 2, py + 300, t, 150);
+    this.drawEnvelope(ctx, VW / 2, py + 260 + Math.sin(t * 2) * 4, 300, ease, "ZAPROSZENIE");
+    text(ctx, "OTRZYMAŁEŚ ZAPROSZENIE", VW / 2, py + 410, {
+      size: 34,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd6e0",
+      shadows: HEAD_SHADOWS,
+    });
+    text(ctx, "WESELNE!", VW / 2, py + 452, {
+      size: 34,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd6e0",
+      shadows: HEAD_SHADOWS,
+    });
+    lines.forEach((ln, i) => text(ctx, ln, VW / 2, py + 502 + i * 34, { size: 23, weight: "700", color: "#f1e9d8" }));
+    this.inviteOkRect = { x: VW / 2 - 170, y: py + ph - MODAL_OK.h - 30, w: 340, h: MODAL_OK.h };
+    this.styledBtn(ctx, this.inviteOkRect, "IDĘ NA WESELE!", "gold");
+  }
+
+  /** Okrągły przycisk +/− w modalu koperty. */
+  private roundSignBtn(ctx: CanvasRenderingContext2D, r: Rect, sign: "+" | "-", enabled: boolean) {
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    ctx.save();
+    ctx.globalAlpha = enabled ? 1 : 0.35;
+    const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+    g.addColorStop(0, "#ffe27e");
+    g.addColorStop(1, "#f5a81c");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r.w / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#70380b";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.strokeStyle = "#5a2c06";
+    ctx.lineWidth = 7;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - r.w * 0.22, cy);
+    ctx.lineTo(cx + r.w * 0.22, cy);
+    if (sign === "+") {
+      ctx.moveTo(cx, cy - r.w * 0.22);
+      ctx.lineTo(cx, cy + r.w * 0.22);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private envStep(dir: 1 | -1): number {
+    // drobne kroki do 1000, potem większe — żeby dało się szybko wpisać dużą kwotę
+    const a = this.envAmount;
+    return dir > 0 ? (a < 1000 ? ENVELOPE_STEP : 500) : a <= 1000 ? ENVELOPE_STEP : 500;
+  }
+
+  /** Modal koperty przed rundą Pan Młody. */
+  private drawEnvelopeModal(ctx: CanvasRenderingContext2D) {
+    this.fillViewport(ctx, "rgba(4,4,10,0.86)");
+    const t = (performance.now() - this.envAt) / 1000;
+    const pw = VW - 72;
+    const px = 36;
+    const ph = 760;
+    const py = Math.max(20, (VH - ph) / 2);
+    ctx.fillStyle = "#1a1220";
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,150,180,0.7)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, px, py, pw, ph, 26);
+    ctx.stroke();
+    // zamknij (✕)
+    this.envCloseRect = { x: px + pw - 64, y: py + 10, w: 54, h: 54 };
+    text(ctx, "✕", px + pw - 37, py + 38, { size: 28, weight: "900", color: "rgba(255,255,255,0.6)" });
+
+    // koperta: monety wpadają do środka, gdy coś w niej jest
+    this.drawHearts(ctx, VW / 2, py + 200, t, 120);
+    const ecx = VW / 2;
+    const ecy = py + 160 + Math.sin(t * 2) * 4;
+    if (this.envAmount > 0) {
+      const ph2 = (t * 0.9) % 1;
+      ctx.save();
+      ctx.globalAlpha = 1 - ph2;
+      this.drawCoinStack(ctx, ecx + Math.sin(t) * 20, ecy - 120 + ph2 * 90, 16);
+      ctx.restore();
+    }
+    this.drawEnvelope(ctx, ecx, ecy, 240, 0.2);
+
+    text(ctx, "IDZIESZ NA WESELE!", VW / 2, py + 300, {
+      size: 36,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#ffd6e0",
+      shadows: HEAD_SHADOWS,
+    });
+    text(ctx, "Pasowałoby coś włożyć do koperty.", VW / 2, py + 346, { size: 23, weight: "700", color: "#f1e9d8" });
+
+    text(ctx, `Twoje monety: ${fmtCoinsFull(coins())}`, VW / 2, py + 404, {
+      size: 22,
+      weight: "800",
+      color: "#ffe6b0",
+    });
+
+    // rząd: [−]  Koperta: N  [+]
+    const rowY = py + 486;
+    text(ctx, "Koperta:", VW / 2, rowY - 34, { size: 18, weight: "800", color: "rgba(255,230,200,0.75)" });
+    text(ctx, fmtCoinsFull(this.envAmount), VW / 2, rowY + 6, {
+      size: 50,
+      weight: "900",
+      font: HEAD_FONT,
+      color: "#fff7ec",
+      shadows: HEAD_SHADOWS,
+    });
+    this.envMinusRect = { x: px + 46, y: rowY - 38, w: 84, h: 84 };
+    this.envPlusRect = { x: px + pw - 46 - 84, y: rowY - 38, w: 84, h: 84 };
+    this.roundSignBtn(ctx, this.envMinusRect, "-", this.envAmount > 0 && !this.envBusy);
+    this.roundSignBtn(ctx, this.envPlusRect, "+", this.envAmount < coins() && !this.envBusy);
+    if (this.envAmount >= ENVELOPE_MIN) {
+      text(ctx, "Hojny gość! ♥", VW / 2, rowY + 70, { size: 20, weight: "800", color: "#ff8fab" });
+    }
+
+    this.envGoRect = { x: px + 30, y: py + ph - MODAL_OK.h - 34, w: pw - 60, h: MODAL_OK.h };
+    if (this.envBusy) this.drawBtnLoader(ctx, this.envGoRect);
+    else this.styledBtn(ctx, this.envGoRect, "ZACZYNAMY WESELE", "gold");
+  }
+
+  private handleEnvelopeTap(x: number, y: number) {
+    if (this.envBusy) return;
+    if (this.envCloseRect && inRect(this.envCloseRect, x, y)) {
+      uiSound("back");
+      this.envModal = false;
+      return;
+    }
+    if (this.envMinusRect && inRect(this.envMinusRect, x, y)) {
+      if (this.envAmount <= 0) return;
+      uiSound("buttons");
+      haptic("tick");
+      this.envAmount = Math.max(0, this.envAmount - this.envStep(-1));
+      return;
+    }
+    if (this.envPlusRect && inRect(this.envPlusRect, x, y)) {
+      const have = coins();
+      if (this.envAmount >= have) {
+        haptic("miss");
+        return;
+      }
+      uiSound("buttons");
+      haptic("tick");
+      this.envAmount = Math.min(have, this.envAmount + this.envStep(1));
+      return;
+    }
+    if (this.envGoRect && inRect(this.envGoRect, x, y)) void this.startWedding();
+  }
+
+  /** „ZACZYNAMY WESELE": najpierw koperta (serwer zabiera monety; >= 1000
+   *  jednorazowo odblokowuje „Wesele trwa"), potem zwykły start rundy. */
+  private async startWedding() {
+    const amt = this.envAmount;
+    void this.audio.unlock(); // jeszcze w geście (iOS)
+    if (amt > 0) {
+      if (!backendReachable()) {
+        this.unlockError = true;
+        return;
+      }
+      this.envBusy = true;
+      try {
+        const r = await api<{ ok?: boolean; coins?: number; unlocked?: string[] }>("/api/account", {
+          method: "POST",
+          body: { action: "envelope", amount: amt },
+          auth: true,
+        });
+        applyServerCoins(r.coins);
+        applyServerUnlocked(r.unlocked);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 402) {
+          this.coinLackModal = amt;
+          void this.syncSession();
+        } else {
+          this.unlockError = true;
+        }
+        return;
+      } finally {
+        this.envBusy = false;
+      }
+    }
+    this.envModal = false;
+    uiSound("play");
+    haptic("combo");
+    this.trackId = WEDDING;
+    void this.gateThenPlay();
   }
 
   /** Złoty przycisk w odcieniach szarości (nieaktywny, ale z czytelnym tekstem). */
@@ -6093,8 +6781,8 @@ export class Game {
     );
 
     // strzałki na wysokości tytułu
-    this.arrowBtn(ctx, HIT_ARROW_L, "left", idx > 0);
-    this.arrowBtn(ctx, HIT_ARROW_R, "right", idx < this.maxHitIndex());
+    this.arrowBtn(ctx, HIT_ARROW_L, "left", visibleStep(idx, -1) >= 0);
+    this.arrowBtn(ctx, HIT_ARROW_R, "right", visibleStep(idx, 1) >= 0);
 
     // tytuł (auto-zmniejszanie, żeby zmieścił się między strzałkami)
     const title = meta.title.toUpperCase();
@@ -6193,7 +6881,7 @@ export class Game {
 
     // zablokowany, a bramka gwiazdkowa niezaliczona → „PRZEJDŹ POPRZEDNI POZIOM".
     // Gdy bramka zaliczona, ale trzeba kupić za monety → przycisk niżej (bez pieczątki).
-    if (!unlocked && !coinPrice) {
+    if (!unlocked && !coinPrice && meta.id !== WEDDING && meta.id !== WEDDING_AFTER) {
       this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
     }
 
@@ -6238,7 +6926,13 @@ export class Game {
 
     // GRAJ! albo „ODBLOKUJ za X monet"
     const graj = this.hb(HIT_GRAJ);
-    if (lemonGated(idx)) {
+    if (meta.id === WEDDING && !unlocked) {
+      this.grayBtn(ctx, graj, "TYLKO Z ZAPROSZENIEM");
+    } else if (meta.id === WEDDING && !wornSuit()) {
+      this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
+    } else if (meta.id === WEDDING_AFTER && !unlocked) {
+      this.grayBtn(ctx, graj, `WŁÓŻ ${fmtCoinsFull(ENVELOPE_MIN)} MONET DO KOPERTY`);
+    } else if (lemonGated(idx)) {
       this.grayBtn(ctx, graj, `ZBIERZ CYTRYNY I ${fmtCoinsFull(coinPrice)} MONET`);
     } else if (coinPrice > 0) {
       this.drawUnlockButton(ctx, graj, coinPrice);
@@ -6268,6 +6962,8 @@ export class Game {
 
   private drawSelectChar(ctx: CanvasRenderingContext2D, idx: number, unlocked: boolean) {
     const meta = SONGS[idx];
+    this.suitRects = [];
+    if (meta.id === WEDDING) return this.drawGroomSelect(ctx, unlocked);
     // postać wypełnia całą wolną przestrzeń w pionie: od tuż pod gwiazdkami do
     // tuż nad przyciskiem GRAJ! (który jest dosunięty do dołu ekranu). Dzięki
     // temu na wyższych telefonach nie ma pustej dziury u góry.
