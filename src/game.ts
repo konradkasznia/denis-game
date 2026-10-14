@@ -26,8 +26,10 @@ import {
   monetyWord,
 } from "./coins.ts";
 import {
+  ENVELOPE_HELP_URL,
   ENVELOPE_MIN,
   ENVELOPE_STEP,
+  GIVERS_BOARD,
   invited,
   inviteSeen,
   markInviteSeen,
@@ -929,6 +931,7 @@ export class Game {
   private envPlusRect: Rect | null = null;
   private envGoRect: Rect | null = null;
   private envCloseRect: Rect | null = null;
+  private envHelpRect: Rect | null = null;
   private unlockBusy = false;
 
   constructor(canvas?: HTMLCanvasElement | null) {
@@ -2747,6 +2750,11 @@ export class Game {
       }
     }
 
+    if (inRect(this.hb(HIT_REW), x, y) && meta.id === WEDDING) {
+      uiSound("buttons");
+      this.openGiversBoard("hits");
+      return;
+    }
     if (inRect(this.hb(HIT_REW), x, y)) {
       uiSound("buttons");
       this.scene = "rewards";
@@ -2955,6 +2963,7 @@ export class Game {
       this.scene = this.boardFrom;
       return;
     }
+    if (this.boardSongId === GIVERS_BOARD) return; // ranking kopert nie ma zakładek
     if (inRect(BOARD_TAB_M, x, y) && this.boardPeriod !== "month") {
       uiSound("buttons");
       this.boardPeriod = "month";
@@ -3103,6 +3112,11 @@ export class Game {
     if (inRect(RES_SLOT3, x, y)) {
       if (this.resultShowNextLevel) goReplay();
       else goMenu();
+      return;
+    }
+    if (inRect(RES_SPOTIFY, x, y) && this.trackId === WEDDING) {
+      uiSound("buttons");
+      this.openGiversBoard("results");
       return;
     }
     if (inRect(RES_SPOTIFY, x, y)) {
@@ -4276,6 +4290,15 @@ export class Game {
 
   // ---- wesele: garnitury, zaproszenie, koperta -------------------------
 
+  /** Ranking „Najhojniejsi gracze" (suma kopert) — ten sam ekran co tablica wyników. */
+  private openGiversBoard(from: "hits" | "results") {
+    this.boardSongId = GIVERS_BOARD;
+    this.boardPeriod = "all";
+    this.boardFrom = from;
+    this.scene = "board";
+    this.enterBoard();
+  }
+
   /** Zakup garnituru za monety (serwer autorytatywny), po zakupie od razu go zakłada. */
   private async buySuit(id: string, price: number) {
     this.suitBusy = id;
@@ -4690,7 +4713,7 @@ export class Game {
     const t = (performance.now() - this.envAt) / 1000;
     const pw = VW - 72;
     const px = 36;
-    const ph = 760;
+    const ph = 860;
     const py = Math.max(20, (VH - ph) / 2);
     ctx.fillStyle = "#1a1220";
     roundRect(ctx, px, py, pw, ph, 26);
@@ -4749,9 +4772,12 @@ export class Game {
       text(ctx, "Hojny gość! ♥", VW / 2, rowY + 70, { size: 20, weight: "800", color: "#ff8fab" });
     }
 
-    this.envGoRect = { x: px + 30, y: py + ph - MODAL_OK.h - 34, w: pw - 60, h: MODAL_OK.h };
+    this.envGoRect = { x: px + 30, y: py + ph - MODAL_OK.h - 34 - 92, w: pw - 60, h: MODAL_OK.h };
     if (this.envBusy) this.drawBtnLoader(ctx, this.envGoRect);
     else this.styledBtn(ctx, this.envGoRect, "ZACZYNAMY WESELE", "gold");
+    // drugi (secondary): podpowiedź Denisa — film na TikToku
+    this.envHelpRect = { x: px + 30, y: py + ph - 34 - 76, w: pw - 60, h: 76 };
+    this.styledBtn(ctx, this.envHelpRect, "ILE WŁOŻYĆ DO KOPERTY WESELNEJ?", "dark-gold");
   }
 
   private handleEnvelopeTap(x: number, y: number) {
@@ -4779,7 +4805,20 @@ export class Game {
       this.envAmount = Math.min(have, this.envAmount + this.envStep(1));
       return;
     }
-    if (this.envGoRect && inRect(this.envGoRect, x, y)) void this.startWedding();
+    if (this.envGoRect && inRect(this.envGoRect, x, y)) {
+      void this.startWedding();
+      return;
+    }
+    if (this.envHelpRect && inRect(this.envHelpRect, x, y)) {
+      uiSound("buttons");
+      if (ENVELOPE_HELP_URL) openExternal(ENVELOPE_HELP_URL);
+      else
+        this.infoModal = {
+          icon: "✉️",
+          title: "ILE DO KOPERTY?",
+          body: "Denis zdradzi to już wkrótce na swoim TikToku. Zajrzyj tam!",
+        };
+    }
   }
 
   /** „ZACZYNAMY WESELE": najpierw koperta (serwer zabiera monety; >= 1000
@@ -5548,7 +5587,8 @@ export class Game {
   private drawBoard(ctx: CanvasRenderingContext2D) {
     this.drawUiBg(ctx);
     const meta = SONGS.find((s) => s.id === this.boardSongId);
-    text(ctx, (meta?.title ?? "").toUpperCase(), VW / 2, 84, {
+    const givers = this.boardSongId === GIVERS_BOARD;
+    text(ctx, givers ? "NAJHOJNIEJSI GRACZE" : (meta?.title ?? "").toUpperCase(), VW / 2, 84, {
       size: 32,
       weight: "900",
       font: HEAD_FONT,
@@ -5575,8 +5615,17 @@ export class Game {
         letterSpacing: "1px",
       });
     };
-    tab(BOARD_TAB_M, "TEN MIESIĄC", this.boardPeriod === "month");
-    tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
+    if (givers) {
+      // ranking kopert: jedna lista (suma ze wszystkich wesel), bez zakładek
+      text(ctx, "Suma monet włożonych do kopert weselnych", VW / 2, BOARD_TAB_M.y + BOARD_TAB_M.h / 2, {
+        size: 19,
+        weight: "700",
+        color: "#ffb3c6",
+      });
+    } else {
+      tab(BOARD_TAB_M, "TEN MIESIĄC", this.boardPeriod === "month");
+      tab(BOARD_TAB_A, "WSZYSTKIE", this.boardPeriod === "all");
+    }
 
     const ready = boardReady(this.boardSongId, this.boardPeriod);
     const rowH = BOARD_ROW_H;
@@ -5621,6 +5670,10 @@ export class Game {
       // patrz first/last niżej), a serwer i tak trzyma tylko 1 wynik/gracza
       const rows = topN(this.boardSongId, this.boardPeriod, Number.MAX_SAFE_INTEGER);
       const contentH = rows.length * rowH;
+      if (givers && !rows.length) {
+        text(ctx, "Nikt jeszcze nic nie włożył do koperty.", VW / 2, BOARD_LIST_TOP + viewH / 2 - 16, { size: 21, weight: "800", color: "#c9b7a6" });
+        text(ctx, "Bądź pierwszym hojnym gościem!", VW / 2, BOARD_LIST_TOP + viewH / 2 + 18, { size: 19, color: "#ffb3c6" });
+      }
       this.boardScrollMax = Math.max(0, contentH - viewH);
 
       // po wejściu / zmianie zakładki — przewiń do wiersza gracza
@@ -5674,7 +5727,7 @@ export class Game {
     ctx.lineWidth = 2;
     roundRect(ctx, b.x, b.y, b.w, b.h, 16);
     ctx.stroke();
-    text(ctx, "TWÓJ NAJLEPSZY WYNIK", VW / 2, b.y + 30, {
+    text(ctx, givers ? "TWOJE KOPERTY" : "TWÓJ NAJLEPSZY WYNIK", VW / 2, b.y + 30, {
       size: 16,
       weight: "800",
       color: "#ffce8a",
@@ -5697,7 +5750,11 @@ export class Game {
       text(ctx, "—", VW / 2, b.y + 76, { size: 42, weight: "900", font: HEAD_FONT, color: "#6b6055" });
       text(
         ctx,
-        this.boardPeriod === "month" ? "zagraj tę rundę w tym miesiącu" : "zagraj tę rundę",
+        givers
+          ? "włóż coś do koperty na weselu"
+          : this.boardPeriod === "month"
+            ? "zagraj tę rundę w tym miesiącu"
+            : "zagraj tę rundę",
         VW / 2,
         b.y + 114,
         { size: 16, color: "#9a8c7e" },
@@ -6972,7 +7029,8 @@ export class Game {
 
     // WYNIKI | NAGRODY
     this.uiButton(ctx, this.hb(HIT_RES), "wyniki", { fallback: "WYNIKI", style: "dark-gold" });
-    this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
+    if (meta.id === WEDDING) this.styledBtn(ctx, this.hb(HIT_REW), "NAJHOJNIEJSI GRACZE", "dark-gold");
+    else this.uiButton(ctx, this.hb(HIT_REW), "nagrody", { fallback: "NAGRODY", style: "dark-gold" });
   }
 
   /** Złoty przycisk z kręcącym się loaderem zamiast tekstu — na czas zapytania
@@ -9347,7 +9405,8 @@ export class Game {
     ctx.globalAlpha = fadeIn;
 
     this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
-    this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
+    if (this.trackId === WEDDING) this.styledBtn(ctx, RES_SPOTIFY, "NAJHOJNIEJSI GRACZE", "dark-gold");
+    else this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
     // slot 3/4: patrz handleResultsTap/finish() — „NASTĘPNY POZIOM" tylko gdy ten
     // utwór faktycznie odblokowuje zwykły kolejny poziom, inaczej „WRÓĆ DO MENU"
     if (this.resultShowNextLevel) {

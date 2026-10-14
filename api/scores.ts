@@ -1,5 +1,6 @@
 // Ranking wyników — per piosenka, dwie zakładki: „ten miesiąc" i „wszystkie".
 //   GET  /api/scores?songId=panna-mloda&period=month|all  → { top, me, total }
+//   GET  /api/scores?songId=koperty                         → „Najhojniejsi gracze" (suma kopert na weselu)
 //   POST /api/scores  { songId, score, stars }  (Bearer)  → { ok, best, stars, rank }
 
 import type { Client } from "@libsql/client/web";
@@ -104,6 +105,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!SONG_ID_RE.test(songId)) return json(res, 400, { error: "Brak songId." });
       const monthly = String(req.query.period || "all") === "month";
       const m = ym();
+
+      // ranking kopert weselnych (Pan Młody): suma włożonych monet per gracz
+      if (songId === "koperty") {
+        const top = await c.execute({
+          sql: `SELECT COALESCE(NULLIF(nick,''), login) AS nick, envelope_total AS score, id AS uid
+                FROM users WHERE envelope_total > 0
+                ORDER BY envelope_total DESC, id ASC LIMIT ?`,
+          args: [TOP_LIMIT],
+        });
+        const cnt = await c.execute("SELECT COUNT(*) AS n FROM users WHERE envelope_total > 0");
+        const meU = await sessionUser(req).catch(() => null);
+        let mineK: { rank: number; score: number } | null = null;
+        if (meU) {
+          const r = await c.execute({ sql: "SELECT envelope_total AS t FROM users WHERE id = ?", args: [meU.id] });
+          const t = Number(r.rows[0]?.t ?? 0);
+          if (t > 0) {
+            const above = await c.execute({ sql: "SELECT COUNT(*) AS n FROM users WHERE envelope_total > ?", args: [t] });
+            mineK = { rank: Number(above.rows[0]?.n ?? 0) + 1, score: t };
+          }
+        }
+        return json(res, 200, {
+          ok: true,
+          top: top.rows.map((r, i) => ({
+            rank: i + 1,
+            nick: String(r.nick || "Gracz"),
+            score: Number(r.score),
+            me: meU ? Number(r.uid) === meU.id : false,
+          })),
+          me: mineK,
+          total: Number(cnt.rows[0]?.n ?? 0),
+        });
+      }
 
       // JOIN: tylko istniejące konta. Usunięcie konta kasuje też jego wyniki
       // (api/account.ts), a JOIN gwarantuje, że żaden osierocony wiersz nie wyjdzie.

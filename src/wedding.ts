@@ -23,6 +23,13 @@ export const ENVELOPE_STEP = 100;
  *  przyciskiem „Otrzymaj zaproszenie" prowadzącym do tego filmu. */
 export const WEDDING_TIKTOK_URL = "";
 
+/** Link pod przyciskiem „Ile włożyć do koperty weselnej?" (film Denisa na
+ *  TikToku). Pusty = na razie okienko „wkrótce". */
+export const ENVELOPE_HELP_URL = "";
+
+/** Id rankingu „Najhojniejsi gracze" w tablicy wyników (api/scores.ts). */
+export const GIVERS_BOARD = "koperty";
+
 export interface Suit {
   id: string;
   name: string;

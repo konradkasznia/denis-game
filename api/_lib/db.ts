@@ -53,6 +53,10 @@ export function ensureSchema(): Promise<void> {
       if (cols.length && !cols.includes("lemons")) {
         await c.execute("ALTER TABLE users ADD COLUMN lemons TEXT NOT NULL DEFAULT ''");
       }
+      // suma monet włożonych do kopert na weselu — ranking „Najhojniejsi gracze"
+      if (cols.length && !cols.includes("envelope_total")) {
+        await c.execute("ALTER TABLE users ADD COLUMN envelope_total INTEGER NOT NULL DEFAULT 0");
+      }
       if (cols.length && !cols.includes("login_key")) {
         await c.execute("ALTER TABLE users ADD COLUMN login_key TEXT");
       }

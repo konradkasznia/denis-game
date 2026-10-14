@@ -204,6 +204,11 @@ console.log("· wesele (zaproszenia, garnitury, koperta):");
   await client.execute({ sql: "UPDATE users SET coins = 1000 WHERE login = 'Basia'", args: [] });
   const e3 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 1000 } });
   ok(e3.status === 200 && e3.body.coins === 0 && e3.body.unlocked.includes("wesele-trwa"), "koperta 1000 → Wesele trwa odblokowane");
+  const givers = await call(h.scores, { query: { songId: "koperty" }, token: tokB });
+  ok(
+    givers.status === 200 && givers.body.top[0]?.score === 1999 && givers.body.top[0]?.me && givers.body.me?.rank === 1,
+    `ranking kopert sumuje wpłaty (${givers.body.top?.[0]?.score})`,
+  );
   const list = await call(h.invite, { headers: KEY });
   ok(list.status === 200 && list.body.users.some((u) => u.login === "Basia" && u.suits === 1 && u.weseleTrwa), "lista zaproszonych z garniturami");
   const noKey = await call(h.invite, { headers: { "x-editor-key": "zle" } });

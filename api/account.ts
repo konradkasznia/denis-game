@@ -140,13 +140,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const upd = await c.execute({
         sql: `UPDATE users
               SET coins = coins - ?,
+                  envelope_total = envelope_total + ?,
                   unlocked = CASE
                     WHEN ? >= ? AND instr(',' || unlocked || ',', ',' || ? || ',') = 0
                     THEN TRIM(unlocked || ',' || ?, ',')
                     ELSE unlocked END
               WHERE id = ? AND coins >= ?
               RETURNING coins, unlocked`,
-        args: [amount, amount, ENVELOPE_MIN, WEDDING_AFTER, WEDDING_AFTER, u.id, amount],
+        args: [amount, amount, amount, ENVELOPE_MIN, WEDDING_AFTER, WEDDING_AFTER, u.id, amount],
       });
       if (!upd.rows[0]) {
         return json(res, 402, {
