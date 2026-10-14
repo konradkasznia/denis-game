@@ -135,6 +135,12 @@ const LANE_COLORS = ["#ff9f43", "#ff6b3d", "#ffd24c", "#ff5e7e"];
 const FROST_SONGS = new Set(["byleby-nie-byla-ciepla"]);
 /** Zimne kolory torów — nadal 4 wyraźnie różne odcienie (gracz rozróżnia tor po kolorze). */
 const FROST_LANE_COLORS = ["#6fd6ff", "#4c8dff", "#c4f3ff", "#9b8cff"];
+/** Strażacki motyw planszy (żarzące się tory, delikatne płomienie, iskry, koguty). */
+const FIRE_SONGS = new Set(["pan-strazak"]);
+/** Kolory torów jak strój i wóz strażacki: czerwień, odblaskowa limonka, srebro,
+ *  błękit wody. Celowo BEZ pomarańczu/żółci — płomienie na płonących nutach
+ *  muszą się odcinać od koloru toru. */
+const FIRE_LANE_COLORS = ["#ff4d4d", "#c6ff3d", "#e8eef5", "#4fc3ff"];
 
 // --- punktacja ---
 const BASE_SCORE: Record<Judgement, number> = { perfect: 300, great: 140, good: 55, miss: 0 };
@@ -3672,8 +3678,126 @@ export class Game {
     return FROST_SONGS.has(this.trackId);
   }
 
+  private fire(): boolean {
+    return FIRE_SONGS.has(this.trackId);
+  }
+
   private laneCols(): readonly string[] {
-    return this.frost() ? FROST_LANE_COLORS : LANE_COLORS;
+    if (this.frost()) return FROST_LANE_COLORS;
+    if (this.fire()) return FIRE_LANE_COLORS;
+    return LANE_COLORS;
+  }
+
+  // ---- strażacki motyw (FIRE_SONGS) ------------------------------------
+
+  private embers: { x: number; y: number; r: number; v: number; ph: number; a: number }[] = [];
+
+  /** Iskry unoszące się do góry (w tle, za torami). Ruch z czasu utworu. */
+  private drawEmbers(ctx: CanvasRenderingContext2D) {
+    const top = -this.vdy;
+    const vh = this.sh();
+    if (!this.embers.length) {
+      for (let i = 0; i < 45; i++) {
+        this.embers.push({
+          x: Math.random() * VW,
+          y: Math.random(),
+          r: 1 + Math.random() * 2.2,
+          v: 0.04 + Math.random() * 0.08,
+          ph: Math.random() * Math.PI * 2,
+          a: 0.4 + Math.random() * 0.5,
+        });
+      }
+    }
+    const t = Math.max(0, this.songTime);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const f of this.embers) {
+      const k = (((f.y - t * f.v) % 1) + 1) % 1; // 1 = dół, 0 = góra
+      const yy = top + k * vh;
+      const xx = f.x + Math.sin(t * 1.7 + f.ph) * 10;
+      // gasną w drodze do góry, migoczą
+      ctx.globalAlpha = f.a * k * (0.65 + 0.35 * Math.sin(t * 11 + f.ph));
+      ctx.fillStyle = k > 0.6 ? "#ffcc66" : "#ff7a2c";
+      ctx.fillRect(xx - f.r / 2, yy - f.r / 2, f.r, f.r);
+    }
+    ctx.restore();
+  }
+
+  private flameSpriteCache: HTMLCanvasElement | null = null;
+
+  /** Jeden płomyk (kropla: żółty rdzeń → pomarańcz → czerwień → przezroczystość). */
+  private flameSprite(): HTMLCanvasElement {
+    if (this.flameSpriteCache) return this.flameSpriteCache;
+    const W = 48;
+    const H = 96;
+    const cv = document.createElement("canvas");
+    cv.width = W;
+    cv.height = H;
+    const c = cv.getContext("2d");
+    if (c) {
+      c.beginPath();
+      c.moveTo(W / 2, 2);
+      c.bezierCurveTo(W * 0.62, H * 0.3, W * 0.98, H * 0.55, W * 0.82, H * 0.82);
+      c.bezierCurveTo(W * 0.7, H * 0.98, W * 0.3, H * 0.98, W * 0.18, H * 0.82);
+      c.bezierCurveTo(W * 0.02, H * 0.55, W * 0.38, H * 0.3, W / 2, 2);
+      const g = c.createRadialGradient(W / 2, H * 0.78, 2, W / 2, H * 0.62, H * 0.6);
+      g.addColorStop(0, "rgba(255,240,170,0.95)");
+      g.addColorStop(0.3, "rgba(255,170,60,0.85)");
+      g.addColorStop(0.65, "rgba(235,70,20,0.55)");
+      g.addColorStop(1, "rgba(180,30,10,0)");
+      c.fillStyle = g;
+      c.fill();
+    }
+    this.flameSpriteCache = cv;
+    return cv;
+  }
+
+  /** Delikatne płomienie wzdłuż ZEWNĘTRZNYCH krawędzi torów (nie na torach —
+   *  nuty, w tym płonące, muszą zostać czytelne). Migoczą do rytmu. */
+  private drawLaneFlames(ctx: CanvasRenderingContext2D, eBot: number, stripHW: (e: number) => number) {
+    const spr = this.flameSprite();
+    const t = Math.max(0, this.songTime);
+    const beat = 60 / (this.song.bpm || 120);
+    const beatK = 1 - ((t % beat) / beat); // 1 na uderzeniu, maleje do następnego
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const steps = 9;
+    for (let i = 0; i < steps; i++) {
+      const e = lerp(0.3, eBot, i / (steps - 1));
+      const y = this.yForE(e);
+      const size = this.sizeAtE(e);
+      for (const side of [-1, 1]) {
+        const lane = side < 0 ? 0 : LANES - 1;
+        const x = this.laneXAtE(lane, e) + side * (stripHW(e) + 6 * size);
+        const ph = i * 1.7 + (side > 0 ? 2.3 : 0);
+        const flick = 0.75 + 0.25 * Math.sin(t * 9 + ph) + 0.12 * beatK;
+        const h = 74 * size * flick;
+        const w = h * 0.5;
+        ctx.globalAlpha = (0.36 + 0.14 * Math.sin(t * 6.3 + ph)) * clamp(e, 0.3, 1);
+        ctx.drawImage(spr, x - w / 2, y - h * 0.9, w, h);
+      }
+    }
+    ctx.restore();
+  }
+
+  private heatGlowCache: { key: string; grad: CanvasGradient } | null = null;
+
+  /** Ciepła łuna od dołu ekranu (żar pod sceną). Gradient cache'owany. */
+  private drawHeatGlow(ctx: CanvasRenderingContext2D) {
+    const top = -this.vdy;
+    const vh = this.sh();
+    const key = `${Math.round(vh)}|${Math.round(top)}`;
+    if (!this.heatGlowCache || this.heatGlowCache.key !== key) {
+      const g = ctx.createLinearGradient(0, top + vh, 0, top + vh * 0.6);
+      g.addColorStop(0, "rgba(255,90,30,0.20)");
+      g.addColorStop(1, "rgba(255,90,30,0)");
+      this.heatGlowCache = { key, grad: g };
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = this.heatGlowCache.grad;
+    ctx.fillRect(0, top + vh * 0.6, VW, vh * 0.4);
+    ctx.restore();
   }
 
   private snowFlakes: { x: number; y: number; r: number; v: number; ph: number; a: number }[] = [];
@@ -3837,11 +3961,12 @@ export class Game {
       return;
     }
     const frost = this.frost();
-    if (frost) {
-      // chłodny odcień całej sceny (lodówka / mróz)
+    const fire = this.fire();
+    if (frost || fire) {
+      // odcień całej sceny: chłodny (mróz) albo ciepły (pożar)
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      this.fillViewport(ctx, "rgba(40,110,190,0.10)");
+      this.fillViewport(ctx, frost ? "rgba(40,110,190,0.10)" : "rgba(150,40,10,0.10)");
       ctx.restore();
     }
 
@@ -3852,11 +3977,14 @@ export class Game {
       [VW * 0.12, lightY],
       [VW * 0.88, lightY],
     ];
-    for (const [lx, ly] of lights) {
+    for (let li = 0; li < lights.length; li++) {
+      const [lx, ly] = lights[li];
       const r = 120 + pulse * 60;
       const rg = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      const lc = frost ? "150,215,255" : "255,180,90";
-      rg.addColorStop(0, `rgba(${lc},${0.32 + pulse * 0.28})`);
+      const lc = frost ? "150,215,255" : fire ? "255,45,35" : "255,180,90";
+      // pożar: czerwone koguty wozu strażackiego, na zmianę lewy/prawy
+      const blink = fire ? 0.35 + 0.65 * Math.max(0, Math.sin(this.songTime * 7 + li * Math.PI)) : 1;
+      rg.addColorStop(0, `rgba(${lc},${(0.32 + pulse * 0.28) * blink})`);
       rg.addColorStop(1, `rgba(${lc},0)`);
       ctx.fillStyle = rg;
       ctx.beginPath();
@@ -3865,6 +3993,7 @@ export class Game {
     }
     ctx.restore();
     if (frost) this.drawSnow(ctx);
+    if (fire) this.drawEmbers(ctx);
   }
 
   // ---- „latające reflektory" — bajer tła dla Pani Policjantko (bez wpływu
@@ -6079,6 +6208,7 @@ export class Game {
     this.drawComboFlash(ctx); // flesze z krawędzi przy combo >= 30 (każdy utwór)
     this.drawBomb(ctx); // wybuch + ogłuszenie (3 s bez tapów)
     if (this.frost()) this.drawFrostEdges(ctx);
+    if (this.fire()) this.drawHeatGlow(ctx);
 
     if (dxf) {
       // podwójne widzenie — drugi, przesunięty i przyciemniony przebieg nut
@@ -6264,7 +6394,8 @@ export class Game {
       ctx.lineTo(cTop + hwT, yTop);
       ctx.closePath();
       const frost = this.frost();
-      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}|${frost ? 1 : 0}`;
+      const fire = this.fire();
+      const laneKey = `${l % 2}|${held ? 1 : 0}|${padBotR}|${frost ? 1 : fire ? 2 : 0}`;
       let lg = this.laneGradCache.get(laneKey);
       if (!lg) {
         lg = ctx.createLinearGradient(0, HORIZON_Y, 0, padBot);
@@ -6275,6 +6406,14 @@ export class Game {
           lg.addColorStop(
             1,
             held ? "rgba(200,245,255,0.42)" : l % 2 ? "rgba(170,225,255,0.34)" : "rgba(130,195,250,0.40)",
+          );
+        } else if (fire) {
+          // zwęglony tor, od dołu żar
+          lg.addColorStop(0, l % 2 ? "rgba(40,12,8,0.16)" : "rgba(30,10,6,0.20)");
+          lg.addColorStop(0.65, l % 2 ? "rgba(80,20,8,0.28)" : "rgba(65,16,6,0.32)");
+          lg.addColorStop(
+            1,
+            held ? "rgba(255,130,50,0.36)" : l % 2 ? "rgba(185,55,15,0.36)" : "rgba(155,42,12,0.42)",
           );
         } else {
           lg.addColorStop(0, l % 2 ? "rgba(120,20,30,0.10)" : "rgba(90,15,25,0.13)");
@@ -6290,7 +6429,9 @@ export class Game {
 
       ctx.strokeStyle = frost
         ? `rgba(215,245,255,${0.22 + flash * 0.5 + (held ? 0.35 : 0)})`
-        : `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
+        : fire
+          ? `rgba(255,150,80,${0.2 + flash * 0.5 + (held ? 0.35 : 0)})`
+          : `rgba(255,225,195,${0.1 + flash * 0.5 + (held ? 0.35 : 0)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(cTop - hwT, yTop);
@@ -6300,6 +6441,7 @@ export class Game {
       ctx.stroke();
       if (frost) this.drawIceSheen(ctx, l, cTop, cBotE, yTop, yBot, hwT, hwB);
     }
+    if (this.fire()) this.drawLaneFlames(ctx, eBot, stripHW);
 
     // Poświaty linii trafienia, klawiszy i receptorów to sprite'y (drawImage), NIE
     // ctx.shadowBlur. Zmierzone na Galaxy A41 (Mali-G52) w żywej rundzie: to
@@ -6309,9 +6451,13 @@ export class Game {
     const hlx0 = this.hitX(0) - LANE_GAP_HIT * 0.62;
     const hlx1 = this.hitX(LANES - 1) + LANE_GAP_HIT * 0.62;
     const glowH = 46 + pulse * 34;
-    ctx.drawImage(this.hitLineGlowSprite(this.frost()), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
+    ctx.drawImage(this.hitLineGlowSprite(this.frost() ? "frost" : this.fire() ? "fire" : ""), hlx0, hitY - glowH / 2, hlx1 - hlx0, glowH);
     ctx.save();
-    ctx.strokeStyle = this.frost() ? "rgba(220,248,255,0.9)" : "rgba(255,228,185,0.85)";
+    ctx.strokeStyle = this.frost()
+      ? "rgba(220,248,255,0.9)"
+      : this.fire()
+        ? "rgba(255,205,150,0.9)"
+        : "rgba(255,228,185,0.85)";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(hlx0, hitY);
@@ -6414,6 +6560,7 @@ export class Game {
   private glowSpriteCache = new Map<string, HTMLCanvasElement>();
   private hitLineGlowCache: HTMLCanvasElement | null = null;
   private hitLineGlowFrost: HTMLCanvasElement | null = null;
+  private hitLineGlowFire: HTMLCanvasElement | null = null;
 
   private makeHitLineGlow(rgb: string): HTMLCanvasElement {
     const H = 96;
@@ -6438,8 +6585,9 @@ export class Game {
   }
 
   /** Pozioma poświata linii trafienia (pionowy gradient, rozciągany na szerokość). */
-  private hitLineGlowSprite(frost = false): HTMLCanvasElement {
-    if (frost) return (this.hitLineGlowFrost ??= this.makeHitLineGlow("160,225,255"));
+  private hitLineGlowSprite(theme: "" | "frost" | "fire" = ""): HTMLCanvasElement {
+    if (theme === "frost") return (this.hitLineGlowFrost ??= this.makeHitLineGlow("160,225,255"));
+    if (theme === "fire") return (this.hitLineGlowFire ??= this.makeHitLineGlow("255,110,40"));
     if (this.hitLineGlowCache) return this.hitLineGlowCache;
     const H = 96;
     const cv = document.createElement("canvas");
