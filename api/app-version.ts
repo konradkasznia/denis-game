@@ -20,12 +20,8 @@ const VERSION = "0.9.1";
 const MESSAGE = "Dostępna jest nowa wersja gry z nowymi poziomami do przejścia. Uaktualnij!";
 
 const URLS = {
-  // dziś: stały link do najnowszego APK (release "android-latest" — patrz
-  // .github/workflows/android.yml). Po publikacji w Google Play: podmienić
-  // na https://play.google.com/store/apps/details?id=pl.impulsywni.denis
-  android: "https://github.com/konradkasznia/denis-game/releases/tag/android-latest",
-  // uzupełnić po publikacji w App Store
-  ios: "",
+  android: "https://play.google.com/store/apps/details?id=pl.impulsywni.denis",
+  ios: "https://apps.apple.com/app/id6819725079",
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
