@@ -2066,7 +2066,7 @@ export class Game {
       if (hit) {
         uiSound("buttons");
         submitVote(POLL_LEVEL6, hit.id);
-        void enablePush(); // głos = świadoma zgoda na powiadomienia o nowej zawartości
+        void this.askPush(); // głos = świadoma zgoda na powiadomienia o nowej zawartości
         this.voteModal = "thanks";
       }
       return;
@@ -2330,6 +2330,23 @@ export class Game {
     this.audioKickPending = true;
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
+  }
+
+  /** Prośba o zgodę na powiadomienia z wyciszonym na ten czas dźwiękiem.
+   *  Systemowe okno zgody (albo przejście do Ustawień) robi apkę nieaktywną;
+   *  grająca muzyka menu w kategorii „playback" sprawiała wtedy, że iOS
+   *  pokazywał grę jako odtwarzacz („localhost" w Dynamic Island). Na czas
+   *  okna: jak przy zejściu do tła (kontekst wstrzymany, „ambient"), potem
+   *  powrót do „playback" i muzyki (albo przy pierwszym dotknięciu). */
+  private async askPush(): Promise<boolean> {
+    this.audio.enterBackground();
+    try {
+      return await enablePush();
+    } finally {
+      this.audio.enterForeground();
+      this.audioKickPending = true;
+      if (this.scene !== "play") void this.audio.resumePlayback();
+    }
   }
 
   /** Wysokość natywnej klawiatury w px CSS (0 = schowana). Ekran logowania
@@ -2743,7 +2760,7 @@ export class Game {
         uiSound("buttons");
         // „Powiadom mnie" → najpierw głosowanie „jaki poziom 6?", potem zgoda
         if (!votedChoice(POLL_LEVEL6)) this.voteModal = "pick";
-        else if (!pushOptedInSync()) void enablePush();
+        else if (!pushOptedInSync()) void this.askPush();
         return;
       }
       if (inRect(this.hb(spotBelow), x, y)) {
@@ -3048,7 +3065,7 @@ export class Game {
     if (inRect(SET_PUSH, x, y)) {
       uiSound("buttons");
       if (pushOptedInSync()) void disablePush();
-      else void enablePush();
+      else void this.askPush();
       return;
     }
     if (inRect(SET_HAPTICS, x, y)) {
