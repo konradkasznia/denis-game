@@ -9462,8 +9462,8 @@ export class Game {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     if (icon === "trophy") {
-      ctx.fillStyle = "#9c9c9c";
-      ctx.strokeStyle = "#9c9c9c";
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#ffffff";
       // czasza
       ctx.beginPath();
       ctx.moveTo(cx - 20 * u, cy - 24 * u);
@@ -9498,21 +9498,22 @@ export class Game {
         ctx.stroke();
       }
     } else if (icon === "replay") {
+      // ↺ „od nowa": łuk od góry zgodnie z ruchem wskazówek zegara aż do ~10:00,
+      // a na górnym końcu grot skierowany W LEWO (ruch przeciwny do wskazówek)
       ctx.strokeStyle = "#ffffff";
       ctx.fillStyle = "#ffffff";
       ctx.lineWidth = 7 * u;
       const rr = 21 * u;
-      const a0 = -Math.PI * 0.62;
+      const ay = cy + 2 * u;
       ctx.beginPath();
-      ctx.arc(cx, cy + 3 * u, rr, a0, a0 + Math.PI * 1.72);
+      ctx.arc(cx, ay, rr, -Math.PI / 2 + 0.25, (210 * Math.PI) / 180);
       ctx.stroke();
-      // grot strzałki na początku łuku
-      const ax = cx + Math.cos(a0) * rr;
-      const ay = cy + 3 * u + Math.sin(a0) * rr;
+      const tx = cx; // górny punkt okręgu
+      const ty = ay - rr;
       ctx.beginPath();
-      ctx.moveTo(ax + 13 * u, ay - 1 * u);
-      ctx.lineTo(ax - 6 * u, ay - 12 * u);
-      ctx.lineTo(ax - 5 * u, ay + 11 * u);
+      ctx.moveTo(tx - 13 * u, ty); // czubek grotu (w lewo)
+      ctx.lineTo(tx + 5 * u, ty - 12 * u);
+      ctx.lineTo(tx + 5 * u, ty + 12 * u);
       ctx.closePath();
       ctx.fill();
     } else {
