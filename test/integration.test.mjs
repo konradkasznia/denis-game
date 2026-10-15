@@ -377,7 +377,7 @@ ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
   gf.parScore = 1000;
   gf.finish();
   gf.resultsAt = performance.now() - 5000;
-  gf.onPress(-1, 360, 1200);
+  gf.onPress(-1, 560, 930); // okrągły „ZAGRAJ PONOWNIE" (prawe kółko)
   // startPlay() leci w tle (wczytanie mapy + audio) — poczekaj aż scena się przełączy
   for (let i = 0; i < 200 && gf.scene !== "play"; i++) await new Promise((r) => setTimeout(r, 10));
   ok(

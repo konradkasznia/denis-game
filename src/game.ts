@@ -355,14 +355,22 @@ const AUTH_BOT_LOGIN = 968; // — tryb logowania
 const PZ_RESUME: Rect = { x: MARGIN, y: 560, w: VW - MARGIN * 2, h: 100 };
 const PZ_RESTART: Rect = { x: MARGIN, y: 682, w: VW - MARGIN * 2, h: 96 };
 const PZ_MENU: Rect = { x: MARGIN, y: 800, w: VW - MARGIN * 2, h: 96 };
-// 4 przyciski (zamiast dawnych 3) — patrz drawResults/handleResultsTap: slot 3/4
-// mają różne etykiety/akcje w zależności od tego, czy ten utwór odblokowuje kolejny
-// poziom (resultShowNextLevel) — „ZAGRAJ PONOWNIE"/„NASTĘPNY POZIOM", czy nie —
-// „WRÓĆ DO MENU"/„ZAGRAJ PONOWNIE" (żółty, wyróżniający).
-const RES_BOARD: Rect = { x: MARGIN, y: 916, w: VW - MARGIN * 2, h: 80 };
-const RES_SPOTIFY: Rect = { x: MARGIN, y: 1004, w: VW - MARGIN * 2, h: 80 }; // 8px odstępu
-const RES_SLOT3: Rect = { x: MARGIN, y: 1092, w: VW - MARGIN * 2, h: 80 };
-const RES_SLOT4: Rect = { x: MARGIN, y: 1180, w: VW - MARGIN * 2, h: 80 };
+// Podsumowanie rundy: rząd 3 okrągłych przycisków z ikoną i podpisem
+// (TABELA WYNIKÓW · SŁUCHAJ NA SPOTIFY · ZAGRAJ PONOWNIE) + jeden szeroki pod
+// spodem: „NASTĘPNY POZIOM" (złoty), gdy ten utwór odblokowuje kolejny poziom
+// (resultShowNextLevel), inaczej „WRÓĆ DO MENU" (ciemny). Patrz drawResults /
+// handleResultsTap.
+const RES_CIRC_Y = 930; // środek kółek
+const RES_CIRC_R = 56;
+const RES_CIRC_DX = 200; // odstęp środków kółek
+/** obszar trafienia i-tego kółka (0 tabela, 1 spotify/koperty, 2 zagraj ponownie) — z podpisem */
+const resCircle = (i: number): Rect => ({
+  x: VW / 2 + (i - 1) * RES_CIRC_DX - 96,
+  y: RES_CIRC_Y - RES_CIRC_R - 10,
+  w: 192,
+  h: RES_CIRC_R * 2 + 120,
+});
+const RES_MAIN: Rect = { x: MARGIN, y: 1112, w: VW - MARGIN * 2, h: 96 };
 
 const JUDGE_LABEL: Record<Judgement, string> = {
   perfect: "PERFECT",
@@ -3103,30 +3111,30 @@ export class Game {
       this.enterHits();
     };
 
-    // slot 4 (złoty, wyróżniający) = systemowy „wstecz" też nim steruje —
-    // „NASTĘPNY POZIOM" gdy ten utwór odblokowuje kolejny, inaczej „ZAGRAJ PONOWNIE"
-    if (x < 0 || inRect(RES_SLOT4, x, y)) {
+    // szeroki przycisk (też systemowy „wstecz"): NASTĘPNY POZIOM albo WRÓĆ DO MENU
+    if (x < 0 || inRect(RES_MAIN, x, y)) {
       if (this.resultShowNextLevel) goNextLevel();
-      else goReplay();
-      return;
-    }
-    if (inRect(RES_SLOT3, x, y)) {
-      if (this.resultShowNextLevel) goReplay();
       else goMenu();
       return;
     }
-    if (inRect(RES_SPOTIFY, x, y) && this.trackId === WEDDING) {
+    if (inRect(resCircle(2), x, y)) {
+      goReplay();
+      return;
+    }
+    if (inRect(resCircle(1), x, y) && this.trackId === WEDDING) {
       uiSound("buttons");
       this.openGiversBoard("results");
       return;
     }
-    if (inRect(RES_SPOTIFY, x, y)) {
-      uiSound("buttons");
+    if (inRect(resCircle(1), x, y)) {
       const url = spotifyUrl(this.trackId);
-      if (url) openExternal(url);
+      if (url) {
+        uiSound("buttons");
+        openExternal(url);
+      }
       return;
     }
-    if (inRect(RES_BOARD, x, y)) {
+    if (inRect(resCircle(0), x, y)) {
       uiSound("buttons");
       this.boardSongId = this.trackId;
       this.boardFrom = "results";
@@ -9282,7 +9290,7 @@ export class Game {
     }
 
     // --- punkty + miejsce ---
-    text(ctx, `${this.score.toLocaleString("pl-PL")} PKT`, VW / 2, 824, {
+    text(ctx, `${this.score.toLocaleString("pl-PL")} PKT`, VW / 2, 704, {
       size: 58,
       weight: "900",
       font: HEAD_FONT,
@@ -9292,13 +9300,13 @@ export class Game {
     if (!this.resultIsNewBest) {
       // nie pobity własny rekord — zamiast miejsca w rankingu (myliłoby: nowe
       // MIEJSCE dotyczyłoby wyniku sprzed tej rundy) pokazujemy sam rekord
-      text(ctx, `(Twój najlepszy: ${this.resultPrevBest.toLocaleString("pl-PL")} pkt)`, VW / 2, 876, {
+      text(ctx, `(Twój najlepszy: ${this.resultPrevBest.toLocaleString("pl-PL")} pkt)`, VW / 2, 758, {
         size: 20,
         weight: "700",
         color: "#c9b7a6",
       });
     } else if (this.resultRank > 0) {
-      text(ctx, `MIEJSCE ${this.resultRank}`, VW / 2, 880, {
+      text(ctx, `MIEJSCE ${this.resultRank}`, VW / 2, 762, {
         size: 30,
         weight: "900",
         font: HEAD_FONT,
@@ -9309,18 +9317,18 @@ export class Game {
     } else if (this.resultRankFailed || !backendReachable()) {
       // serwer nie odpowiedział (offline / padł request) — bez zgadywanej
       // liczby, sam komunikat; „BRAK POŁĄCZENIA" (offlineNotice) już to tłumaczy
-      text(ctx, "Miejsce: niedostępne offline", VW / 2, 876, {
+      text(ctx, "Miejsce: niedostępne offline", VW / 2, 758, {
         size: 18,
         weight: "700",
         color: "#a89686",
       });
     } else {
-      this.drawSpinner(ctx, VW / 2, 874, 11, false);
+      this.drawSpinner(ctx, VW / 2, 756, 11, false);
     }
 
     // --- „odblokowałeś kolejny poziom!" (tylko pierwsze ukończenie, patrz finish()) ---
     if (this.resultUnlockedNext) {
-      text(ctx, "Odblokowałeś kolejny poziom!", VW / 2, 908, {
+      text(ctx, "Odblokowałeś kolejny poziom!", VW / 2, 796, {
         size: 19,
         weight: "900",
         font: HEAD_FONT,
@@ -9342,7 +9350,7 @@ export class Game {
       const earned = Math.max(0, this.coinsEarned);
       const total = coins(); // `finish()` już dopisał `earned` do salda
       const before = Math.max(0, total - earned);
-      const cy = 786;
+      const cy = 640;
       const label = `Zdobyłeś ${earned} ${monetyWord(earned)}`;
       ctx.save();
       ctx.font = `900 24px ${HEAD_FONT}`;
@@ -9406,19 +9414,129 @@ export class Game {
     ctx.save();
     ctx.globalAlpha = fadeIn;
 
-    this.uiButton(ctx, RES_BOARD, "tabela-wynikow", { fallback: "TABELA WYNIKÓW", style: "dark-gold" });
-    if (this.trackId === WEDDING) this.styledBtn(ctx, RES_SPOTIFY, "NAJHOJNIEJSI GRACZE", "dark-gold");
-    else this.uiButton(ctx, RES_SPOTIFY, "otworz-w-spotify", { fallback: "OTWÓRZ W SPOTIFY", style: "dark-green" });
-    // slot 3/4: patrz handleResultsTap/finish() — „NASTĘPNY POZIOM" tylko gdy ten
-    // utwór faktycznie odblokowuje zwykły kolejny poziom, inaczej „WRÓĆ DO MENU"
-    if (this.resultShowNextLevel) {
-      this.uiButton(ctx, RES_SLOT3, "zagraj-ponownie", { fallback: "ZAGRAJ PONOWNIE", style: "dark-gold" });
-      this.uiButton(ctx, RES_SLOT4, "nastepny-poziom", { fallback: "NASTĘPNY POZIOM", style: "gold" });
+    // rząd okrągłych przycisków; środkowy: Spotify, a na weselu ranking kopert
+    const wedding = this.trackId === WEDDING;
+    this.roundIconBtn(ctx, 0, "trophy", ["TABELA", "WYNIKÓW"]);
+    if (wedding) this.roundIconBtn(ctx, 1, "envelope", ["NAJHOJNIEJSI", "GRACZE"]);
+    else this.roundIconBtn(ctx, 1, "spotify", ["SŁUCHAJ", "NA SPOTIFY"], !spotifyUrl(this.trackId));
+    this.roundIconBtn(ctx, 2, "replay", ["ZAGRAJ", "PONOWNIE"]);
+    // szeroki: „NASTĘPNY POZIOM" tylko gdy ten utwór odblokowuje zwykły kolejny poziom
+    if (this.resultShowNextLevel) this.uiButton(ctx, RES_MAIN, "nastepny-poziom", { fallback: "NASTĘPNY POZIOM", style: "gold" });
+    else this.styledBtn(ctx, RES_MAIN, "WRÓĆ DO MENU", "dark-gold");
+
+    ctx.restore();
+  }
+
+  /** Okrągły przycisk z ikoną + dwuwierszowy podpis (podsumowanie rundy). */
+  private roundIconBtn(
+    ctx: CanvasRenderingContext2D,
+    i: number,
+    icon: "trophy" | "spotify" | "replay" | "envelope",
+    label: [string, string],
+    dim = false,
+  ) {
+    const cx = VW / 2 + (i - 1) * RES_CIRC_DX;
+    const cy = RES_CIRC_Y;
+    const r = RES_CIRC_R;
+    const green = icon === "spotify";
+    const pink = icon === "envelope";
+    ctx.save();
+    if (dim) ctx.globalAlpha *= 0.4;
+    // cień + tarcza + obręcz
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = green ? "#050505" : "#1d0d07";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = green ? "#1db954" : pink ? "#e86f93" : "#c9791a";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 3.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const u = r / 56; // skala ikon (projekt dla r = 56)
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (icon === "trophy") {
+      ctx.fillStyle = "#9c9c9c";
+      ctx.strokeStyle = "#9c9c9c";
+      // czasza
+      ctx.beginPath();
+      ctx.moveTo(cx - 20 * u, cy - 24 * u);
+      ctx.lineTo(cx + 20 * u, cy - 24 * u);
+      ctx.lineTo(cx + 18 * u, cy - 4 * u);
+      ctx.quadraticCurveTo(cx, cy + 14 * u, cx - 18 * u, cy - 4 * u);
+      ctx.closePath();
+      ctx.fill();
+      // uszy
+      ctx.lineWidth = 5 * u;
+      ctx.beginPath();
+      ctx.arc(cx - 20 * u, cy - 14 * u, 8 * u, Math.PI * 0.5, Math.PI * 1.5);
+      ctx.moveTo(cx + 20 * u, cy - 22 * u);
+      ctx.arc(cx + 20 * u, cy - 14 * u, 8 * u, -Math.PI * 0.5, Math.PI * 0.5);
+      ctx.stroke();
+      // nóżka + podstawa
+      ctx.fillRect(cx - 4 * u, cy + 4 * u, 8 * u, 12 * u);
+      ctx.fillRect(cx - 15 * u, cy + 16 * u, 30 * u, 7 * u);
+      ctx.fillRect(cx - 19 * u, cy + 23 * u, 38 * u, 5 * u);
+    } else if (icon === "spotify") {
+      ctx.strokeStyle = "#1db954";
+      const arcs: [number, number, number][] = [
+        [-11, 30, 7],
+        [3, 24, 6],
+        [16, 17, 5],
+      ];
+      for (const [dy, hw, lw] of arcs) {
+        ctx.lineWidth = lw * u;
+        ctx.beginPath();
+        ctx.moveTo(cx - hw * u, cy + dy * u);
+        ctx.quadraticCurveTo(cx, cy + (dy - hw * 0.42) * u, cx + hw * u, cy + (dy + 4) * u);
+        ctx.stroke();
+      }
+    } else if (icon === "replay") {
+      ctx.strokeStyle = "#ffffff";
+      ctx.fillStyle = "#ffffff";
+      ctx.lineWidth = 7 * u;
+      const rr = 21 * u;
+      const a0 = -Math.PI * 0.62;
+      ctx.beginPath();
+      ctx.arc(cx, cy + 3 * u, rr, a0, a0 + Math.PI * 1.72);
+      ctx.stroke();
+      // grot strzałki na początku łuku
+      const ax = cx + Math.cos(a0) * rr;
+      const ay = cy + 3 * u + Math.sin(a0) * rr;
+      ctx.beginPath();
+      ctx.moveTo(ax + 13 * u, ay - 1 * u);
+      ctx.lineTo(ax - 6 * u, ay - 12 * u);
+      ctx.lineTo(ax - 5 * u, ay + 11 * u);
+      ctx.closePath();
+      ctx.fill();
     } else {
-      this.uiButton(ctx, RES_SLOT3, "wroc-do-menu", { fallback: "WRÓĆ DO MENU", style: "dark-gold" });
-      this.uiButton(ctx, RES_SLOT4, "zagraj-ponownie", { fallback: "ZAGRAJ PONOWNIE", style: "gold" });
+      // koperta z serduszkiem (ranking kopert weselnych)
+      const w = 50 * u;
+      const h = 34 * u;
+      ctx.fillStyle = "#fff1e3";
+      roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 4 * u);
+      ctx.fill();
+      ctx.strokeStyle = "#e7a8b8";
+      ctx.lineWidth = 2.5 * u;
+      ctx.beginPath();
+      ctx.moveTo(cx - w / 2 + 2 * u, cy - h / 2 + 2 * u);
+      ctx.lineTo(cx, cy + 3 * u);
+      ctx.lineTo(cx + w / 2 - 2 * u, cy - h / 2 + 2 * u);
+      ctx.stroke();
+      ctx.fillStyle = "#d81b45";
+      ctx.beginPath();
+      ctx.arc(cx, cy + 3 * u, 7 * u, 0, Math.PI * 2);
+      ctx.fill();
     }
 
+    text(ctx, label[0], cx, cy + r + 34, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
+    text(ctx, label[1], cx, cy + r + 60, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
     ctx.restore();
   }
 
