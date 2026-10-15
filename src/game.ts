@@ -3111,8 +3111,13 @@ export class Game {
       this.enterHits();
     };
 
-    // szeroki przycisk (też systemowy „wstecz"): NASTĘPNY POZIOM albo WRÓĆ DO MENU
-    if (x < 0 || inRect(RES_MAIN, x, y)) {
+    // systemowy „wstecz" (Android) — zawsze powrót do menu
+    if (x < 0) {
+      goMenu();
+      return;
+    }
+    // szeroki przycisk: NASTĘPNY POZIOM albo WRÓĆ DO MENU
+    if (inRect(RES_MAIN, x, y)) {
       if (this.resultShowNextLevel) goNextLevel();
       else goMenu();
       return;
@@ -9417,7 +9422,7 @@ export class Game {
     // rząd okrągłych przycisków; środkowy: Spotify, a na weselu ranking kopert
     const wedding = this.trackId === WEDDING;
     this.roundIconBtn(ctx, 0, "trophy", ["TABELA", "WYNIKÓW"]);
-    if (wedding) this.roundIconBtn(ctx, 1, "envelope", ["NAJHOJNIEJSI", "GRACZE"]);
+    if (wedding) this.roundIconBtn(ctx, 1, "piggy", ["NAJHOJNIEJSI", "GRACZE"]);
     else this.roundIconBtn(ctx, 1, "spotify", ["SŁUCHAJ", "NA SPOTIFY"], !spotifyUrl(this.trackId));
     this.roundIconBtn(ctx, 2, "replay", ["ZAGRAJ", "PONOWNIE"]);
     // szeroki: „NASTĘPNY POZIOM" tylko gdy ten utwór odblokowuje zwykły kolejny poziom
@@ -9431,7 +9436,7 @@ export class Game {
   private roundIconBtn(
     ctx: CanvasRenderingContext2D,
     i: number,
-    icon: "trophy" | "spotify" | "replay" | "envelope",
+    icon: "trophy" | "spotify" | "replay" | "piggy",
     label: [string, string],
     dim = false,
   ) {
@@ -9439,7 +9444,7 @@ export class Game {
     const cy = RES_CIRC_Y;
     const r = RES_CIRC_R;
     const green = icon === "spotify";
-    const pink = icon === "envelope";
+    const pink = icon === "piggy";
     ctx.save();
     if (dim) ctx.globalAlpha *= 0.4;
     // cień + tarcza + obręcz
@@ -9517,23 +9522,70 @@ export class Game {
       ctx.closePath();
       ctx.fill();
     } else {
-      // koperta z serduszkiem (ranking kopert weselnych)
-      const w = 50 * u;
-      const h = 34 * u;
-      ctx.fillStyle = "#fff1e3";
-      roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 4 * u);
-      ctx.fill();
-      ctx.strokeStyle = "#e7a8b8";
-      ctx.lineWidth = 2.5 * u;
+      // świnka-skarbonka (ranking „Najhojniejsi gracze") + moneta wpadająca do szczeliny
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(1.22, 1.22); // świnka wypełnia tarczę jak pozostałe ikony
+      ctx.translate(-cx, -cy);
+      const pc = "#ff9fbf";
+      const pd = "#e86f93";
+      const by = cy + 4 * u; // środek tułowia
+      // nóżki
+      ctx.fillStyle = pd;
+      for (const lx of [-15, -5, 7, 16]) {
+        roundRect(ctx, cx + lx * u - 3.5 * u, by + 10 * u, 7 * u, 10 * u, 2.5 * u);
+        ctx.fill();
+      }
+      // ogonek (sprężynka z tyłu, po lewej)
+      ctx.strokeStyle = pd;
+      ctx.lineWidth = 3 * u;
       ctx.beginPath();
-      ctx.moveTo(cx - w / 2 + 2 * u, cy - h / 2 + 2 * u);
-      ctx.lineTo(cx, cy + 3 * u);
-      ctx.lineTo(cx + w / 2 - 2 * u, cy - h / 2 + 2 * u);
+      ctx.arc(cx - 26 * u, by - 3 * u, 4 * u, 0.3, Math.PI * 1.7);
       ctx.stroke();
-      ctx.fillStyle = "#d81b45";
+      // tułów
+      ctx.fillStyle = pc;
       ctx.beginPath();
-      ctx.arc(cx, cy + 3 * u, 7 * u, 0, Math.PI * 2);
+      ctx.ellipse(cx, by, 24 * u, 17 * u, 0, 0, Math.PI * 2);
       ctx.fill();
+      // ucho
+      ctx.fillStyle = pd;
+      ctx.beginPath();
+      ctx.moveTo(cx + 6 * u, by - 14 * u);
+      ctx.lineTo(cx + 13 * u, by - 24 * u);
+      ctx.lineTo(cx + 17 * u, by - 11 * u);
+      ctx.closePath();
+      ctx.fill();
+      // ryjek
+      ctx.fillStyle = pd;
+      ctx.beginPath();
+      ctx.ellipse(cx + 24 * u, by + 2 * u, 5 * u, 7 * u, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#8a2a4a";
+      ctx.beginPath();
+      ctx.arc(cx + 23.5 * u, by - 0.5 * u, 1.3 * u, 0, Math.PI * 2);
+      ctx.arc(cx + 23.5 * u, by + 4.5 * u, 1.3 * u, 0, Math.PI * 2);
+      ctx.fill();
+      // oko
+      ctx.fillStyle = "#2a1018";
+      ctx.beginPath();
+      ctx.arc(cx + 13 * u, by - 4 * u, 2.2 * u, 0, Math.PI * 2);
+      ctx.fill();
+      // szczelina na monety
+      ctx.strokeStyle = "#8a2a4a";
+      ctx.lineWidth = 3 * u;
+      ctx.beginPath();
+      ctx.moveTo(cx - 8 * u, by - 15 * u);
+      ctx.lineTo(cx + 2 * u, by - 15 * u);
+      ctx.stroke();
+      // moneta nad szczeliną
+      ctx.fillStyle = "#ffd24c";
+      ctx.strokeStyle = "#b07a10";
+      ctx.lineWidth = 2 * u;
+      ctx.beginPath();
+      ctx.ellipse(cx - 3 * u, by - 26 * u, 7 * u, 7 * u, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     }
 
     text(ctx, label[0], cx, cy + r + 34, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
