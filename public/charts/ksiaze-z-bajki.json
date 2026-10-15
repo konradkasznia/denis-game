@@ -44,9 +44,106 @@
     {
       "at": 40,
       "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 43.645,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 49.742,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 57.387,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
+    },
+    {
+      "at": 63,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 67.548,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 76.161,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 82.161,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 88.355,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
+    },
+    {
+      "at": 94.548,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 98.129,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 100.839,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 106.936,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
+    },
+    {
+      "at": 113.903,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 119.419,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 125.71,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 132.097,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 136.742,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 139.645,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
+    },
+    {
+      "at": 145.742,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 151.548,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
+    },
+    {
+      "at": 158.129,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie3"
+    },
+    {
+      "at": 164.516,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie1"
+    },
+    {
+      "at": 170.516,
+      "sprite": "assets/char/ksiaze-z-bajki/ujecie2"
     }
   ],
   "notes": [
+    {
+      "lane": 0,
+      "time": 1.742,
+      "dur": 0
+    },
     {
       "lane": 3,
       "time": 1.973,
@@ -904,6 +1001,11 @@
     },
     {
       "lane": 2,
+      "time": 107.506,
+      "dur": 0
+    },
+    {
+      "lane": 2,
       "time": 108.134,
       "dur": 0
     },
@@ -1211,6 +1313,12 @@
       "lane": 2,
       "time": 144.435,
       "dur": 0
+    },
+    {
+      "lane": 1,
+      "time": 144.484,
+      "dur": 0,
+      "lemon": true
     },
     {
       "lane": 3,
