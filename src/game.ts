@@ -43,7 +43,7 @@ import {
   wornSuit,
 } from "./wedding.ts";
 import { addLemons, LEMON_ROUND, lemonCount, LEMONS_NEEDED, lemonSet, mergeServerLemons, syncLemons } from "./lemons.ts";
-import { isNative } from "./native.ts";
+import { isNative, openUrlNative } from "./native.ts";
 import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
@@ -327,7 +327,10 @@ function openDoc(url: string) {
 function openExternal(url: string) {
   try {
     if (isNative) {
-      window.open(url, "_system");
+      // przez system (wtyczka AppLauncher); gdyby zawiodła — stary sposób
+      void openUrlNative(url).then((ok) => {
+        if (!ok) window.open(url, "_system");
+      });
       return;
     }
     const w = window.open(url, "_blank", "noopener");
@@ -900,7 +903,7 @@ export class Game {
    *  steruje etykietami przycisków 3/4 na podsumowaniu, patrz finish()/drawResults. */
   private resultShowNextLevel = false;
   /** jw., ale TYLKO gdy to pierwsze ukończenie tego utworu — pokazuje komunikat
-   *  „Odblokowałeś kolejny poziom!" + konfetti (raz, patrz resultConfettiSpawned). */
+   *  „Odblokowano kolejny poziom!" + konfetti (raz, patrz resultConfettiSpawned). */
   private resultUnlockedNext = false;
   private resultConfettiSpawned = false;
   // monety zdobyte w tej rundzie + animacja „lecą w lewy górny róg"
@@ -9333,7 +9336,7 @@ export class Game {
 
     // --- „odblokowałeś kolejny poziom!" (tylko pierwsze ukończenie, patrz finish()) ---
     if (this.resultUnlockedNext) {
-      text(ctx, "Odblokowałeś kolejny poziom!", VW / 2, 796, {
+      text(ctx, "Odblokowano kolejny poziom!", VW / 2, 796, {
         size: 19,
         weight: "900",
         font: HEAD_FONT,

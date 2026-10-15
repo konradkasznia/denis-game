@@ -244,7 +244,7 @@ function completedIds(): Set<string> {
 
 /** Odnotowuje, że runda została przejechana do końca (wołane z finish()).
  *  Zwraca `true`, gdy to PIERWSZE ukończenie tego utworu (do komunikatu
- *  „Odblokowałeś kolejny poziom!" na ekranie podsumowania). */
+ *  „Odblokowano kolejny poziom!" na ekranie podsumowania). */
 export function markCompleted(id: string): boolean {
   const s = completedIds();
   if (s.has(id)) return false;
