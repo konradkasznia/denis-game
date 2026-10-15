@@ -300,6 +300,44 @@ export function levelUnlocked(index: number): boolean {
   return true;
 }
 
+// ---- „ODBLOKUJ" nowo dostępnego poziomu ----------------------------------
+//
+// Gdy gracz zdobędzie dostęp do kolejnego poziomu (przejdzie poprzedni), poziom
+// na karuzeli jest jeszcze szary z przyciskiem „ODBLOKUJ" — stuknięcie odpala
+// konfetti i dopiero wtedy kolor + GRAJ!. Raz na poziom. Poziom, w który gracz
+// już kiedyś grał (discovered / gwiazdki, też z serwera), nie wymaga odsłonięcia.
+
+const REVEALED_KEY = "denis.revealed";
+
+function revealedIds(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(REVEALED_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Czy poziom czeka na „ODBLOKUJ" (dostępny, ale jeszcze nieodsłonięty). */
+export function needsReveal(index: number): boolean {
+  const s = SONGS[index];
+  if (!s || index <= 0 || !s.playable || s.devOnly || s.inviteOnly) return false;
+  if (isBonusRound(s.id)) return false; // rundy bonusowe mają własne odblokowanie
+  if (!levelUnlocked(index)) return false;
+  if (isDiscovered(s.id) || bestStars(s.id) > 0) return false;
+  return !revealedIds().has(s.id);
+}
+
+export function markRevealed(id: string): void {
+  const s = revealedIds();
+  if (s.has(id)) return;
+  s.add(id);
+  try {
+    localStorage.setItem(REVEALED_KEY, JSON.stringify([...s]));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Ile monet potrzeba, by odblokować ten poziom TERAZ (0 = nie dotyczy /
  *  już odblokowany). Rundy bonusowe można kupić w dowolnym momencie. */
 export function coinUnlockPrice(index: number): number {

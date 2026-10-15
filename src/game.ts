@@ -77,6 +77,8 @@ import {
   levelUnlocked,
   markCompleted,
   markDiscovered,
+  markRevealed,
+  needsReveal,
   mergeServerStars,
   recordStars,
   songVisible,
@@ -2871,6 +2873,16 @@ export class Game {
       return;
     }
 
+    // „ODBLOKUJ" nowo dostępnego poziomu → konfetti, kolor i GRAJ!
+    if (inRect(this.hb(HIT_GRAJ), x, y) && needsReveal(this.hitIndex)) {
+      markRevealed(meta.id);
+      uiSound("play");
+      haptic("flowUp");
+      this.burstFx("confetti", VW / 2, HIT_STARS_Y + 40);
+      this.burstFx("confetti", VW / 2 - 150, HIT_STARS_Y + 130);
+      this.burstFx("confetti", VW / 2 + 150, HIT_STARS_Y + 130);
+      return;
+    }
     if (inRect(this.hb(HIT_GRAJ), x, y) && meta.playable && levelUnlocked(this.hitIndex)) {
       uiSound("play");
       // odblokuj audio JESZCZE w geście dotknięcia (kluczowe dla iOS)
@@ -6810,7 +6822,9 @@ export class Game {
     const idx = this.hitIndex;
     const meta = SONGS[idx]; // undefined dla „już wkrótce"
     // „wkrótce" (niedostępny utwór) pokazujemy w kolorze; zablokowany progresją — b&w
-    const locked = meta.playable && !levelUnlocked(idx);
+    // „ODBLOKUJ" nowo dostępnego poziomu: do stuknięcia wygląda jak zablokowany
+    const reveal = needsReveal(idx);
+    const locked = meta.playable && (!levelUnlocked(idx) || reveal);
     const unlocked = !locked;
     this.hitSignRects = []; // ustawiane niżej tylko dla utworów z przeszkodami
 
@@ -6986,7 +7000,7 @@ export class Game {
 
     // zablokowany, a bramka gwiazdkowa niezaliczona → „PRZEJDŹ POPRZEDNI POZIOM".
     // Gdy bramka zaliczona, ale trzeba kupić za monety → przycisk niżej (bez pieczątki).
-    if (!unlocked && !coinPrice && meta.id !== WEDDING && meta.id !== WEDDING_AFTER) {
+    if (!unlocked && !coinPrice && !reveal && meta.id !== WEDDING && meta.id !== WEDDING_AFTER) {
       this.drawCharStamp(ctx, "przejdz-poprzedni-poziom.png", -8, "PRZEJDŹ POPRZEDNI POZIOM");
     }
 
@@ -7031,7 +7045,9 @@ export class Game {
 
     // GRAJ! albo „ODBLOKUJ za X monet"
     const graj = this.hb(HIT_GRAJ);
-    if (meta.id === WEDDING && !unlocked) {
+    if (reveal) {
+      this.styledBtn(ctx, graj, "ODBLOKUJ", "gold");
+    } else if (meta.id === WEDDING && !unlocked) {
       this.styledBtn(ctx, graj, "OTRZYMAJ ZAPROSZENIE", "gold");
     } else if (meta.id === WEDDING && !wornSuit()) {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
