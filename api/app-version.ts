@@ -17,7 +17,15 @@ import { allow, json } from "./_lib/util.js";
 // "aktualizacja dostępna" pokaże się wszystkim bez faktycznej nowej wersji.
 const VERSION = "0.9.1";
 
-const MESSAGE = "Dostępna jest nowa wersja gry z nowymi poziomami do przejścia. Uaktualnij!";
+const MESSAGE =
+  "Dostępna jest nowa wersja gry. Uaktualnij! Jeśli przycisk nie zadziała, otwórz App Store lub Sklep Google Play i zaktualizuj grę.";
+
+// WYMUSZONA aktualizacja (blokujący ekran bez „Nie teraz"): apka starsza niż
+// MIN_VERSION danej platformy nie da się używać, dopóki gracz nie zaktualizuje.
+// Zasada: podbijamy przy KAŻDYM wydaniu z nowymi rundami — ale dopiero gdy ta
+// wersja jest NAPRAWDĘ dostępna w danym sklepie (iOS i Android wychodzą osobno,
+// dlatego osobne progi). Działa w apkach od 1.0.1 (1.0 zna tylko miękki modal).
+const MIN_VERSION = { ios: "1.0", android: "1.0" };
 
 const URLS = {
   android: "https://play.google.com/store/apps/details?id=pl.impulsywni.denis",
@@ -26,5 +34,12 @@ const URLS = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET"])) return;
-  return json(res, 200, { version: VERSION, message: MESSAGE, urls: URLS });
+  return json(res, 200, {
+    version: VERSION,
+    message: MESSAGE,
+    urls: URLS,
+    minVersion: MIN_VERSION,
+    forceMessage:
+      "Nowa wersja gry ma nowe rundy! Zaktualizuj aplikację, żeby grać dalej. Jeśli przycisk nie zadziała, otwórz App Store lub Sklep Google Play i zaktualizuj grę.",
+  });
 }

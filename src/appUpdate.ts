@@ -17,6 +17,9 @@ export interface UpdateInfo {
   version: string;
   url: string;
   message: string;
+  /** wymuszona aktualizacja: apka starsza niż minimalna wersja platformy —
+   *  blokujący ekran bez „Nie teraz" (patrz api/app-version.ts MIN_VERSION) */
+  force?: boolean;
 }
 
 const DISMISSED_KEY = "denis.updateDismissed";
@@ -62,6 +65,8 @@ interface ServerAppVersion {
   message?: string;
   url?: string;
   urls?: { android?: string; ios?: string };
+  minVersion?: { android?: string; ios?: string };
+  forceMessage?: string;
 }
 
 /** Pyta serwer o najnowszą wersję. Zwraca info do modala/przycisku w
@@ -72,13 +77,18 @@ export async function checkForUpdate(currentVersion: string): Promise<UpdateInfo
   if (!isNative || !backendReachable()) return null;
   try {
     const r = await api<ServerAppVersion>("/api/app-version");
-    if (!r?.version || !isNewerVersion(r.version, currentVersion)) return null;
+    const minV = (platform === "ios" ? r?.minVersion?.ios : r?.minVersion?.android) || "";
+    const force = !!minV && isNewerVersion(minV, currentVersion);
+    if (!force && (!r?.version || !isNewerVersion(r.version, currentVersion))) return null;
     const url = (platform === "ios" ? r.urls?.ios : r.urls?.android) || r.url || "";
     if (!url) return null;
     return {
-      version: r.version,
+      version: r.version && isNewerVersion(r.version, minV) ? r.version : minV || r.version || "",
       url,
-      message: r.message || "Dostępna jest nowa wersja gry.",
+      message: force
+        ? r.forceMessage || "Zaktualizuj aplikację, żeby grać dalej."
+        : r.message || "Dostępna jest nowa wersja gry.",
+      force,
     };
   } catch {
     return null; // offline / backend nieosiągalny — nie nagabujemy, spróbujemy przy następnym starcie

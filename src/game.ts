@@ -1778,6 +1778,7 @@ export class Game {
     // żaden inny modal), i tylko raz na sesję (po „Nie teraz" nie wraca)
     if (
       this.updateInfo &&
+      !this.updateInfo.force &&
       !this.updateModal &&
       !this.updateDismissedThisSession &&
       this.scene === "hits" &&
@@ -1813,6 +1814,8 @@ export class Game {
       this.inviteModalAt = performance.now();
     }
     if (this.inviteModal) this.drawInviteModal(ctx);
+    // wymuszona aktualizacja zasłania wszystko (poza trwającą rundą)
+    if (this.forcedUpdate()) this.drawForcedUpdate(ctx);
 
     if (this.preparing) {
       const secs = (performance.now() - this.prepStart) / 1000;
@@ -1900,6 +1903,14 @@ export class Game {
     }
     // przelicz Y z układu ekranu na układ UI (ramka bywa przesunięta w pionie)
     y -= this.frameDY();
+    // wymuszona aktualizacja: działa TYLKO „UAKTUALNIJ", reszta gry zablokowana
+    if (this.forcedUpdate()) {
+      if (this.updateYesRect && inRect(this.updateYesRect, x, y)) {
+        uiSound("buttons");
+        openExternal(this.updateInfo!.url);
+      }
+      return;
+    }
     if (this.preparing) return this.cancelPrepare();
     if (this.offlineNotice && this.scene === "results") {
       this.offlineNotice = false;
@@ -2170,6 +2181,7 @@ export class Game {
 
   /** Sprzętowy „wstecz" (Android). true = obsłużone; false = można wyjść z apki. */
   handleBack(): boolean {
+    if (this.forcedUpdate()) return true; // blokada — „wstecz" nic nie robi
     if (this.voteModal) {
       uiSound("back");
       this.voteModal = null;
@@ -5907,6 +5919,21 @@ export class Game {
   /** „Dostępna jest nowa wersja" — dwa przyciski (jak wylogowanie), tylko
    *  natywnie (src/appUpdate.ts ustawia updateInfo). „Nie teraz" nie blokuje
    *  gry — przycisk „Uaktualnij" zostaje dostępny w Ustawieniach. */
+  /** Wymuszona aktualizacja aktywna (nie w trakcie rundy — sprawdzenie leci przy
+   *  starcie, ale gdyby odpowiedź przyszła w środku gry, zablokujemy po niej). */
+  private forcedUpdate(): boolean {
+    return !!this.updateInfo?.force && this.scene !== "play" && !this.preparing;
+  }
+
+  /** Blokujący ekran „WYMAGANA AKTUALIZACJA" — jeden przycisk, bez „Nie teraz". */
+  private drawForcedUpdate(ctx: CanvasRenderingContext2D) {
+    if (!this.updateInfo) return;
+    const btnH = MODAL_OK.h;
+    const { py, bodyEnd, gap } = this.drawModalPanel(ctx, "🚀", "WYMAGANA AKTUALIZACJA", this.updateInfo.message, btnH);
+    this.updateYesRect = { x: VW / 2 - MODAL_OK.w / 2, y: py + bodyEnd + gap, w: MODAL_OK.w, h: btnH };
+    this.styledBtn(ctx, this.updateYesRect, "UAKTUALNIJ", "gold");
+  }
+
   private drawUpdateModal(ctx: CanvasRenderingContext2D) {
     if (!this.updateInfo) return;
     const btnH = MODAL_OK.h;
