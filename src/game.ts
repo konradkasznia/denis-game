@@ -2817,7 +2817,8 @@ export class Game {
         if (isUnlocked(sr.id)) {
           uiSound("buttons");
           haptic("tick");
-          wearSuit(sr.id); // przebranie w drugi, kupiony garnitur
+          // kupiony: „UBIERZ" zakłada, „ZDEJMIJ" zdejmuje (Denis w bokserkach)
+          wearSuit(wornSuit() === sr.id ? null : sr.id);
           this.preloadedAudioFor = ""; // ujęcia postaci zależą od garnituru
           this.preloadHitAudio();
           return;
@@ -4538,14 +4539,14 @@ export class Game {
     }
 
     // karty garniturów (bez tego, który Denis ma na sobie)
-    const cards = SUITS.filter((x) => x.id !== worn?.id);
+    const cards = SUITS; // oba garnitury zawsze widoczne
     const cw = VW - charW - 22;
     const ch = 250;
     const gap = 22;
     const colX = charW + 4;
     const totalH = cards.length * ch + (cards.length - 1) * gap + 40;
     let cy = top + Math.max(0, (boxH - totalH) / 2);
-    text(ctx, worn && cards.every((x) => isUnlocked(x.id)) ? "PRZEBIERZ SIĘ" : "WYBIERZ GARNITUR", colX + cw / 2, cy + 12, {
+    text(ctx, "WYBIERZ GARNITUR", colX + cw / 2, cy + 12, {
       size: 18,
       weight: "900",
       font: HEAD_FONT,
@@ -4581,15 +4582,27 @@ export class Game {
         this.drawJacket(ctx, r.x + cw / 2, r.y + 80 + bob, cw * 0.56, suit);
       }
       text(ctx, suit.name, r.x + cw / 2, r.y + 163, { size: 20, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
-      // cena / ZAŁÓŻ
+      // cena (niekupiony) / UBIERZ / ZDEJMIJ (kupiony)
       const pr: Rect = { x: r.x + 14, y: r.y + r.h - 62, w: cw - 28, h: 46 };
       if (this.suitBusy === suit.id) {
         this.drawSpinner(ctx, pr.x + pr.w / 2, pr.y + pr.h / 2, 16);
       } else if (owned) {
-        ctx.fillStyle = "#1e7a3c";
+        const on = worn?.id === suit.id;
+        ctx.fillStyle = on ? "#3a1d14" : "#1e7a3c";
         roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);
         ctx.fill();
-        text(ctx, "ZAŁÓŻ", pr.x + pr.w / 2, pr.y + pr.h / 2 + 1, { size: 20, weight: "900", font: HEAD_FONT, color: "#fff" });
+        if (on) {
+          ctx.strokeStyle = "#c9791a";
+          ctx.lineWidth = 2.5;
+          roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);
+          ctx.stroke();
+        }
+        text(ctx, on ? "ZDEJMIJ" : "UBIERZ", pr.x + pr.w / 2, pr.y + pr.h / 2 + 1, {
+          size: 20,
+          weight: "900",
+          font: HEAD_FONT,
+          color: "#fff",
+        });
       } else {
         ctx.fillStyle = "#1c130b";
         roundRect(ctx, pr.x, pr.y, pr.w, pr.h, pr.h / 2);

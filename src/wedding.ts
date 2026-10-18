@@ -54,6 +54,9 @@ export function invited(): boolean {
 
 const WORN_KEY = "denis.suit";
 
+/** "none" w zapisie = gracz sam zdjął garnitur (Denis w bokserkach). */
+const NONE = "none";
+
 /** Założony garnitur (tylko kupiony), albo null = Denis w bokserkach. */
 export function wornSuit(): string | null {
   let id = "";
@@ -62,14 +65,16 @@ export function wornSuit(): string | null {
   } catch {
     /* ignore */
   }
+  if (id === NONE) return null;
   if (id && isUnlocked(id)) return id;
   // nic nie wybrano, ale coś kupione → pierwszy kupiony
   return SUITS.find((s) => isUnlocked(s.id))?.id ?? null;
 }
 
-export function wearSuit(id: string): void {
+/** Zakłada garnitur; null = zdejmuje (bokserki). */
+export function wearSuit(id: string | null): void {
   try {
-    localStorage.setItem(WORN_KEY, id);
+    localStorage.setItem(WORN_KEY, id ?? NONE);
   } catch {
     /* ignore */
   }
