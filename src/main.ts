@@ -100,7 +100,11 @@ function resize() {
 registerLottie(sliderLottie);
 // z paczki apki, od razu przy starcie — gotowe przed sliderem; poziomy testowe
 // (devOnly) tylko dla konta, które je widzi (reszta i tak wczyta się leniwie)
-initSliderAnims((id) => !!SONGS.find((s) => s.id === id)?.devOnly && !devUnlocked());
+// animacje Pana Młodego (pan-mlody-*) dopiero gdy runda jest widoczna, czyli przy
+// pierwszym narysowaniu slidera (sliderAnimFrame wczyta je sama) — nie na starcie
+initSliderAnims(
+  (id) => id.startsWith("pan-mlody-") || (!!SONGS.find((s) => s.id === id)?.devOnly && !devUnlocked()),
+);
 const game = new Game(canvas);
 initNativeShell(game);
 

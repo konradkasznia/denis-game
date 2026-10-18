@@ -27,7 +27,14 @@ const ANIMATED = new Set([
   "pogrzebowka",
   "pani-policjantko",
   "byleby-nie-byla-ciepla",
+  "pan-strazak",
+  "wodka-cytrynowka",
   "prezent",
+  // Pan Młody: Denis w bokserkach / w czarnym (garnitur-1) / w białym (garnitur-2) —
+  // wczytywane dopiero, gdy runda jest na ekranie (patrz main.ts initSliderAnims)
+  "pan-mlody-bokserki",
+  "pan-mlody-garnitur-1",
+  "pan-mlody-garnitur-2",
 ]);
 
 /** Czy dana postać jest animacją (a nie statycznym select-<id>.png). */

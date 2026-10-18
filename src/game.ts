@@ -130,6 +130,9 @@ const SLIDER_BG_SONGS = new Set([
   "pogrzebowka",
   "byleby-nie-byla-ciepla",
   "pani-policjantko",
+  "pan-strazak",
+  "wodka-cytrynowka",
+  "pan-mlody",
 ]);
 
 // --- układ pola gry (perspektywa: tor zbiega do horyzontu) ---
@@ -4569,9 +4572,11 @@ export class Game {
       const bob = Math.sin(now / 700 + (suit.id === "garnitur-2" ? 1.4 : 0)) * 3;
       const img = this.uiImg(`${suit.id}.png`);
       if (imgReady(img)) {
-        const iw = cw * 0.72;
-        const ih = (img.naturalHeight / img.naturalWidth) * iw;
-        ctx.drawImage(img, r.x + (cw - iw) / 2, r.y + 18 + bob, iw, Math.min(ih, 130));
+        // grafika marynarki wpasowana w pole ~0,8 szer. karty × 136 px, bez zniekształceń
+        const k = Math.min((cw * 0.8) / img.naturalWidth, 136 / img.naturalHeight);
+        const iw = img.naturalWidth * k;
+        const ih = img.naturalHeight * k;
+        ctx.drawImage(img, r.x + (cw - iw) / 2, r.y + 12 + (136 - ih) / 2 + bob, iw, ih);
       } else {
         this.drawJacket(ctx, r.x + cw / 2, r.y + 80 + bob, cw * 0.56, suit);
       }
