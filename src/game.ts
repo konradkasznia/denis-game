@@ -776,9 +776,6 @@ export class Game {
   private resumeAt = 0; // performance.now() docelowego wznowienia (odliczanie 3-2-1)
   private resumeCheckAt = 0; // performance.now() kontroli „czy dźwięk faktycznie wrócił po tle"
   private loopOn = false; // czy muzyka tła menu jest teraz włączona
-  /** muzyka menu wstrzymana na czas prośby o powiadomienia (patrz askPush) —
-   *  wraca przy powrocie apki z tła albo przy pierwszym dotknięciu */
-  private musicHold = false;
   /** odliczanie 3-2-1 PRZED startem utworu (klip 321.mp3) — audio rusza po „1" */
   private rolling = false;
   private rollSec = 3; // długość ostatniego lead-inu = długość klipu 321.mp3
@@ -1092,7 +1089,7 @@ export class Game {
     this.syncFields();
     // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
     // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
-    const wantLoop = this.scene !== "play" && !this.musicHold;
+    const wantLoop = this.scene !== "play";
     if (wantLoop !== this.loopOn) {
       this.loopOn = wantLoop;
       if (wantLoop) this.audio.startLoop();
@@ -1896,7 +1893,6 @@ export class Game {
 
   onPress(lane: number, x: number, y: number) {
     this.primeAudioAndroid(true);
-    this.musicHold = false; // dotknięcie = gracz jest w apce, muzyka menu może wrócić
     if (this.audioKickPending) {
       this.audioKickPending = false;
       if (this.scene !== "play") {
@@ -2344,32 +2340,19 @@ export class Game {
     diag(`onAppForeground scene=${this.scene} paused=${this.paused}`);
     this.audio.enterForeground();
     this.audioKickPending = true;
-    this.musicHold = false;
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
   }
 
-  /** Prośba o zgodę na powiadomienia z wyciszonym na ten czas dźwiękiem.
-   *  Systemowe okno zgody albo przejście do Ustawień (OneSignal robi to, gdy
-   *  zgoda była wcześniej odrzucona) przenosi apkę w tło. Grająca muzyka menu
-   *  w kategorii „playback" = iOS pokazuje grę jako odtwarzacz („localhost"
-   *  w Dynamic Island). Dlatego wyciszamy PRZED prośbą — zanim apka zejdzie
-   *  w tło (zdarzenie „pause" dociera do JS za późno).
-   *  Muzyki NIE wznawiamy tutaj: requestPermission() potrafi wrócić od razu po
-   *  otwarciu Ustawień, gdy apka jest jeszcze w tle — wznowienie w tle właśnie
-   *  wywoływało odtwarzacz (poprzednia wersja tej poprawki). Wraca sama:
-   *  po powrocie z Ustawień (onAppForeground) albo przy pierwszym dotknięciu. */
-  private async askPush(): Promise<boolean> {
-    this.musicHold = true; // update() nie włączy muzyki z powrotem, zanim apka zejdzie w tło
-    this.audio.stopLoop(0.05);
-    this.loopOn = false;
-    this.audio.enterBackground();
-    this.audioKickPending = true;
-    try {
-      return await enablePush();
-    } finally {
-      this.audio.enterForeground(); // sama kategoria — bez wznawiania kontekstu
-    }
+  /** Prośba o zgodę na powiadomienia — celowo BEZ ruszania dźwięku.
+   *  Diagnoza z logów iPhone'a (2026-10-18): gra z kategorią „playback" jest dla
+   *  iOS aplikacją „Teraz odtwarzane" (Live Activity mediów, tytuł strony →
+   *  „localhost"). Każde zatrzymanie i ponowne ruszenie dźwięku (suspend +
+   *  „ambient" i z powrotem — tak robiła poprzednia wersja tej funkcji) kasuje
+   *  i zakłada tę aktywność od nowa, a NOWA aktywność rozwija się w Dynamic
+   *  Island. Dopóki dźwięk gra bez przerwy (keep-alive), nic się nie pokazuje. */
+  private askPush(): Promise<boolean> {
+    return enablePush();
   }
 
   /** Wysokość natywnej klawiatury w px CSS (0 = schowana). Ekran logowania

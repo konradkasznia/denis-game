@@ -28,6 +28,25 @@ function setPlaybackAudioSession() {
   setAudioSessionType("playback");
 }
 
+/** Gdy iOS mimo wszystko pokaże grę w „Teraz odtwarzane" (Dynamic Island,
+ *  Centrum sterowania) — niech to będzie nazwa gry z ikoną, a nie „localhost"
+ *  (domyślny tytuł bierze się z adresu strony w WebView). */
+function setNowPlayingMeta() {
+  try {
+    const ms = (navigator as any).mediaSession;
+    const MM = (window as any).MediaMetadata;
+    if (!ms || typeof MM !== "function") return;
+    const icon = new URL("icons/icon-512.png", location.href).href;
+    ms.metadata = new MM({
+      title: "DENIS Impulsywni Live",
+      artist: "Denis",
+      artwork: [{ src: icon, sizes: "512x512", type: "image/png" }],
+    });
+  } catch {
+    /* brak API */
+  }
+}
+
 function setAudioSessionType(type: "playback" | "ambient") {
   try {
     const as = (navigator as any).audioSession;
@@ -223,6 +242,7 @@ export class AudioEngine {
     // 346 ms (= zgubiona paczka, słyszalny zgrzyt). Ciągła muzyka waży więcej niż
     // szybszy winyl pauzy, więc zostaje tryb domyślny.
     setPlaybackAudioSession();
+    setNowPlayingMeta();
     this.ctx = new Ctx();
     if (!this.sfxCtx) this.buildSfxCtx(Ctx);
     this.master = this.ctx.createGain();
@@ -1094,6 +1114,7 @@ export class AudioEngine {
    *  wznawia resumePlayback() (menu) albo GRAJ w menu pauzy (rozgrywka). */
   enterForeground() {
     setPlaybackAudioSession();
+    setNowPlayingMeta();
   }
 
   /** Wznawia po pauzie (wołać z gestu użytkownika). */
