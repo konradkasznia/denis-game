@@ -15,7 +15,7 @@ import { allow, json } from "./_lib/util.js";
 // Musi zgadzać się z APP_VERSION w src/game.ts w chwili wydania. Zostaw RÓWNE
 // bieżącej wersji apki, dopóki nie ma czego ogłaszać — inaczej modal
 // "aktualizacja dostępna" pokaże się wszystkim bez faktycznej nowej wersji.
-const VERSION = "0.9.1";
+const VERSION = "1.0.1";
 
 const MESSAGE =
   "Dostępna jest nowa wersja gry. Uaktualnij! Jeśli przycisk nie zadziała, otwórz App Store lub Sklep Google Play i zaktualizuj grę.";

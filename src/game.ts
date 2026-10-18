@@ -664,7 +664,7 @@ const SMOKE_LOBES: [number, number, number][] = [
   [0.5, -0.1, 0.66],
 ];
 
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.0.2";
 const SUPPORT_EMAIL = "impulsywni.media@gmail.com";
 
 function bestScore(): number {
