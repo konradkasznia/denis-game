@@ -4020,11 +4020,44 @@ export class Game {
 
   // ---- cytryny: sprite'y + motyw cytrynowy (CITRUS_SONGS) ---------------
 
-  private lemonSprites: { color?: HTMLCanvasElement; gray?: HTMLCanvasElement } = {};
+  private lemonSprites: {
+    color?: HTMLCanvasElement;
+    gray?: HTMLCanvasElement;
+    imgColor?: HTMLCanvasElement;
+    imgGray?: HTMLCanvasElement;
+  } = {};
 
   /** Cytryna 128×128 (bok, lekko przechylona, z listkiem). Wersja szara =
    *  jeszcze niezebrana (karuzela). Rysowana raz, potem tylko drawImage. */
   private lemonSprite(gray = false): HTMLCanvasElement {
+    // grafika cytryny od Konrada (assets/ui/cytryna.png); rysowana wersja niżej
+    // to tylko zapas na ułamek sekundy, zanim plik się wczyta
+    const imgHit = gray ? this.lemonSprites.imgGray : this.lemonSprites.imgColor;
+    if (imgHit) return imgHit;
+    const img = this.uiImg("cytryna.png");
+    if (imgReady(img)) {
+      const cv = document.createElement("canvas");
+      cv.width = 160;
+      cv.height = 160;
+      const c = cv.getContext("2d");
+      if (c) {
+        c.drawImage(img, 0, 0, 160, 160);
+        if (gray) {
+          // odbarwienie trybami mieszania (ctx.filter na iOS < 18 nie działa)
+          c.globalCompositeOperation = "saturation";
+          c.fillStyle = "#808080";
+          c.fillRect(0, 0, 160, 160);
+          c.globalCompositeOperation = "destination-in";
+          c.drawImage(img, 0, 0, 160, 160);
+          c.globalCompositeOperation = "source-atop";
+          c.fillStyle = "rgba(0,0,0,0.15)";
+          c.fillRect(0, 0, 160, 160);
+        }
+      }
+      if (gray) this.lemonSprites.imgGray = cv;
+      else this.lemonSprites.imgColor = cv;
+      return cv;
+    }
     const hit = gray ? this.lemonSprites.gray : this.lemonSprites.color;
     if (hit) return hit;
     const cv = document.createElement("canvas");
