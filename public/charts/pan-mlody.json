@@ -10,7 +10,131 @@
   "characters": [
     {
       "at": 0,
-      "sprite": "assets/char/pan-mlody"
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 5,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 10,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 15,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 20,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 25,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 30,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 35,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 40,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 45,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 50,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 55,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 60,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 65,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 70,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 75,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 80,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 85,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 90,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 95,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 100,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 105,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 110,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 115,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 120,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 125,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 130,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 135,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 140,
+      "sprite": "assets/char/pan-mlody/ujecie2"
+    },
+    {
+      "at": 145,
+      "sprite": "assets/char/pan-mlody/ujecie3"
+    },
+    {
+      "at": 150,
+      "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 155,
+      "sprite": "assets/char/pan-mlody/ujecie2"
     }
   ],
   "characterScale": 0.95,

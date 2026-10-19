@@ -428,7 +428,16 @@ function syncCharacter() {
     characters: segments
       .slice()
       .sort((a, b) => a.at - b.at)
-      .map((s) => ({ at: s.at, sprite: `assets/char/${songId()}/ujecie${s.uj}` })),
+      // Pan Młody: ujęcia są per garnitur (garnitur-1 czarny / garnitur-2 biały) —
+      // w edytorze podgląd w czarnym; mapa zapisuje wspólne ujecieN, gra sama
+      // podstawia założony garnitur (wedding.ts outfitSprite)
+      .map((s) => ({
+        at: s.at,
+        sprite:
+          songId() === "pan-mlody"
+            ? `assets/char/pan-mlody/garnitur-1/ujecie${s.uj}`
+            : `assets/char/${songId()}/ujecie${s.uj}`,
+      })),
   });
 }
 function activeUj(t: number): number {
@@ -1406,6 +1415,32 @@ $<HTMLButtonElement>("pullchart").addEventListener("click", async () => {
     }
   } catch (e) {
     setPub(`błąd: ${e}`, true);
+  }
+});
+
+// „⬇ Wczytaj wersję z gry" — mapa z paczki aplikacji (public/charts/<id>.json),
+// czyli dokładnie to, co gracze mają w grze. Do zrównania edytora z grą.
+$<HTMLButtonElement>("pullgame").addEventListener("click", async () => {
+  const id = songId();
+  if (
+    !confirm(
+      `Zastąpić bieżącą mapę „${id}” wersją, która jest teraz w grze?\n\nNiezapisane zmiany w edytorze przepadną. Potem możesz kliknąć „Wyślij do aplikacji”.`,
+    )
+  )
+    return;
+  setPub("wczytuję wersję z gry…");
+  try {
+    const r = await fetch(`charts/${encodeURIComponent(id)}.json?t=${Date.now()}`);
+    if (!r.ok) {
+      setPub(`w grze nie ma mapy dla „${id}”`, true);
+      return;
+    }
+    const chart = (await r.json()) as RawChart;
+    pushHistory();
+    applyChart(chart);
+    setPub(`wczytano wersję z gry ✓  ${chart.notes?.length ?? 0} nut`);
+  } catch (err) {
+    setPub(`błąd: ${err}`, true);
   }
 });
 

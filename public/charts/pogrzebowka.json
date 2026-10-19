@@ -2370,6 +2370,12 @@
       "bomb": true
     },
     {
+      "lane": 3,
+      "time": 177,
+      "dur": 0,
+      "lemon": true
+    },
+    {
       "lane": 2,
       "time": 177.144,
       "dur": 0
