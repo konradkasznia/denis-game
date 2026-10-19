@@ -209,6 +209,17 @@ console.log("· wesele (zaproszenia, garnitury, koperta):");
     givers.status === 200 && givers.body.top[0]?.score === 1000 && givers.body.top[0]?.me && givers.body.me?.rank === 1,
     `ranking kopert sumuje wpłaty (${givers.body.top?.[0]?.score})`,
   );
+  const regRes = await call(h.register, {
+    method: "POST",
+    body: { login: "DenisImpulsywni", password: "Haslo123!", password2: "Haslo123!", terms: true },
+  });
+  ok(regRes.status !== 200, "zwykła rejestracja zastrzeżonej nazwy zablokowana");
+  const off = await call(h.invite, { method: "POST", headers: KEY, body: { action: "official", login: "DenisImpulsywni", password: "Haslo123!" } });
+  ok(off.status === 200, `konto oficjalne z panelu (${off.status})`);
+  const offLogin = await call(h.login, { method: "POST", body: { login: "denisimpulsywni", password: "Haslo123!" } });
+  ok(offLogin.status === 200 && !!offLogin.body.token, "logowanie na konto oficjalne");
+  const off2 = await call(h.invite, { method: "POST", headers: KEY, body: { action: "official", login: "DenisImpulsywni", password: "Haslo123!" } });
+  ok(off2.status === 409, "drugi raz to samo konto → zajęte");
   const list = await call(h.invite, { headers: KEY });
   ok(list.status === 200 && list.body.users.some((u) => u.login === "Basia" && u.suits === 1 && u.weseleTrwa), "lista zaproszonych z garniturami");
   const noKey = await call(h.invite, { headers: { "x-editor-key": "zle" } });

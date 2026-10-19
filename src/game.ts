@@ -428,7 +428,9 @@ const COMBO_FX: Record<string, FxKind> = {
 };
 const BAT_COLORS = ["#160f1c", "#1d1424", "#120b17"];
 /** Wygląd „głów" nut dla danego utworu. Brak wpisu = zwykłe kółka. */
-const NOTE_SKIN: Record<string, "skull" | "loot"> = {
+const NOTE_SKIN: Record<string, "skull" | "loot" | "lemon"> = {
+  // Wódka Cytrynówka: zamiast kółek lecą cytryny (te same co znajdźki w innych rundach)
+  "wodka-cytrynowka": "lemon",
   pogrzebowka: "skull",
   "ksiaze-z-bajki": "loot",
 };
@@ -3449,6 +3451,7 @@ export class Game {
     if (typeof document !== "undefined") {
       if (NOTE_SKIN[this.trackId] === "skull") this.prewarmSkulls();
       else if (NOTE_SKIN[this.trackId] === "loot") this.prewarmLoot();
+      else if (NOTE_SKIN[this.trackId] === "lemon") this.lemonSprite();
       else
         for (const col of this.laneCols()) {
           this.noteHeadSprite(col, false);
@@ -8145,6 +8148,18 @@ export class Game {
         ctx.save();
         ctx.globalAlpha = a;
         ctx.drawImage(this.skullSprite(col, jaw), x - d / 2, y - d / 2 + bob, d, d);
+        ctx.restore();
+        continue;
+      }
+
+      if (NOTE_SKIN[this.trackId] === "lemon") {
+        // cytryna zamiast kółka — jak znajdźka, lekko się kołysze; pudło = szara
+        const d = r * 2.9;
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(this.songTime * 5 + n.lane) * 0.18);
+        ctx.drawImage(this.lemonSprite(n.judged && !n.hit), -d / 2, -d / 2, d, d);
         ctx.restore();
         continue;
       }

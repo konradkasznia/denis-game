@@ -6,6 +6,8 @@
 //   GET  /api/invite                                       → lista zaproszonych
 //   POST /api/invite { logins: [...], push?: true }        → zaproś
 //   POST /api/invite { action: "revoke", logins: [...] }   → odbierz dostęp
+//   POST /api/invite { action: "official", login, password } → konto oficjalne
+//        z ZASTRZEŻONĄ nazwą (np. DenisImpulsywni) — zwykła rejestracja ją blokuje
 //
 // Zaproszenie dopisuje "pan-mlody" do `users.unlocked` (to samo pole co
 // odblokowania za monety — klient pokaże rundę i modal „Otrzymałeś zaproszenie
@@ -16,7 +18,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db, ensureSchema } from "./_lib/db.js";
 import { requireEditor } from "./_lib/editor.js";
-import { allow, body, json, loginKey } from "./_lib/util.js";
+import { allow, body, hashPassword, json, loginKey, nowIso, PW_RULE, validLogin, validPassword } from "./_lib/util.js";
 
 const WEDDING = "pan-mlody";
 const ONESIGNAL_APP_ID = "45d6db77-411c-4ab6-a9ce-918a7325795d"; // jak DEFAULT_APP_ID w src/push.ts
@@ -76,7 +78,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return json(res, 200, { ok: true, users });
     }
 
-    const b = body<{ logins?: unknown; push?: unknown; action?: unknown }>(req);
+    const b = body<{ logins?: unknown; push?: unknown; action?: unknown; login?: unknown; password?: unknown }>(req);
+
+    if (b.action === "official") {
+      // tylko z panelu edytora (hasło edytora wyżej) — pomija listę zastrzeżonych
+      // nazw, reszta zasad jak przy zwykłej rejestracji
+      const login = String(b.login || "").trim();
+      const password = String(b.password || "");
+      if (!validLogin(login)) return json(res, 400, { error: "Login: 3-18 znaków, litery, cyfry, . _ -" });
+      if (!validPassword(password)) return json(res, 400, { error: PW_RULE });
+      const taken = await c.execute({
+        sql: "SELECT id FROM users WHERE login_key = ? OR lower(login) = lower(?) OR (nick <> '' AND lower(nick) = ?) LIMIT 1",
+        args: [loginKey(login), login, loginKey(login)],
+      });
+      if (taken.rows[0]) return json(res, 409, { error: "Ten login jest już zajęty." });
+      const now = nowIso();
+      await c.execute({
+        sql: "INSERT INTO users (login, pw_hash, nick, terms, terms_at, created_at, login_key) VALUES (?, ?, '', 1, ?, ?, ?)",
+        args: [login, await hashPassword(password), now, now, loginKey(login)],
+      });
+      return json(res, 200, { ok: true, login });
+    }
+
     const raw = Array.isArray(b.logins) ? b.logins : [];
     // loginy z komentarzy: bez @, spacji i duplikatów
     const wanted = [...new Set(raw.map((l) => String(l).trim().replace(/^@+/, "")).filter(Boolean))].slice(

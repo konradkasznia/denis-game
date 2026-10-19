@@ -1711,6 +1711,23 @@ $<HTMLButtonElement>("invitebtn").addEventListener("click", () => {
 $<HTMLButtonElement>("invclose").addEventListener("click", () => inviteBox.classList.remove("on"));
 $<HTMLButtonElement>("invrefresh").addEventListener("click", () => void loadInvites());
 invSearch.addEventListener("input", renderInvList);
+// konto oficjalne z zastrzeżoną nazwą (np. DenisImpulsywni) — hasło wpisuje Konrad
+$<HTMLButtonElement>("offsend").addEventListener("click", async () => {
+  const res = $<HTMLDivElement>("offres");
+  const login = $<HTMLInputElement>("offlogin").value.trim();
+  const pass = $<HTMLInputElement>("offpass");
+  res.style.color = "#c9bda9";
+  res.textContent = "zakładam…";
+  try {
+    const j = await inviteApi<{ login: string }>("POST", { action: "official", login, password: pass.value });
+    res.style.color = "#7fdc9a";
+    res.textContent = `✓ Założono konto „${j.login}”. Zaloguj się nim w grze.`;
+    pass.value = "";
+  } catch (err) {
+    res.style.color = "#ff8a97";
+    res.textContent = (err as Error).message;
+  }
+});
 $<HTMLButtonElement>("invsend").addEventListener("click", async () => {
   const logins = $<HTMLTextAreaElement>("invlogins")
     .value.split(/[\s,;]+/)
