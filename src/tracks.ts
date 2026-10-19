@@ -134,8 +134,12 @@ const SYNTH_TRACKS: Record<string, SynthCfg> = {
   "wodka-cytrynowka": {
     title: "Wódka Cytrynówka",
     artist: "Denis",
-    bpm: 140, // tymczasowe — brak jeszcze mp3/chartu/postaci
+    bpm: 140, // tymczasowe — brak jeszcze mp3/chartu
     bars: 30,
+    // ujęcia 1 cytryna, 2 cytryna 2, 3 głowa, 4 machanie (do zaplanowania w edytorze)
+    characters: rotateShots("assets/char/wodka-cytrynowka", [1, 2, 3, 4], 52),
+    characterScale: 0.95,
+    characterY: 704,
   },
 };
 

@@ -1573,7 +1573,7 @@ async function startup() {
     id: "pani-policjantko",
     title: "Pani policjantko",
     bpm: 130,
-    ujecia: [1, 2, 3, 4],
+    ujecia: [1, 2, 3], // 1 policjant, 2 policjantka, 3 radiowóz
     realAudio: true, // brak mp3 na razie — dociągnie się samo, gdy się pojawi
   });
   await persistSeed({

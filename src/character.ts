@@ -30,6 +30,8 @@ interface AnimMeta {
   refH?: number;
   offX?: number;
   offY?: number;
+  /** lottie: maks. wysokość płótna renderu (duże eksporty skalowane w dół) */
+  maxH?: number;
   src: string;
   frames: number;
   cols?: number;
@@ -177,7 +179,7 @@ export class Character {
 
     if (meta.type === "lottie") {
       // ten sam zegar co arkusze (czas utworu) — animacja staje w pauzie
-      loadLottieCanvas(`${dir}/${meta.src}`).then(
+      loadLottieCanvas(`${dir}/${meta.src}`, meta.maxH ?? 0).then(
         (l) => {
           entry.lottie = { ...l, last: 0 };
           entry.fw = meta.refW ?? l.canvas.width;

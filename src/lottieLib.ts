@@ -26,6 +26,7 @@ export function getLottie(): Lottie | null {
  *  requestAnimationFrame biblioteki. Rozwiązuje się, gdy obrazki są gotowe. */
 export async function loadLottieCanvas(
   url: string,
+  maxH = 0,
 ): Promise<{ anim: LottieAnim; canvas: HTMLCanvasElement; fr: number; frames: number }> {
   const l = lib;
   if (!l) throw new Error("lottie niezarejestrowane");
@@ -34,8 +35,11 @@ export async function loadLottieCanvas(
   if (!res.ok && res.status !== 0) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(data.w));
-  canvas.height = Math.max(1, Math.round(data.h));
+  // maxH: duże eksporty (np. 1024×1536) renderujemy na mniejszym płótnie — lottie
+  // skaluje treść do rozmiaru płótna; mniej pikseli = tańsza klatka w rundzie
+  const s = maxH > 0 && data.h > maxH ? maxH / data.h : 1;
+  canvas.width = Math.max(1, Math.round(data.w * s));
+  canvas.height = Math.max(1, Math.round(data.h * s));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("brak kontekstu 2d");
   const anim = l.loadAnimation({
