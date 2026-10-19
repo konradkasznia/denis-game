@@ -4029,13 +4029,14 @@ export class Game {
 
   /** Cytryna 128×128 (bok, lekko przechylona, z listkiem). Wersja szara =
    *  jeszcze niezebrana (karuzela). Rysowana raz, potem tylko drawImage. */
-  private lemonSprite(gray = false): HTMLCanvasElement {
-    // grafika cytryny od Konrada (assets/ui/cytryna.png); rysowana wersja niżej
-    // to tylko zapas na ułamek sekundy, zanim plik się wczyta
+  /** `art` = grafika cytryny od Konrada (assets/ui/cytryna.png) — tylko w UI
+   *  (slider, okno „magiczny składnik"). W rundach (nuty, znajdźki, tło) zostaje
+   *  lekka rysowana cytryna — mniej pracy w trakcie gry. */
+  private lemonSprite(gray = false, art = false): HTMLCanvasElement {
     const imgHit = gray ? this.lemonSprites.imgGray : this.lemonSprites.imgColor;
-    if (imgHit) return imgHit;
-    const img = this.uiImg("cytryna.png");
-    if (imgReady(img)) {
+    if (art && imgHit) return imgHit;
+    const img = art ? this.uiImg("cytryna.png") : null;
+    if (img && imgReady(img)) {
       const cv = document.createElement("canvas");
       cv.width = 160;
       cv.height = 160;
@@ -4301,7 +4302,7 @@ export class Game {
     const gap = size * 1.05;
     const x0 = cx - ((LEMONS_NEEDED - 1) * gap) / 2;
     for (let i = 0; i < LEMONS_NEEDED; i++) {
-      const spr = this.lemonSprite(i >= have);
+      const spr = this.lemonSprite(i >= have, true);
       ctx.drawImage(spr, x0 + i * gap - size / 2, cy - size / 2, size, size);
     }
   }
@@ -4353,7 +4354,7 @@ export class Game {
     ctx.save();
     ctx.translate(lcx, lcy + Math.sin(t * 2.2) * 6);
     ctx.rotate(Math.sin(t * 1.6) * 0.12);
-    ctx.drawImage(this.lemonSprite(), -big / 2, -big / 2, big, big);
+    ctx.drawImage(this.lemonSprite(false, true), -big / 2, -big / 2, big, big);
     ctx.restore();
 
     text(ctx, "SUPER!", VW / 2, py + 300, {
