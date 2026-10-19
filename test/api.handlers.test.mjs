@@ -362,6 +362,64 @@ ok((await countB()) === 0, "wyniki usuniętego konta skasowane z obu rankingów"
   ok(!g.body.top.some((e) => e.nick === "duch"), "ranking nie pokazuje wyników bez konta");
 }
 
+console.log("· mp3 z edytora w częściach (limit 7 MB):");
+{
+  const sa = (await import("../api/song-audio.ts")).default;
+  const raw = async (method, query, buf, key = process.env.EDITOR_PASSWORD) => {
+    const req = {
+      method,
+      query,
+      headers: { "x-real-ip": `10.9.0.${ipSeq++}`, "x-editor-key": key },
+      async *[Symbol.asyncIterator]() {
+        if (buf) yield buf;
+      },
+    };
+    const res = {
+      statusCode: 200,
+      raw: null,
+      status(c) {
+        this.statusCode = c;
+        return this;
+      },
+      setHeader() {
+        return this;
+      },
+      send(b) {
+        this.raw = b;
+        return this;
+      },
+      end() {
+        return this;
+      },
+    };
+    await sa(req, res);
+    let body = null;
+    try {
+      body = JSON.parse(res.raw);
+    } catch {
+      /* binarne */
+    }
+    return { status: res.statusCode, body, raw: res.raw };
+  };
+  // ~6,5 MB „mp3" (nagłówek ID3) w 3 częściach po 3 MB
+  const full = Buffer.alloc(6.5 * 1024 * 1024, 7);
+  full.write("ID3", 0);
+  const P = 3 * 1024 * 1024;
+  let last;
+  for (let i = 0; i < 3; i++) {
+    last = await raw("POST", { id: "test-audio", part: String(i), parts: "3" }, full.subarray(i * P, (i + 1) * P));
+  }
+  ok(last.status === 200 && last.body.done && last.body.bytes === full.length, "6,5 MB wgrane w 3 częściach");
+  const info = await raw("GET", { id: "test-audio", info: "1" });
+  ok(info.body.parts === 3 && info.body.bytes === full.length, "info: 3 części");
+  const p1 = await raw("GET", { id: "test-audio", part: "1" });
+  ok(Buffer.compare(Buffer.from(p1.raw), full.subarray(P, 2 * P)) === 0, "część 1 zgodna bajt w bajt");
+  const big = Buffer.alloc(3 * 1024 * 1024, 1);
+  big.write("ID3", 0);
+  for (let i = 0; i < 3; i++) last = await raw("POST", { id: "test-big", part: String(i), parts: "3" }, big);
+  ok(last.status === 413, "9 MB → odrzucone (limit 7 MB)");
+}
+
 client.close(); // plik bazy zostaje (Windows trzyma blokadę do końca procesu); kasuje go start testu
 console.log(fail === 0 ? "\nOK" : `\n${fail} błędów`);
 process.exit(fail === 0 ? 0 : 1);

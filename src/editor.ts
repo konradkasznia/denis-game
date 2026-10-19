@@ -185,10 +185,7 @@ const triedServerAudio = new Set<string>(); // utwory, dla których raz już pr�
  *  2) wgrany z edytora „Wyślij do aplikacji" (`/api/song-audio`). Zwraca Blob
  *  mp3 albo null (wtedy wołający daje cichy podkład). */
 async function fetchSongAudio(id: string): Promise<Blob | null> {
-  for (const url of [
-    `assets/songs/${encodeURIComponent(id)}.mp3`,
-    `/api/song-audio?id=${encodeURIComponent(id)}`,
-  ]) {
+  for (const url of [`assets/songs/${encodeURIComponent(id)}.mp3`]) {
     try {
       // bez timeoutu potrafiło wisieć bez końca na słabej sieci (telefon) —
       // openProject() czeka na to PRZED decodeInto(), więc audioBuffer zostawał
@@ -218,8 +215,43 @@ async function fetchSongAudio(id: string): Promise<Blob | null> {
       console.warn("[audio]", url, "→ błąd:", e);
     }
   }
-  return null;
+  return fetchServerAudio(id);
 }
+
+/** mp3 wgrane z edytora — na serwerze w częściach (≤ 4 MB, limit żądania Vercela). */
+async function fetchServerAudio(id: string): Promise<Blob | null> {
+  const base = `/api/song-audio?id=${encodeURIComponent(id)}`;
+  const get = async (url: string, ms: number) => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(url, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(to);
+    }
+  };
+  try {
+    const ir = await get(`${base}&info=1`, 6000);
+    if (!ir.ok) return null;
+    const info = (await ir.json()) as { parts?: number };
+    const n = Math.max(1, Math.min(8, Number(info.parts) || 1));
+    const blobs: Blob[] = [];
+    for (let i = 0; i < n; i++) {
+      const r = await get(`${base}&part=${i}`, 20000);
+      if (!r.ok) return null;
+      blobs.push(await r.blob());
+    }
+    const b = new Blob(blobs, { type: "audio/mpeg" });
+    return b.size >= 2000 ? b : null;
+  } catch (e) {
+    console.warn("[audio] serwer → błąd:", e);
+    return null;
+  }
+}
+
+/** Limit pliku audio z edytora (serwer: api/song-audio.ts) i rozmiar jednej części. */
+const AUDIO_MAX = 7 * 1024 * 1024;
+const AUDIO_PART = 3 * 1024 * 1024;
 
 /** Czy zapisane audio to prawdziwy podkład (nie cichy WAV z `silentWavBlob`). */
 const isRealAudioBlob = (b: Blob | null | undefined) =>
@@ -1347,24 +1379,35 @@ $<HTMLButtonElement>("publish").addEventListener("click", async () => {
       const isMp3 = !!blob && /mp(eg|3)/i.test(blob.type || "") && blob.size > 2000;
       if (!isMp3) {
         setPub(`mapa wysłana ✓ (${chart.notes.length} nut) — bez pliku mp3 gra zagra podkład syntezowany`);
-      } else if (blob!.size > 4 * 1024 * 1024) {
+      } else if (blob!.size > AUDIO_MAX) {
         setPub(
-          `mapa wysłana ✓, ale plik audio ma ${(blob!.size / 1048576).toFixed(1)} MB (limit 4 MB) — wgraj wersję z niższym bitrate`,
+          `mapa wysłana ✓, ale plik audio ma ${(blob!.size / 1048576).toFixed(1)} MB (limit 7 MB) — wgraj wersję z niższym bitrate`,
           true,
         );
       } else {
-        const ar = await fetch(`/api/song-audio?id=${encodeURIComponent(chart.id)}`, {
-          method: "POST",
-          headers: { "content-type": "audio/mpeg", "x-editor-key": key },
-          body: blob!,
-        });
-        const aj = (await ar.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        if (ar.ok && aj.ok) {
+        // w częściach po 3 MB — jedno żądanie do serwera przyjmie najwyżej ~4,5 MB
+        const parts = Math.ceil(blob!.size / AUDIO_PART);
+        let ar: Response | null = null;
+        let aj: { ok?: boolean; error?: string } = {};
+        for (let i = 0; i < parts; i++) {
+          if (parts > 1) setPub(`mapa wysłana ✓ — wysyłam audio, część ${i + 1}/${parts}…`);
+          ar = await fetch(
+            `/api/song-audio?id=${encodeURIComponent(chart.id)}&part=${i}&parts=${parts}`,
+            {
+              method: "POST",
+              headers: { "content-type": "audio/mpeg", "x-editor-key": key },
+              body: blob!.slice(i * AUDIO_PART, (i + 1) * AUDIO_PART),
+            },
+          );
+          aj = (await ar.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+          if (!ar.ok || !aj.ok) break;
+        }
+        if (ar && ar.ok && aj.ok) {
           setPub(
             `wysłano do gry ✓  ${chart.notes.length} nut + audio ${(blob!.size / 1048576).toFixed(1)} MB`,
           );
         } else {
-          setPub(`mapa wysłana ✓, ale audio się nie wgrało: ${aj.error || ar.status}`, true);
+          setPub(`mapa wysłana ✓, ale audio się nie wgrało: ${aj.error || ar?.status}`, true);
         }
       }
     } catch {

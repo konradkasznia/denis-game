@@ -53,10 +53,19 @@ for (const id of ids) {
   if (audioRel && !/^https?:/i.test(audioRel)) {
     const audioFile = path.join(root, "public", audioRel);
     if (!fs.existsSync(audioFile)) {
-      const a = await fetch(`${BASE}/api/song-audio?id=${encodeURIComponent(id)}`);
-      if (!a.ok) throw new Error(`${id}: brak mp3 w repo i /api/song-audio HTTP ${a.status}`);
+      // mp3 z edytora leży na serwerze w częściach (limit żądania Vercela)
+      const base = `${BASE}/api/song-audio?id=${encodeURIComponent(id)}`;
+      const ir = await fetch(`${base}&info=1`);
+      if (!ir.ok) throw new Error(`${id}: brak mp3 w repo i /api/song-audio HTTP ${ir.status}`);
+      const { parts = 1 } = await ir.json();
+      const bufs = [];
+      for (let i = 0; i < parts; i++) {
+        const a = await fetch(`${base}&part=${i}`);
+        if (!a.ok) throw new Error(`${id}: część ${i} mp3 HTTP ${a.status}`);
+        bufs.push(Buffer.from(await a.arrayBuffer()));
+      }
       fs.mkdirSync(path.dirname(audioFile), { recursive: true });
-      fs.writeFileSync(audioFile, Buffer.from(await a.arrayBuffer()));
+      fs.writeFileSync(audioFile, Buffer.concat(bufs));
       changed++;
       console.log(`${id}: pobrano mp3 -> public/${audioRel}`);
     }

@@ -81,6 +81,14 @@ export const SCHEMA_SQL: string[] = [
     bytes BLOB NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  // mp3 z edytora w częściach (≤ 4 MB każda) — limit żądania funkcji Vercela; patrz api/song-audio.ts
+  `CREATE TABLE IF NOT EXISTS song_audio_parts (
+    song_id TEXT NOT NULL,
+    part INTEGER NOT NULL,
+    bytes BLOB NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (song_id, part)
+  )`,
 ];
 
 /**
