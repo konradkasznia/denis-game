@@ -129,11 +129,12 @@ export function visibleStep(from: number, dir: 1 | -1): number {
   return -1;
 }
 
-/** Konto dewelopera — odblokowuje poziomy oznaczone `devOnly`. */
+/** Konto dewelopera (i oficjalne konto Denisa) — odblokowuje poziomy oznaczone `devOnly`. */
 export function devUnlocked(): boolean {
   try {
     const l = (localStorage.getItem("denis.login") || "").trim().toLowerCase();
-    return l === "konrad" || l === "konraddd";
+    // konta deweloperskie + oficjalne konto Denisa — widzą rundy testowe (devOnly)
+    return l === "konrad" || l === "konraddd" || l === "denisimpulsywni";
   } catch {
     return false;
   }
