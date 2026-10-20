@@ -69,6 +69,7 @@ export const SONGS: SongMeta[] = [
     title: "Byleby nie była ciepła",
     artist: "Denis",
     accent: "#7fd4ff",
+    spotifyUrl: "https://open.spotify.com/track/2SlIvA9k1wAsOX0dBnuRBO",
     playable: true,
     devOnly: true, // poziom 4 — test mechaniki lodu, tylko konto Konrad
   },
@@ -97,6 +98,7 @@ export const SONGS: SongMeta[] = [
     title: "Pan Młody",
     artist: "Denis",
     accent: "#ffd6e0",
+    spotifyUrl: "https://open.spotify.com/track/5Qjs6MBqkJYIxnGmt1HxBa",
     playable: true,
     // runda bonusowa z zaproszeniem (akcja na TikToku, api/invite.ts)
     inviteOnly: true,
