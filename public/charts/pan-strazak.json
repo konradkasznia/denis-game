@@ -11,38 +11,86 @@
   "characters": [
     {
       "at": 0,
-      "sprite": "assets/char/pan-strazak/ujecie1"
-    },
-    {
-      "at": 5.036,
-      "sprite": "assets/char/pan-strazak/ujecie2"
-    },
-    {
-      "at": 9.964,
       "sprite": "assets/char/pan-strazak/ujecie3"
     },
     {
-      "at": 15,
-      "sprite": "assets/char/pan-strazak/ujecie4"
+      "at": 7.714,
+      "sprite": "assets/char/pan-strazak/ujecie2"
     },
     {
-      "at": 20.036,
+      "at": 10.179,
       "sprite": "assets/char/pan-strazak/ujecie1"
     },
     {
-      "at": 24.964,
-      "sprite": "assets/char/pan-strazak/ujecie2"
+      "at": 15.75,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 22.286,
+      "sprite": "assets/char/pan-strazak/ujecie1"
     },
     {
       "at": 30,
       "sprite": "assets/char/pan-strazak/ujecie3"
     },
     {
-      "at": 35.036,
-      "sprite": "assets/char/pan-strazak/ujecie4"
+      "at": 35.786,
+      "sprite": "assets/char/pan-strazak/ujecie1"
     },
     {
-      "at": 39.964,
+      "at": 41.464,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 49.929,
+      "sprite": "assets/char/pan-strazak/ujecie1"
+    },
+    {
+      "at": 64.929,
+      "sprite": "assets/char/pan-strazak/ujecie2"
+    },
+    {
+      "at": 72.536,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 79.071,
+      "sprite": "assets/char/pan-strazak/ujecie2"
+    },
+    {
+      "at": 86.143,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 92.679,
+      "sprite": "assets/char/pan-strazak/ujecie1"
+    },
+    {
+      "at": 106.071,
+      "sprite": "assets/char/pan-strazak/ujecie2"
+    },
+    {
+      "at": 112.179,
+      "sprite": "assets/char/pan-strazak/ujecie1"
+    },
+    {
+      "at": 121.929,
+      "sprite": "assets/char/pan-strazak/ujecie2"
+    },
+    {
+      "at": 128.786,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 135.75,
+      "sprite": "assets/char/pan-strazak/ujecie1"
+    },
+    {
+      "at": 142.821,
+      "sprite": "assets/char/pan-strazak/ujecie3"
+    },
+    {
+      "at": 147.75,
       "sprite": "assets/char/pan-strazak/ujecie1"
     }
   ],
@@ -58,7 +106,7 @@
       "dur": 0
     },
     {
-      "lane": 1,
+      "lane": 0,
       "time": 1.286,
       "dur": 0
     },
@@ -78,12 +126,7 @@
       "dur": 0
     },
     {
-      "lane": 1,
-      "time": 3.107,
-      "dur": 0
-    },
-    {
-      "lane": 2,
+      "lane": 0,
       "time": 3.107,
       "dur": 0
     },
@@ -95,11 +138,6 @@
     {
       "lane": 3,
       "time": 4.286,
-      "dur": 0
-    },
-    {
-      "lane": 1,
-      "time": 4.821,
       "dur": 0
     },
     {

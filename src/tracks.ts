@@ -226,8 +226,15 @@ export function rawToSong(raw: RawChart): SongDef {
   };
 }
 
+/** Tła rozgrywki per runda (public/assets/bg). */
+const SONG_BG: Record<string, string> = {
+  "pan-strazak": "assets/bg/pan-strazak.jpg",
+};
+
 export async function loadTrack(id: string): Promise<SongDef> {
   const song = await loadTrackRaw(id);
+  // tło rozgrywki zaszyte w paczce (edytor nie ustawia `bg` w mapie)
+  if (!song.bg && SONG_BG[id]) song.bg = SONG_BG[id];
   // Pan Młody: ujęcia postaci w garniturze wybranym na sliderze
   if (id === WEDDING && song.characters) {
     song.characters = song.characters.map((c) => ({ ...c, sprite: outfitSprite(c.sprite) }));
