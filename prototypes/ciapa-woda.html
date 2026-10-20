@@ -1,0 +1,81 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Cytrynowa ciapa (prototyp)</title></head><body style="margin:0;background:#fff;font-family:sans-serif">
+<h2 class="sr-only">Podgląd utrudnienia w pełnej rozdzielczości: gładka żółta ciecz zalewa cały ekran rozgrywki, a starta ciecz rozsuwa się miękko z zaokrąglonymi brzegami.</h2>
+<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;padding:1rem 0">
+<div style="background:var(--surface-1);border-radius:16px;padding:12px">
+<canvas id="cv" width="720" height="1280" style="width:300px;height:533px;border-radius:12px;display:block;touch-action:none;cursor:grab"></canvas>
+</div>
+<div style="flex:1;min-width:200px;font-size:14px;color:var(--text-secondary);line-height:1.6">
+<p style="margin:0 0 12px">Pełna rozdzielczość gry, a starta ciecz znowu rozsuwa się miękko z zaokrąglonymi, błyszczącymi brzegami. Wygląda jak cienka warstwa soku: płaska tafla z falkami, odblaskami i ciemniejszym brzegiem, a wokół rozprysk kropelek. Dalej nie prześwituje.</p>
+<button id="again">Rozlej ponownie</button>
+<p style="margin:12px 0 0;font-size:13px">Zalane: <span id="cov" style="color:var(--text-primary);font-weight:500">0%</span></p>
+</div>
+</div>
+<script>
+const W=720,H=1280;
+const cv=document.getElementById('cv'),x=cv.getContext('2d');
+const goo=document.createElement('canvas');goo.width=W;goo.height=H;const g=goo.getContext('2d');
+const HIT=1080,HOR=300,LX=[0.2,0.4,0.6,0.8];
+const F=new Float32Array(W*H),M=new Float32Array(W*H);let img=null;
+let t0=performance.now(),notes=[],drips=[],splashed=false,born=0,cover=0;
+const R=(a,b)=>a+Math.random()*(b-a);
+function addBall(bx,by,r){const r2=r*r,x0=Math.max(0,bx-r|0),x1=Math.min(W-1,Math.ceil(bx+r)),y0=Math.max(0,by-r|0),y1=Math.min(H-1,Math.ceil(by+r));
+for(let y=y0;y<=y1;y++){const dy=y-by,row=y*W;for(let xx=x0;xx<=x1;xx++){const dx=xx-bx,q=(dx*dx+dy*dy)/r2;if(q<1){const v=1-q;F[row+xx]+=v*v}}}}
+const T=0.5,L=[-0.45,-0.65,0.62],Hl=Math.hypot(L[0],L[1],L[2]+1);
+const hh=z=>1-Math.exp(-9*Math.max(0,z-T+0.03));const rip=(xx,y)=>0.6*Math.sin(xx*0.021+Math.sin(y*0.013)*2.6+Math.cos(xx*0.007)*1.5)*Math.cos(y*0.017+Math.sin(xx*0.011)*2.1)+0.4*Math.sin((xx*0.7+y)*0.031+Math.sin(xx*0.019)*1.7);
+function shadeRect(x0,y0,x1,y1){x0=Math.max(1,x0|0);y0=Math.max(1,y0|0);x1=Math.min(W-2,x1|0);y1=Math.min(H-2,y1|0);if(x1<x0||y1<y0)return;
+const p=img.data;
+for(let y=y0;y<=y1;y++)for(let xx=x0;xx<=x1;xx++){const k=y*W+xx,i=k*4,v=F[k]*M[k];if(v<T-0.03){p[i+3]=0;continue}
+const a=Math.min(1,(v-T+0.03)/0.06);
+const ex=(hh(F[k-1]*M[k-1])-hh(F[k+1]*M[k+1]))*5,ey=(hh(F[k-W]*M[k-W])-hh(F[k+W]*M[k+W]))*5;const rw=rip(xx,y),nx=ex+0.35*(rip(xx-3,y)-rip(xx+3,y)),ny=ey+0.35*(rip(xx,y-3)-rip(xx,y+3));const nl=Math.hypot(nx,ny,1),Nx=nx/nl,Ny=ny/nl,Nz=1/nl;
+const dif=Math.max(0,Nx*L[0]+Ny*L[1]+Nz*L[2]);const sp=Math.pow(Math.max(0,(Nx*L[0]+Ny*L[1]+Nz*(L[2]+1))/Hl),90)*1.2;const edge=Math.min(1,Math.hypot(ex,ey));const rim=edge*0.9;const dep=Math.min(1,(v-T)/0.5);
+const lit=0.97+0.035*rw+0.1*(dif-0.6);const r=255*lit-45*rim+255*sp,gg=(234-10*dep)*lit-70*rim+255*sp,b=(95-45*dep)*lit-35*rim+250*sp;
+p[i]=r>255?255:r;p[i+1]=gg>255?255:gg;p[i+2]=b>255?255:b;p[i+3]=255*a}
+g.putImageData(img,0,0,x0,y0,x1-x0+1,y1-y0+1)}
+function makeSplash(){F.fill(0);M.fill(1);img=g.createImageData(W,H);const balls=[];
+const C=[[0.5,0.44,240],[0.24,0.2,165],[0.77,0.22,175],[0.26,0.64,185],[0.75,0.63,180],[0.3,0.88,160],[0.72,0.88,160],[0.5,0.13,130]];
+for(const[cx,cy,r]of C){const X=cx*W,Y=cy*H;balls.push([X,Y,r*1.2]);
+for(let k=0;k<7;k++){const a=R(0,7);balls.push([X+Math.cos(a)*r*0.55,Y+Math.sin(a)*r*0.55,r*R(0.55,0.8)])}
+for(let k=0;k<6;k++){const a=R(0,7),len=r*R(1.2,1.8);let rr=r*0.36;
+for(let s=0;s<8;s++){const d=r*0.6+(len-r*0.6)*s/7;balls.push([X+Math.cos(a)*d,Y+Math.sin(a)*d,rr]);rr*=0.86}
+const e=len+R(20,45);balls.push([X+Math.cos(a)*e,Y+Math.sin(a)*e,R(16,30)])}}
+for(let i=0;i<30;i++)balls.push([R(0,W),R(30,H-30),R(14,30)]);for(const[cx,cy,r]of C)for(let i=0;i<22;i++){const a=R(0,7),d=r*R(1.3,2.4);balls.push([cx*W+Math.cos(a)*d,cy*H+Math.sin(a)*d,R(5,16)])}
+for(const[bx,by,r]of balls)addBall(bx,by,r);
+g.clearRect(0,0,W,H);shadeRect(0,0,W,H);
+drips=[];for(let i=0;i<16;i++){const c=C[Math.floor(R(0,C.length))];const dx=(c[0]*W+R(-c[2]*0.8,c[2]*0.8))|0;let y=(c[1]*H)|0;if(dx<20||dx>W-20)continue;
+while(y<H-2&&F[y*W+dx]>T)y++;if(y>=H-120||F[(y-30)*W+dx]<T||F[(y+40)*W+dx]>0.2||F[(y+90)*W+dx]>0.2)continue;drips.push({x:dx,y:y-14,r:R(9,14),v:R(30,60),len:0,max:R(60,170)})}
+splashed=true;born=performance.now()}
+function dripStep(dt){for(const d of drips){if(d.len>=d.max)continue;
+if(F[((d.y-8)|0)*W+d.x]*M[((d.y-8)|0)*W+d.x]<T){d.len=d.max;continue}
+const y0=d.y+d.len;d.len=Math.min(d.max,d.len+d.v*dt);const y1=d.y+d.len;
+for(let y=y0;y<=y1;y+=3)addBall(d.x,y,d.r*(1-0.25*(y-d.y)/d.max));
+addBall(d.x,y1+d.r*0.3,d.r*0.9);
+shadeRect(d.x-d.r*1.6,y0-d.r*1.6,d.x+d.r*1.6,y1+d.r*2.2)}}
+let down=false,lx=0,ly=0;
+function pt(e){const r=cv.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]}
+function wipeAt(cx,cy){const r=60,r2=r*r;for(let y=Math.max(0,cy-r|0);y<=Math.min(H-1,cy+r);y++)for(let xx=Math.max(0,cx-r|0);xx<=Math.min(W-1,cx+r);xx++){const q=((xx-cx)**2+(y-cy)**2)/r2;if(q<1){M[y*W+xx]*=1-0.16*(1-q)*(1-q)}}}
+function wipe(ax,ay,bx,by){if(!splashed)return;const n=Math.ceil(Math.hypot(bx-ax,by-ay)/10);for(let i=0;i<=n;i++)wipeAt(ax+(bx-ax)*i/n,ay+(by-ay)*i/n);
+shadeRect(Math.min(ax,bx)-64,Math.min(ay,by)-64,Math.max(ax,bx)+64,Math.max(ay,by)+64)}
+cv.addEventListener('pointerdown',e=>{down=true;[lx,ly]=pt(e);cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!down)return;const[px,py]=pt(e);if(Math.hypot(px-lx,py-ly)<8)return;wipe(lx,ly,px,py);lx=px;ly=py});
+const up=()=>{down=false};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+document.getElementById('again').onclick=makeSplash;
+setInterval(()=>{if(!splashed)return;let c=0,n=0;for(let k=0;k<F.length;k+=97){n++;if(F[k]*M[k]>T)c++}cover=c/n;document.getElementById('cov').textContent=Math.round(cover*100)+'%'},400);
+function laneX(l,y){const p=(y-HOR)/(HIT-HOR);const bx=W*LX[l],vx=W/2;return vx+(bx-vx)*(0.08+0.92*p)}
+function lemon(cx,cy,r){x.save();x.translate(cx,cy);x.rotate(-0.3);x.fillStyle='#f5d90a';x.beginPath();x.ellipse(0,0,r*1.25,r,0,0,7);x.fill();x.fillStyle='#3c8a1e';x.beginPath();x.ellipse(-r*1.1,-r*0.55,r*0.45,r*0.2,-0.6,0,7);x.fill();x.restore()}
+let last=performance.now();
+function frame(now){const dt=Math.min(0.05,(now-last)/1000);last=now;const t=(now-t0)/1000;
+x.fillStyle='#14140a';x.fillRect(0,0,W,H);x.strokeStyle='rgba(255,240,140,0.25)';x.lineWidth=3;
+for(let l=0;l<=4;l++){const bx=W*(0.1+l*0.2);x.beginPath();x.moveTo(W/2+(bx-W/2)*0.08,HOR);x.lineTo(bx+(bx-W/2)*0.1,H);x.stroke()}
+x.strokeStyle='rgba(255,230,80,0.8)';x.lineWidth=4;x.beginPath();x.moveTo(0,HIT);x.lineTo(W,HIT);x.stroke();
+if(!notes.length||t-notes[notes.length-1].t0>0.42)notes.push({l:Math.floor(Math.random()*4),t0:t});notes=notes.filter(n=>t-n.t0<2.5);
+for(const n of notes){const p=(t-n.t0)/2.1;const y=HOR+(HIT-HOR)*(p*p*0.35+p*0.65);lemon(laneX(n.l,y),y,14+30*p)}
+for(let l=0;l<4;l++){x.strokeStyle='rgba(255,255,255,0.75)';x.lineWidth=6;x.beginPath();x.arc(laneX(l,HIT),HIT,52,0,7);x.stroke()}
+x.fillStyle='#fff';x.font='500 60px sans-serif';x.textAlign='center';x.fillText('012450',W/2,120);x.font='500 26px sans-serif';x.textAlign='left';x.fillText('WÓDKA CYTRYNÓWKA',28,52);
+if(!splashed&&t>1.2)makeSplash();
+if(splashed){dripStep(dt);const age=(now-born)/1000;const k=Math.min(1,0.55+age*3);const e=1-Math.pow(1-k,3);const s=0.55+0.45*e;
+x.save();x.translate(W/2,H*0.45);x.scale(s,s);x.translate(-W/2,-H*0.45);x.drawImage(goo,0,0);x.restore();
+if(cover>0.2){x.fillStyle='rgba(60,45,0,0.75)';x.beginPath();x.roundRect(90,H*0.5-40,540,80,24);x.fill();x.fillStyle='#fff';x.font='500 34px sans-serif';x.textAlign='center';x.fillText('Przetrzyj ekran palcem!',W/2,H*0.5+12)}}
+requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+</script>
+</body></html>

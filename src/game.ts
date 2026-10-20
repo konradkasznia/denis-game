@@ -20,7 +20,6 @@ import {
   applyServerUnlocked,
   coins,
   coinsFromScore,
-  fmtCoins,
   fmtCoinsFull,
   isUnlocked,
   monetyWord,
@@ -261,8 +260,8 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
     body: "Ekran nagle zamarza w taflę lodu. Trzeba ją szybko rozbić serią stuknięć, zanim gra pójdzie dalej — nuty w tym czasie i tak są nie do zagrania.",
   },
   burnFast: {
-    title: "SZYBKIE SPALANIE NUT",
-    body: "Na tym utworze okno na trafienie jest o 40% węższe niż zwykle — nuty „spalają się” (liczą jako pudło) dużo szybciej. Receptor jest mniejszy, marginesu błędu prawie nie ma. Graj precyzyjniej niż normalnie.",
+    title: "MISS CLICK",
+    body: "Nie stukaj na zapas! Stuknięcie w tor, zanim nutka dojedzie do okręgu, od razu ją spala i liczy się jako pudło. Do tego okno na trafienie jest o 40% węższe niż zwykle, a okręgi są mniejsze. Stukaj dopiero, gdy nutka jest w okręgu.",
   },
   hold: {
     title: "NUTY DO PRZYTRZYMANIA",
@@ -6145,7 +6144,7 @@ export class Game {
     flashlight: "LATARKA",
     fire: "OGIEŃ",
     ice: "LÓD",
-    burnFast: "OGIEŃ", // brak dedykowanej ikony — "spalanie" pasuje tematycznie do ognia
+    burnFast: "MISS-CLICK",
     hold: "PRZETRZYMAJ",
   };
 
@@ -6539,6 +6538,14 @@ export class Game {
         const burnT = clamp((p - BURN_P) / (1 - BURN_P), 0, 1);
         const flash = clamp(1 - burnT * 3.5, 0, 1);
         if (flash > 0.01) {
+          // za wczesne stuknięcie w okrąg toru — to ono spala nutkę
+          ctx.save();
+          ctx.globalAlpha = flash;
+          ctx.beginPath();
+          ctx.arc(bx, hitY, 14 + (1 - flash) * 10, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.fill();
+          ctx.restore();
           ctx.save();
           ctx.globalAlpha = flash;
           ctx.beginPath();
@@ -6554,7 +6561,7 @@ export class Game {
           });
         }
       }
-      text(ctx, "SPALANIE · okno trafień o 40% węższe", ox + ow / 2, oy + 17, {
+      text(ctx, "MISS CLICK · za wczesne stuknięcie = pudło", ox + ow / 2, oy + 17, {
         size: 12.5,
         weight: "900",
         font: HEAD_FONT,
@@ -9780,8 +9787,13 @@ export class Game {
     this.drawCoinStack(ctx, iconCx, iconCy, r.h * 0.32);
 
     const numX0 = r.x + r.h * 1.02;
-    text(ctx, fmtCoins(count), numX0 + (r.x + r.w - numX0 - 14) / 2, iconCy + 1, {
-      size: 30,
+    // pełna liczba (1112, nie „1,1k") — przy długich kwotach mniejsza czcionka
+    const label = String(count);
+    const room = r.x + r.w - numX0 - 14;
+    ctx.font = `900 30px ${HEAD_FONT}`;
+    const tw = ctx.measureText(label).width;
+    text(ctx, label, numX0 + room / 2, iconCy + 1, {
+      size: tw > room ? Math.max(16, Math.floor((30 * room) / tw)) : 30,
       weight: "900",
       font: HEAD_FONT,
       color: "#fff7ec",
