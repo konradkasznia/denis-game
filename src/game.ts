@@ -3652,9 +3652,11 @@ export class Game {
     const sc = this.judgeScale();
     const picked = pickNote(this.song.notes, lane, this.inputSongTime(), this.offsetSec(), sc);
     if (!picked) {
-      // za wczesny/pusty tap (poza oknem GOOD, nic do trafienia) — po prostu
-      // nic się nie dzieje; nuta leci dalej nietknięta, gracz oceni ją normalnie
-      // gdy wejdzie w okno (wcześniej: taki tap od razu palił ją jako pudło)
+      // za wczesny/pusty tap (poza oknem GOOD, nic do trafienia) — zwykle nic
+      // się nie dzieje; nuta leci dalej nietknięta. WYJĄTEK: Pani Policjantko
+      // (mechanika „spalania") — za wczesny tap pali najbliższą nadjeżdżającą
+      // nutę w tym torze jako pudło
+      if (this.trackId === "pani-policjantko") this.burnEarly(lane);
       return;
     }
     const { note, absDt } = picked;
@@ -3679,6 +3681,28 @@ export class Game {
       note.judged = true;
       this.apply(j, lane);
     }
+  }
+
+  /** Pani Policjantko: tap ZANIM nuta dojechała do okna — najbliższa widoczna
+   *  (już nadjeżdżająca) nuta w torze liczy się jako pudło. Nuty jeszcze za
+   *  horyzontem nie są ruszane, bomby też nie (wczesny tap nie może być sposobem
+   *  na ominięcie kary za bombę). */
+  private burnEarly(lane: number) {
+    const now = this.inputSongTime() - this.offsetSec();
+    const ahead = this.approachSec();
+    let next: Note | null = null;
+    for (const n of this.song.notes) {
+      if (n.lane !== lane || n.judged || n.holding || n.bomb) continue;
+      const dt = n.time - now;
+      if (dt <= 0 || dt > ahead) continue;
+      if (!next || n.time < next.time) next = n;
+    }
+    if (!next) return;
+    next.judged = true;
+    next.hit = false;
+    next.headJ = "miss";
+    next.judgedAt = this.songTime;
+    this.apply("miss", lane);
   }
 
   /** Tapnięcie w bombę: kara -100 pkt, zbite combo, wybuch i 3 s ogłuszenia. */
