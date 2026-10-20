@@ -1661,7 +1661,7 @@ async function startup() {
     ujecia: [1, 2, 3], // 1 kciuk, 2 płomienie, 3 wóz strażacki
     realAudio: true,
   });
-  await persistSeed({ id: "pan-mlody", title: "Pan Młody", bpm: 140, ujecia: [1, 2, 3], realAudio: true });
+  await persistSeed({ id: "pan-mlody", title: "Pan Młody", bpm: 140, ujecia: [1, 2, 3, 4], realAudio: true });
   await persistSeed({ id: "wesele-trwa", title: "Wesele trwa", bpm: 140, ujecia: [1, 2, 3], realAudio: true });
   await persistSeed({
     id: "wodka-cytrynowka",
