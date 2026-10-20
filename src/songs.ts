@@ -86,6 +86,7 @@ export const SONGS: SongMeta[] = [
     title: "Wódka Cytrynówka",
     artist: "Denis",
     accent: "#e8f53a",
+    spotifyUrl: "https://open.spotify.com/track/3PWrBc88jjw3fbSvhZrNEj",
     playable: true,
     // runda bonusowa: 5 cytryn (znajdźki w innych rundach) + 1000 monet.
     // Na razie test — tylko konto Konrad (cytryny też widzi tylko on).
