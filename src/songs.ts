@@ -77,6 +77,7 @@ export const SONGS: SongMeta[] = [
     title: "Pan strażak",
     artist: "Denis",
     accent: "#ff9f43",
+    spotifyUrl: "https://open.spotify.com/track/2AgxGvvM3Bg3fnXDAmUjhP",
     playable: true,
     devOnly: true, // poziom 5 — w testach, tylko konto Konrad
   },
