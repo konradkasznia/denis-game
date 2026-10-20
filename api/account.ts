@@ -27,7 +27,7 @@ import {
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
 const UNLOCK_COST: Record<string, number> = {
   pogrzebowka: 50,
-  "wodka-cytrynowka": 1000,
+  "wodka-cytrynowka": 500,
   // garnitury na wesele (Pan Młody) — kupowane tak jak poziomy, wymagają zaproszenia
   "garnitur-1": 1000,
   "garnitur-2": 5000,

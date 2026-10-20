@@ -175,7 +175,7 @@ console.log("· cytryny (Wódka Cytrynówka):");
   const me = await call(h.me, { token: tokB });
   ok(me.body.lemons?.length === 5, "/api/auth/me zwraca cytryny");
   const buy1 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "wodka-cytrynowka" } });
-  ok(buy1.status === 200 && buy1.body.coins === 1000 && buy1.body.unlocked.includes("wodka-cytrynowka"), "5 cytryn + 1000 monet → odblokowane");
+  ok(buy1.status === 200 && buy1.body.coins === 1500 && buy1.body.unlocked.includes("wodka-cytrynowka"), "5 cytryn + 500 monet → odblokowane");
 }
 
 console.log("· wesele (zaproszenia, garnitury, koperta):");
@@ -195,7 +195,7 @@ console.log("· wesele (zaproszenia, garnitury, koperta):");
   const me = await call(h.me, { token: tokB });
   ok(me.body.unlocked.includes("pan-mlody") && /^u\d+$/.test(me.body.pushId), "/me: runda odblokowana + pushId");
   const g1 = await call(h.account, { method: "POST", token: tokB, body: { action: "unlock", songId: "garnitur-1" } });
-  ok(g1.status === 200 && g1.body.coins === 0 && g1.body.unlocked.includes("garnitur-1"), "garnitur za 1000 kupiony");
+  ok(g1.status === 200 && g1.body.coins === 500 && g1.body.unlocked.includes("garnitur-1"), "garnitur za 1000 kupiony");
   await client.execute({ sql: "UPDATE users SET coins = 1500 WHERE login = 'Basia'", args: [] });
   const e1 = await call(h.account, { method: "POST", token: tokB, body: { action: "envelope", amount: 999 } });
   ok(e1.status === 200 && e1.body.coins === 501 && !e1.body.unlocked.includes("wesele-trwa"), "koperta 999 → monety zabrane, bez Wesele trwa");

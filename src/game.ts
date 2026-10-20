@@ -46,7 +46,7 @@ import { isNative, openUrlNative } from "./native.ts";
 import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
-import { POLL_LEVEL6, POLL_LEVEL6_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
+import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
@@ -70,6 +70,7 @@ import {
   bestStars,
   coinUnlockPrice,
   isBonusRound,
+  isPaidRound,
   lemonGated,
   lemonsActive,
   levelNumber,
@@ -878,6 +879,9 @@ export class Game {
   /** głosowanie „jaki poziom 6?" — null | wybór opcji | podziękowanie */
   private voteModal: null | "pick" | "thanks" = null;
   private voteRects: { r: Rect; id: string }[] = [];
+  private voteSkipRect: Rect | null = null;
+  /** po przejściu rundy: przy powrocie do menu pokaż ankietę (jeśli nie głosował) */
+  private pollAfterRound = false;
   /** modal ostrzegający o przeszkodzie (znaki na sliderze Pogrzebówki) */
   private obstacleModal: ObstacleKind | null = null;
   private obstacleModalAt = 0; // performance.now() otwarcia — zegar podglądu w pętli
@@ -1030,7 +1034,11 @@ export class Game {
     this.hitIndex = Math.min(this.hitIndex, this.maxHitIndex());
     this.scene = "hits";
     this.preloadHitAudio();
-    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
+    void syncVoted(POLL_NEXT); // hydratacja „już głosował" z serwera
+    if (this.pollAfterRound) {
+      this.pollAfterRound = false;
+      if (!votedChoice(POLL_NEXT)) this.voteModal = "pick";
+    }
     // NAJPIERW dźwięk (uwaga gracza największa, gra działa w rytm muzyki),
     // POTEM ostrzeżenie o migotaniu.
     if (volumeGateActive) {
@@ -1757,7 +1765,7 @@ export class Game {
         ctx,
         "🍋",
         "ZBIERZ CYTRYNY",
-        `W innych rundach ukryły się cytryny. Złap je w trakcie gry, tak jak zwykłe nuty. Zebrane: ${Math.min(lemonCount(), LEMONS_NEEDED)}/${LEMONS_NEEDED}. Z kompletem cytryn odblokujesz tę rundę za 1000 monet.`,
+        `W innych rundach ukryły się cytryny. Złap je w trakcie gry, tak jak zwykłe nuty. Zebrane: ${Math.min(lemonCount(), LEMONS_NEEDED)}/${LEMONS_NEEDED}. Z kompletem cytryn odblokujesz tę rundę za 500 monet.`,
       );
     }
     if (this.coinLackModal) {
@@ -2077,10 +2085,15 @@ export class Game {
       return;
     }
     if (this.voteModal === "pick") {
+      if (this.voteSkipRect && inRect(this.voteSkipRect, x, y)) {
+        uiSound("back"); // „Nie teraz" — zapyta znowu po kolejnej rundzie
+        this.voteModal = null;
+        return;
+      }
       const hit = this.voteRects.find((v) => inRect(v.r, x, y));
       if (hit) {
         uiSound("buttons");
-        submitVote(POLL_LEVEL6, hit.id);
+        submitVote(POLL_NEXT, hit.id);
         void this.askPush(); // głos = świadoma zgoda na powiadomienia o nowej zawartości
         this.voteModal = "thanks";
       }
@@ -2699,7 +2712,11 @@ export class Game {
     if (!songVisible(SONGS[this.hitIndex])) this.hitIndex = 0;
     this.scene = "hits";
     this.preloadHitAudio();
-    void syncVoted(POLL_LEVEL6); // hydratacja „już głosował" z serwera
+    void syncVoted(POLL_NEXT); // hydratacja „już głosował" z serwera
+    if (this.pollAfterRound) {
+      this.pollAfterRound = false;
+      if (!votedChoice(POLL_NEXT)) this.voteModal = "pick";
+    }
   }
 
   /** W tle dekoduje audio bieżącego poziomu, żeby GRAJ! startował bez czekania. */
@@ -2769,7 +2786,7 @@ export class Game {
       if (inRect(this.hb(wide), x, y)) {
         uiSound("buttons");
         // „Powiadom mnie" → najpierw głosowanie „jaki poziom 6?", potem zgoda
-        if (!votedChoice(POLL_LEVEL6)) this.voteModal = "pick";
+        if (!votedChoice(POLL_NEXT)) this.voteModal = "pick";
         else if (!pushOptedInSync()) void this.askPush();
         return;
       }
@@ -3513,13 +3530,14 @@ export class Game {
       // końca utworu) → odblokowuje kolejny poziom, bez progu punktowego
       const resIdx = SONGS.findIndex((s) => s.id === this.trackId);
       const firstClear = markCompleted(this.trackId);
+      this.pollAfterRound = true; // ankieta „kolejna runda" po powrocie do menu
       const nextMeta = resIdx >= 0 ? SONGS[resIdx + 1] : undefined;
       // „Następny poziom" na podsumowaniu pokazujemy tylko, gdy zaraz po tym
       // utworze w kolejce jest zwykły, grywalny poziom progresji — nie runda
       // bonusowa (Pogrzebówka, kupowana za monety) ani poziom testowy (devOnly,
       // np. na razie Pani policjantko). Patrz levelUnlocked()/prevRoundCleared()
       // w songs.ts — ta sama logika progresji.
-      this.resultShowNextLevel = !!nextMeta && !isBonusRound(nextMeta.id) && !nextMeta.devOnly;
+      this.resultShowNextLevel = !!nextMeta && !isPaidRound(nextMeta.id) && !nextMeta.devOnly;
       this.resultUnlockedNext = firstClear && this.resultShowNextLevel;
       if (this.score > bestScore()) {
         try {
@@ -6033,7 +6051,8 @@ export class Game {
     this.styledBtn(ctx, this.updateNoRect, "NIE TERAZ", "dark-gold");
   }
 
-  /** Modal głosowania „Do czego chcesz się pobawić na Poziomie 6?" —
+  /** Modal głosowania „Do czego chcesz się pobawić w kolejnej rundzie?" — po
+   *  przejściu rundy (przy powrocie do menu) albo z „Powiadom mnie"; dawniej
    *  pokazywany po kliknięciu „Powiadom mnie" na ekranie utworu „wkrótce". */
   private drawVoteModal(ctx: CanvasRenderingContext2D) {
     if (this.voteModal === "thanks") {
@@ -6050,12 +6069,12 @@ export class Game {
     this.fillViewport(ctx, "rgba(4,4,10,0.86)");
     const pw = VW - 96;
     const px = 48;
-    const titleLines = wrapText("Do czego chcesz się pobawić na Poziomie 6?", 22);
+    const titleLines = wrapText("Do czego chcesz się pobawić w kolejnej rundzie?", 22);
     const btnH = 82;
     const gap = 16;
     const titleTop = 92;
     const listTop = titleTop + titleLines.length * 42 + 26;
-    const ph = listTop + POLL_LEVEL6_OPTIONS.length * (btnH + gap) - gap + 40;
+    const ph = listTop + POLL_NEXT_OPTIONS.length * (btnH + gap) - gap + 110;
     const py = Math.max(36, (VH - ph) / 2);
 
     ctx.fillStyle = "#15121c";
@@ -6078,11 +6097,14 @@ export class Game {
 
     this.voteRects = [];
     const bw = pw - 88;
-    POLL_LEVEL6_OPTIONS.forEach((o, i) => {
+    POLL_NEXT_OPTIONS.forEach((o, i) => {
       const r: Rect = { x: VW / 2 - bw / 2, y: py + listTop + i * (btnH + gap), w: bw, h: btnH };
       this.styledBtn(ctx, r, o.label, "gold");
       this.voteRects.push({ r, id: o.id });
     });
+    const skipY = py + listTop + POLL_NEXT_OPTIONS.length * (btnH + gap) + 26;
+    this.voteSkipRect = { x: VW / 2 - 150, y: skipY - 6, w: 300, h: 64 };
+    this.styledBtn(ctx, this.voteSkipRect, "NIE TERAZ", "dark-gold");
   }
 
   private drawSoundModal(ctx: CanvasRenderingContext2D) {
@@ -9791,7 +9813,8 @@ export class Game {
     const label = String(count);
     const room = r.x + r.w - numX0 - 14;
     ctx.font = `900 30px ${HEAD_FONT}`;
-    const tw = ctx.measureText(label).width;
+    const mw = ctx.measureText(label).width;
+    const tw = typeof mw === "number" ? mw : 0;
     text(ctx, label, numX0 + room / 2, iconCy + 1, {
       size: tw > room ? Math.max(16, Math.floor((30 * room) / tw)) : 30,
       weight: "900",

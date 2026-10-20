@@ -12,7 +12,7 @@ const PER_COIN = 10_000;
 /** Ile monet kosztuje odblokowanie danego poziomu (musi zgadzać się z api/account.ts). */
 export const UNLOCK_COST: Record<string, number> = {
   pogrzebowka: 50,
-  "wodka-cytrynowka": 1000,
+  "wodka-cytrynowka": 500,
   // garnitury na wesele (Pan Młody) — patrz wedding.ts
   "garnitur-1": 1000,
   "garnitur-2": 5000,

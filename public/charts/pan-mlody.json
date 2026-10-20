@@ -10,19 +10,23 @@
   "characterY": 704,
   "characters": [
     {
-      "at": 0.016,
-      "sprite": "assets/char/pan-mlody/ujecie1"
+      "at": 0,
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 6.123,
       "sprite": "assets/char/pan-mlody/ujecie2"
     },
     {
-      "at": 11.266,
+      "at": 10.944,
       "sprite": "assets/char/pan-mlody/ujecie3"
     },
     {
-      "at": 18.337,
+      "at": 12.873,
+      "sprite": "assets/char/pan-mlody/ujecie4"
+    },
+    {
+      "at": 18.23,
       "sprite": "assets/char/pan-mlody/ujecie1"
     },
     {
@@ -31,15 +35,19 @@
     },
     {
       "at": 30.766,
-      "sprite": "assets/char/pan-mlody/ujecie1"
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 34.73,
       "sprite": "assets/char/pan-mlody/ujecie3"
     },
     {
-      "at": 40.837,
+      "at": 38.587,
       "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 43.837,
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 48.766,
@@ -56,6 +64,10 @@
     {
       "at": 67.623,
       "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 70.516,
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 74.159,
@@ -79,7 +91,7 @@
     },
     {
       "at": 98.159,
-      "sprite": "assets/char/pan-mlody/ujecie1"
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 102.337,
@@ -95,11 +107,15 @@
     },
     {
       "at": 117.766,
-      "sprite": "assets/char/pan-mlody/ujecie3"
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 123.123,
       "sprite": "assets/char/pan-mlody/ujecie1"
+    },
+    {
+      "at": 126.659,
+      "sprite": "assets/char/pan-mlody/ujecie4"
     },
     {
       "at": 129.766,

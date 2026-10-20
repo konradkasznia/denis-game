@@ -24,6 +24,8 @@ export interface SongMeta {
   devOnly?: boolean;
   /** runda weselna — widoczna tylko dla zaproszonych (i konta dewelopera) */
   inviteOnly?: boolean;
+  /** schowana przed WSZYSTKIMI (także kontami deweloperskimi) — do odsłonięcia później */
+  hidden?: boolean;
 }
 
 // Kolejność = kolejność rund. „Kolejna runda" prowadzi do następnego playable.
@@ -89,7 +91,7 @@ export const SONGS: SongMeta[] = [
     accent: "#e8f53a",
     spotifyUrl: "https://open.spotify.com/track/3PWrBc88jjw3fbSvhZrNEj",
     playable: true,
-    // runda bonusowa: 5 cytryn (znajdźki w innych rundach) + 1000 monet.
+    // zwykły poziom (numeracja, progresja), odblokowanie: 5 cytryn + 500 monet.
     // Na razie test — tylko konto Konrad (cytryny też widzi tylko on).
     devOnly: true,
   },
@@ -111,12 +113,14 @@ export const SONGS: SongMeta[] = [
     playable: true,
     // odblokowuje koperta >= 1000 monet w rundzie Pan Młody
     inviteOnly: true,
+    hidden: true, // na razie schowana (premiera później)
   },
 ];
 
 /** Czy runda ma się w ogóle pokazywać na karuzeli temu graczowi. */
 export function songVisible(s: SongMeta | undefined): boolean {
   if (!s) return false;
+  if (s.hidden) return false;
   if (s.devOnly) return devUnlocked();
   // Pan Młody: dla wszystkich, gdy ruszyła akcja na TikToku (przycisk „Otrzymaj
   // zaproszenie"); Wesele trwa: od razu po otrzymaniu zaproszenia
@@ -274,10 +278,20 @@ function prevRoundCleared(index: number): boolean {
   return completedIds().has(prev.id) || bestStars(prev.id) > 0;
 }
 
-/** Runda BONUSOWA (kupowana za monety, poza główną numeracją poziomów —
- *  patrz levelNumber) — np. Pogrzebówka. */
-export function isBonusRound(id: string | undefined): boolean {
+/** Runda odblokowywana zakupem za monety (albo zaproszeniem na wesele),
+ *  a nie samym przejściem poprzedniego poziomu. */
+export function isPaidRound(id: string | undefined): boolean {
   return !!id && (!!UNLOCK_COST[id] || id === WEDDING || id === WEDDING_AFTER);
+}
+
+/** Płatne rundy liczone jak ZWYKŁE poziomy (numer „POZIOM N", progresja),
+ *  mimo zakupu: Wódka Cytrynówka (5 cytryn + monety). */
+const COUNTED_PAID = new Set<string>([LEMON_ROUND]);
+
+/** Runda BONUSOWA (poza główną numeracją poziomów — patrz levelNumber),
+ *  np. Pogrzebówka, Pan Młody. */
+export function isBonusRound(id: string | undefined): boolean {
+  return isPaidRound(id) && !COUNTED_PAID.has(id!);
 }
 
 /** Czy cytryny mają się pojawiać w rundach (runda-cel widoczna dla gracza). */
@@ -286,7 +300,7 @@ export function lemonsActive(): boolean {
   return !!target && (!target.devOnly || devUnlocked());
 }
 
-/** Runda czeka jeszcze na cytryny (przycisk „Zbierz cytryny i 1000 monet"). */
+/** Runda czeka jeszcze na cytryny (przycisk „Zbierz cytryny i 500 monet"). */
 export function lemonGated(index: number): boolean {
   const id = SONGS[index]?.id;
   return id === LEMON_ROUND && !isUnlocked(id) && lemonCount() < LEMONS_NEEDED;
@@ -299,7 +313,7 @@ export function levelUnlocked(index: number): boolean {
   if (!songVisible(SONGS[index])) return false;
   // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts) —
   // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
-  if (isBonusRound(id)) return isUnlocked(id!);
+  if (isPaidRound(id)) return isUnlocked(id!);
   if (SONGS[index]?.devOnly) return true; // poziom testowy — omija progresję
   if (!prevRoundCleared(index)) return false;
   return true;
@@ -326,7 +340,7 @@ function revealedIds(): Set<string> {
 export function needsReveal(index: number): boolean {
   const s = SONGS[index];
   if (!s || index <= 0 || !s.playable || s.devOnly || s.inviteOnly) return false;
-  if (isBonusRound(s.id)) return false; // rundy bonusowe mają własne odblokowanie
+  if (isPaidRound(s.id)) return false; // rundy płatne mają własne odblokowanie
   if (!levelUnlocked(index)) return false;
   if (isDiscovered(s.id) || bestStars(s.id) > 0) return false;
   return !revealedIds().has(s.id);
@@ -347,7 +361,7 @@ export function markRevealed(id: string): void {
  *  już odblokowany). Rundy bonusowe można kupić w dowolnym momencie. */
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
-  if (!isBonusRound(id) || isUnlocked(id!)) return 0;
+  if (!isPaidRound(id) || isUnlocked(id!)) return 0;
   if (!songVisible(SONGS[index])) return 0;
   return UNLOCK_COST[id!] ?? 0;
 }

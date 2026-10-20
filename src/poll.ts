@@ -12,13 +12,17 @@ export interface PollOption {
   label: string;
 }
 
-export const POLL_LEVEL6 = "poziom6";
-export const POLL_LEVEL6_OPTIONS: PollOption[] = [
-  { id: "pan-mlody", label: "Pan Młody" },
-  { id: "pan-mechanik", label: "Pan Mechanik" },
-  { id: "wodka-cytrynowka", label: "Wódka Cytrynówka" },
-  { id: "skacz-baw-pij", label: "Skacz, Baw, Pij!" },
-  { id: "krol-latino", label: "Król Latino" },
+/** Ankieta po przejściu rundy: „Do czego chcesz się pobawić w kolejnej rundzie?".
+ *  (Wcześniejsza ankieta „poziom6" zakończona — nowe id, żeby głosowali wszyscy.) */
+export const POLL_NEXT = "kolejna-runda";
+export const POLL_NEXT_OPTIONS: PollOption[] = [
+  { id: "skacz-baw-pij", label: "Skacz, baw, pij" },
+  { id: "pan-mechanik", label: "Pan mechanik" },
+  { id: "krol-latino", label: "Król latino" },
+  { id: "pan-kierowca", label: "Pan kierowca" },
+  { id: "pan-wedkarz", label: "Pan wędkarz" },
+  { id: "matka-polka", label: "Matka Polka" },
+  { id: "pan-elektryk", label: "Pan Elektryk" },
 ];
 
 const key = (poll: string) => `denis.vote.${poll}`;

@@ -13,6 +13,8 @@ import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
 // dozwolone głosowania i ich opcje (rozszerzalne)
 const POLLS: Record<string, string[]> = {
   poziom6: ["pan-mlody", "pan-mechanik", "wodka-cytrynowka", "skacz-baw-pij", "krol-latino"],
+  // ankieta po przejściu rundy (src/poll.ts POLL_NEXT_OPTIONS)
+  "kolejna-runda": ["skacz-baw-pij", "pan-mechanik", "krol-latino", "pan-kierowca", "pan-wedkarz", "matka-polka", "pan-elektryk"],
 };
 
 async function voterId(req: VercelRequest): Promise<string> {
