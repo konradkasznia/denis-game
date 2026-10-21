@@ -351,7 +351,8 @@ localStorage.removeItem("denis.unlocked");
 // kolejność rund
 const { nextRound } = await import("../src/songs.ts");
 ok(nextRound("panna-mloda") === "ksiaze-z-bajki", "runda 1 -> runda 2");
-ok(nextRound("pogrzebowka") === null, "po ostatniej rundzie brak kolejnej");
+ok(nextRound("pogrzebowka") === "pani-policjantko", "po Pogrzebówce Pani policjantko (wszystkie rundy widoczne)");
+ok(nextRound("wesele-trwa") === null, "po ostatniej rundzie brak kolejnej");
 {
   // KONTYNUUJ po zaliczeniu -> ekran wyboru, ustawiony na następny poziom
   localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5, "ksiaze-z-bajki": 5 }));
