@@ -64,7 +64,6 @@ export const SONGS: SongMeta[] = [
     accent: "#8ab6ff",
     spotifyUrl: "https://open.spotify.com/track/1aIjxCDYeK0oECqNYMk9Cx",
     playable: true,
-    devOnly: true, // w testach — bez mp3/chartu/postaci, na razie tylko konto Konrad
   },
   {
     id: "byleby-nie-byla-ciepla",
@@ -73,7 +72,6 @@ export const SONGS: SongMeta[] = [
     accent: "#7fd4ff",
     spotifyUrl: "https://open.spotify.com/track/2SlIvA9k1wAsOX0dBnuRBO",
     playable: true,
-    devOnly: true, // poziom 4 — test mechaniki lodu, tylko konto Konrad
   },
   {
     id: "pan-strazak",
@@ -82,7 +80,6 @@ export const SONGS: SongMeta[] = [
     accent: "#ff9f43",
     spotifyUrl: "https://open.spotify.com/track/2AgxGvvM3Bg3fnXDAmUjhP",
     playable: true,
-    devOnly: true, // poziom 5 — w testach, tylko konto Konrad
   },
   {
     id: "wodka-cytrynowka",
@@ -91,9 +88,8 @@ export const SONGS: SongMeta[] = [
     accent: "#e8f53a",
     spotifyUrl: "https://open.spotify.com/track/3PWrBc88jjw3fbSvhZrNEj",
     playable: true,
-    // zwykły poziom (numeracja, progresja), odblokowanie: 5 cytryn + 500 monet.
-    // Na razie test — tylko konto Konrad (cytryny też widzi tylko on).
-    devOnly: true,
+    // zwykły poziom (numeracja, progresja): po przejściu poprzedniego
+    // poziomu odblokowanie za 5 cytryn + 500 monet
   },
   {
     id: "pan-mlody",
@@ -268,8 +264,12 @@ export function markCompleted(id: string): boolean {
 
 /** Czy poprzedni poziom został choć raz przejechany do końca (bez progu punktowego). */
 function prevRoundCleared(index: number): boolean {
-  const prev = SONGS[index - 1];
-  if (!prev) return false;
+  // poprzedni ZWYKŁY poziom — rundy bonusowe (Pogrzebówka, Pan Młody) i schowane
+  // nie blokują progresji
+  let p = index - 1;
+  while (p > 0 && (isBonusRound(SONGS[p]?.id) || SONGS[p]?.hidden)) p--;
+  const prev = SONGS[p];
+  if (!prev || p >= index) return false;
   // completedIds() to nowy zapis (od wprowadzenia progresji bez progu). Gracze,
   // którzy przeszli poziom WCZEŚNIEJ (stary kod, bez tego zapisu) mieliby go
   // teraz zablokowanego mimo realnego ukończenia — bestStars > 0 zawsze
@@ -300,10 +300,19 @@ export function lemonsActive(): boolean {
   return !!target && (!target.devOnly || devUnlocked());
 }
 
-/** Runda czeka jeszcze na cytryny (przycisk „Zbierz cytryny i 500 monet"). */
+/** Runda czeka jeszcze na cytryny (przycisk „Zbierz cytryny i 500 monet").
+ *  Dopiero po przejściu poprzedniego poziomu (wcześniej: „przejdź poprzedni"). */
 export function lemonGated(index: number): boolean {
   const id = SONGS[index]?.id;
-  return id === LEMON_ROUND && !isUnlocked(id) && lemonCount() < LEMONS_NEEDED;
+  return id === LEMON_ROUND && !isUnlocked(id) && lemonCount() < LEMONS_NEEDED && progressOk(index);
+}
+
+/** Płatna runda liczona jak zwykły poziom wymaga też przejścia poprzedniego
+ *  (konta deweloperskie omijają bramkę, żeby dało się testować). */
+function progressOk(index: number): boolean {
+  const id = SONGS[index]?.id;
+  if (!id || !COUNTED_PAID.has(id) || devUnlocked()) return true;
+  return prevRoundCleared(index);
 }
 
 /** Czy poziom o danym indeksie w SONGS można zagrać. */
@@ -313,7 +322,7 @@ export function levelUnlocked(index: number): boolean {
   if (!songVisible(SONGS[index])) return false;
   // runda bonusowa omija bramkę progresji, liczy się tylko zakup (coins.ts) —
   // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
-  if (isPaidRound(id)) return isUnlocked(id!);
+  if (isPaidRound(id)) return isUnlocked(id!) && progressOk(index);
   if (SONGS[index]?.devOnly) return true; // poziom testowy — omija progresję
   if (!prevRoundCleared(index)) return false;
   return true;
@@ -362,6 +371,7 @@ export function markRevealed(id: string): void {
 export function coinUnlockPrice(index: number): number {
   const id = SONGS[index]?.id;
   if (!isPaidRound(id) || isUnlocked(id!)) return 0;
+  if (!progressOk(index)) return 0; // najpierw „przejdź poprzedni poziom"
   if (!songVisible(SONGS[index])) return 0;
   return UNLOCK_COST[id!] ?? 0;
 }
