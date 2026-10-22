@@ -24,7 +24,7 @@ export const WEDDING_TIKTOK_URL = "";
 
 /** Link pod przyciskiem „Ile włożyć do koperty weselnej?" (film Denisa na
  *  TikToku). Pusty = na razie okienko „wkrótce". */
-export const ENVELOPE_HELP_URL = "";
+export const ENVELOPE_HELP_URL = "https://www.tiktok.com/@denis_impulsywni/video/7604526040727211286";
 
 /** Id rankingu „Najhojniejsi gracze" w tablicy wyników (api/scores.ts). */
 export const GIVERS_BOARD = "koperty";
