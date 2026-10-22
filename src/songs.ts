@@ -1,6 +1,6 @@
 import { isUnlocked, UNLOCK_COST } from "./coins.ts";
 import { LEMON_ROUND, lemonCount, LEMONS_NEEDED } from "./lemons.ts";
-import { WEDDING, WEDDING_AFTER, WEDDING_TIKTOK_URL } from "./wedding.ts";
+import { WEDDING, WEDDING_AFTER } from "./wedding.ts";
 
 // Rejestr utworów + śledzenie, które gracz już „poznał".
 //
@@ -118,9 +118,9 @@ export function songVisible(s: SongMeta | undefined): boolean {
   if (!s) return false;
   if (s.hidden) return false;
   if (s.devOnly) return devUnlocked();
-  // Pan Młody: dla wszystkich, gdy ruszyła akcja na TikToku (przycisk „Otrzymaj
-  // zaproszenie"); Wesele trwa: od razu po otrzymaniu zaproszenia
-  if (s.id === WEDDING && WEDDING_TIKTOK_URL) return true;
+  // Pan Młody: widoczny dla wszystkich; bez zaproszenia zamiast GRAJ! jest
+  // „ZAPROSZENIE WESELNE" (film na TikToku). Wesele trwa: po zaproszeniu.
+  if (s.id === WEDDING) return true;
   if (s.inviteOnly) return devUnlocked() || isUnlocked(WEDDING);
   return true;
 }

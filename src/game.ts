@@ -2859,14 +2859,9 @@ export class Game {
     if (inRect(this.hb(HIT_GRAJ), x, y)) {
       if (meta.id === WEDDING && !levelUnlocked(this.hitIndex)) {
         uiSound("buttons");
-        // „Otrzymaj zaproszenie" → film na TikToku, pod którym wpisuje się login
-        if (WEDDING_TIKTOK_URL) openExternal(WEDDING_TIKTOK_URL);
-        else
-          this.infoModal = {
-            icon: "💌",
-            title: "TYLKO Z ZAPROSZENIEM",
-            body: "Na wesele wchodzą tylko zaproszeni goście. Śledź Denisa na TikToku, żeby nie przegapić zaproszeń.",
-          };
+        // „Zaproszenie weselne" → film na TikToku, pod którym wpisuje się login
+        // (dopóki filmu nie ma: profil Denisa)
+        openExternal(WEDDING_TIKTOK_URL || TIKTOK_URL);
         return;
       }
       if (meta.id === WEDDING && !wornSuit()) {
@@ -7194,7 +7189,7 @@ export class Game {
     if (reveal) {
       this.styledBtn(ctx, graj, "ODBLOKUJ", "gold");
     } else if (meta.id === WEDDING && !unlocked) {
-      this.styledBtn(ctx, graj, "OTRZYMAJ ZAPROSZENIE", "gold");
+      this.styledBtn(ctx, graj, "ZAPROSZENIE WESELNE", "gold");
     } else if (meta.id === WEDDING && !wornSuit()) {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
     } else if (meta.id === WEDDING_AFTER && !unlocked) {
