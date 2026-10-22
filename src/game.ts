@@ -48,7 +48,7 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
-import { disablePush, enablePush, initPush, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
+import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
@@ -2368,6 +2368,12 @@ export class Game {
    *  „ambient" i z powrotem — tak robiła poprzednia wersja tej funkcji) kasuje
    *  i zakłada tę aktywność od nowa, a NOWA aktywność rozwija się w Dynamic
    *  Island. Dopóki dźwięk gra bez przerwy (keep-alive), nic się nie pokazuje. */
+  /** Pan Młody bez zaproszenia: w apce najpierw trzeba włączyć powiadomienia
+   *  (zaproszenie przychodzi pushem), dopiero potem link do TikToka. */
+  private weddingNeedsPush(): boolean {
+    return pushAvailable() && !pushOptedInSync();
+  }
+
   private askPush(): Promise<boolean> {
     return enablePush();
   }
@@ -2859,6 +2865,23 @@ export class Game {
     if (inRect(this.hb(HIT_GRAJ), x, y)) {
       if (meta.id === WEDDING && !levelUnlocked(this.hitIndex)) {
         uiSound("buttons");
+        // najpierw „WŁĄCZ POWIADOMIENIA" — zaproszenie przychodzi pushem
+        if (this.weddingNeedsPush()) {
+          void this.askPush().then((ok) => {
+            this.infoModal = ok
+              ? {
+                  icon: "🔔",
+                  title: "POWIADOMIENIA WŁĄCZONE",
+                  body: "Teraz kliknij ZAPROSZENIE WESELNE i wpisz swój login w komentarzu pod filmem Denisa. Gdy dostaniesz zaproszenie, przyjdzie powiadomienie.",
+                }
+              : {
+                  icon: "🔕",
+                  title: "POWIADOMIENIA WYŁĄCZONE",
+                  body: "Bez powiadomień nie dowiesz się o zaproszeniu na wesele. Włącz je dla tej gry w ustawieniach telefonu i wróć tutaj.",
+                };
+          });
+          return;
+        }
         // „Zaproszenie weselne" → film na TikToku, pod którym wpisuje się login
         // (dopóki filmu nie ma: profil Denisa)
         openExternal(WEDDING_TIKTOK_URL || TIKTOK_URL);
@@ -7189,7 +7212,7 @@ export class Game {
     if (reveal) {
       this.styledBtn(ctx, graj, "ODBLOKUJ", "gold");
     } else if (meta.id === WEDDING && !unlocked) {
-      this.styledBtn(ctx, graj, "ZAPROSZENIE WESELNE", "gold");
+      this.styledBtn(ctx, graj, this.weddingNeedsPush() ? "WŁĄCZ POWIADOMIENIA" : "ZAPROSZENIE WESELNE", "gold");
     } else if (meta.id === WEDDING && !wornSuit()) {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
     } else if (meta.id === WEDDING_AFTER && !unlocked) {
