@@ -1,6 +1,6 @@
 // Prototyp rundy pobocznej „Pociąg weselny" (Snake na sali weselnej).
 // Nie jest podpięty do gry: osobna strona /proto/pociag.html.
-const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 16, BY = 186;
+const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 22, BY = 186; // sala do samego dołu (pod krzyżakiem też)
 const HEAD_FONT = '"Roboto","Trebuchet MS","Segoe UI",system-ui,sans-serif';
 const cv = document.getElementById("cv"), x = cv.getContext("2d");
 
@@ -16,12 +16,12 @@ music.volume = 0.8;
 music.addEventListener("ended", () => { if (state === "play") finish(); });
 
 // ---- plansza ----
-const TABLES = [[1, 4], [12, 4], [1, 9], [12, 9], [1, 13], [12, 13]];
+const TABLES = [[1, 4], [12, 4], [1, 10], [12, 10], [1, 16], [12, 16]];
 const HEAD_TABLE = [5, 9]; // kolumny stołu Pary Młodej (rząd 0)
 const blocked = new Set();
 for (const [c, r] of TABLES) for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) blocked.add(c + a + "," + (r + b));
 for (let c = HEAD_TABLE[0]; c <= HEAD_TABLE[1]; c++) blocked.add(c + ",0");
-const DF = [4, 4, 7, 10]; // parkiet: kolumna, rząd, szer., wys.
+const DF = [4, 4, 7, 12]; // parkiet: kolumna, rząd, szer., wys.
 
 const SKIN = "#f1c39c", SKIN_D = "#d99f76";
 const GUESTS = [
@@ -38,12 +38,12 @@ const DENIS = { denis: 1, body: "#18161d", suit: 1, bow: 1, hair: "#2a1c14", bea
 const BRIDE = { body: "#fbf7ef", hair: "#6b4426", long: 1, dress: 1, veil: 1 };
 const GROOM = { body: "#22304d", hair: "#3b2416", suit: 1, tie: "#d4a017", flower: 1 };
 
-let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], stunned = false, lost = [];
+let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], lost = [];
 
 function reset() {
   snake = [{ c: 7, r: 11, o: DENIS }]; // na start sam Denis
   snake.forEach((s) => { s.pc = s.c; s.pr = s.r; });
-  dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; stunned = false; lost = [];
+  dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; lost = [];
   couple = [{ c: 6, r: 1, o: GROOM }, { c: 8, r: 1, o: BRIDE }];
   spawn();
 }
@@ -51,23 +51,19 @@ const taken = (c, r) => snake.some((s) => s.c === c && s.r === r) || couple.some
 function spawn() {
   let c, r, k = 0;
   do { c = Math.floor(Math.random() * COLS); r = 2 + Math.floor(Math.random() * (ROWS - 2)); k++; }
-  while ((blocked.has(c + "," + r) || taken(c, r)) && k < 500);
+  while ((blocked.has(c + "," + r) || taken(c, r) || underPad(c, r)) && k < 500);
   food = { c, r, o: GUESTS[Math.floor(Math.random() * GUESTS.length)] };
 }
+/** Pole pod krzyżakiem — tam nie stawiamy gości (pociąg może tamtędy przejechać). */
+function underPad(c, r) { return Math.hypot(px(c) - DP.cx, py(r) - DP.cy) < DP.d + DP.s * 0.95; }
 function step() {
   for (const s of snake) { s.pc = s.c; s.pr = s.r; }
-  // po zderzeniu pociąg stoi, aż gracz wybierze nowy kierunek
-  if (stunned && !queue.length) return;
   if (queue.length) dir = queue.shift();
-  stunned = false;
   const h = snake[0], nc = h.c + dir[0], nr = h.r + dir[1];
-  const hitIdx = snake.slice(0, -1).findIndex((s) => s.c === nc && s.r === nr);
-  if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS || blocked.has(nc + "," + nr) || hitIdx >= 0) {
-    // zderzenie nie kończy gry: ściana / stół = odpadają 3 ostatnie osoby,
-    // wjazd we własny pociąg = odpada wszystko od miejsca zderzenia
-    const from = hitIdx > 0 ? hitIdx : Math.max(1, snake.length - 3);
-    dropFrom(from);
-    stunned = true; queue = []; shake = 16; buzz(60);
+  const hitSelf = snake.slice(0, -1).some((s) => s.c === nc && s.r === nr);
+  if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS || blocked.has(nc + "," + nr) || hitSelf) {
+    // zderzenie (ściana, stół, własny pociąg) = koniec zabawy
+    shake = 20; buzz(80); finish();
     return;
   }
   let got = null;
@@ -84,16 +80,7 @@ function step() {
     if (!food) spawn();
   }
 }
-function dropFrom(i) {
-  const gone = snake.splice(i);
-  for (const g of gone) {
-    lost.push({ x: px(g.c), y: py(g.r), o: g.o, t: 0, vx: (Math.random() - 0.5) * 160, vy: -120 - Math.random() * 80 });
-    // Para Młoda wraca na swoje miejsce przy stole
-    if (g.o === GROOM) couple.push({ c: 6, r: 1, o: GROOM });
-    if (g.o === BRIDE) couple.push({ c: 8, r: 1, o: BRIDE });
-  }
-}
-function finish() { state = "done"; overAt = performance.now(); music.pause(); }
+function finish() { state = "done"; overAt = performance.now(); queue = []; pressed.clear(); music.pause(); }
 const px = (c) => (c + 0.5) * C, py = (r) => BY + (r + 0.5) * C;
 const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
 
@@ -323,15 +310,20 @@ function arrow(cxx, cyy, rot, s) {
   x.restore();
 }
 function dpad() {
+  // w trakcie gry krzyżak półprzezroczysty — sala i postacie widać pod spodem
+  x.save(); x.globalAlpha = state === "play" ? 0.42 : 0.85;
   x.fillStyle = "rgba(20,10,4,0.45)"; x.beginPath(); x.arc(DP.cx, DP.cy, DP.d + DP.s * 0.75, 0, 7); x.fill();
   x.strokeStyle = "rgba(230,169,46,0.55)"; x.lineWidth = 3; x.stroke();
   for (const b of PAD) {
     const down = [...pressed.values()].includes(b);
+    x.globalAlpha = down ? 0.95 : state === "play" ? 0.42 : 0.85;
     const o = goldBtn(b.x, b.y, DP.s, DP.s, 26, down);
     arrow(b.x, b.y + o, b.rot, 24);
   }
   const g = x.createRadialGradient(DP.cx - 6, DP.cy - 6, 2, DP.cx, DP.cy, 30); g.addColorStop(0, "#3a2414"); g.addColorStop(1, "#1a0e06");
+  x.globalAlpha = state === "play" ? 0.42 : 0.85;
   x.fillStyle = g; x.beginPath(); x.arc(DP.cx, DP.cy, 26, 0, 7); x.fill();
+  x.restore();
 }
 function counter() {
   const label = `Liczba osób w pociągu: ${snake.length - 1}`;
@@ -420,7 +412,7 @@ function frame(now) {
   counter();
   dpad();
   if (state === "ready") bigIcon("play", now);
-  if (state === "done") summary(now);
+  if (state === "done" && now - overAt > 650) summary(now);
   requestAnimationFrame(frame);
 }
 
@@ -438,13 +430,33 @@ function start() {
   try { music.currentTime = 0; } catch {}
   music.play().catch(() => {});
 }
-function toCanvas(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; }
+// canvas ma object-fit: contain — obraz jest wpisany w element z marginesami,
+// więc przeliczamy dotyk względem faktycznie narysowanego obszaru
+function toCanvas(e) {
+  const r = cv.getBoundingClientRect(), k = Math.min(r.width / W, r.height / H);
+  const ox = r.left + (r.width - W * k) / 2, oy = r.top + (r.height - H * k) / 2;
+  return [(e.clientX - ox) / k, (e.clientY - oy) / k];
+}
+/** Kierunek z krzyżaka: cały krąg dzielony na 4 ćwiartki (nie trzeba trafiać w sam przycisk). */
+function padAt(mx, my) {
+  const dx = mx - DP.cx, dy = my - DP.cy, d = Math.hypot(dx, dy);
+  if (d < 14 || d > DP.d + DP.s * 1.05) return null;
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? PAD[3] : PAD[2];
+  return dy > 0 ? PAD[1] : PAD[0];
+}
+function padPress(e) {
+  const b = padAt(...toCanvas(e));
+  if (!b) return false;
+  if (pressed.get(e.pointerId) !== b) { pressed.set(e.pointerId, b); turn(b.k); }
+  return true;
+}
 cv.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (state !== "play") { start(); return; }
-  const [mx, my] = toCanvas(e);
-  for (const b of PAD) if (Math.abs(mx - b.x) < DP.s * 0.62 && Math.abs(my - b.y) < DP.s * 0.62) { pressed.set(e.pointerId, b); turn(b.k); return; }
+  padPress(e);
 });
+// przesuwanie palca po krzyżaku też zmienia kierunek
+cv.addEventListener("pointermove", (e) => { if (state === "play" && pressed.has(e.pointerId)) padPress(e); });
 const release = (e) => pressed.delete(e.pointerId);
 cv.addEventListener("pointerup", release); cv.addEventListener("pointercancel", release);
 addEventListener("keydown", (e) => {
