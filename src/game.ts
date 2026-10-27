@@ -3668,7 +3668,8 @@ export class Game {
       // końca utworu) → odblokowuje kolejny poziom, bez progu punktowego
       const resIdx = SONGS.findIndex((s) => s.id === this.trackId);
       const firstClear = markCompleted(this.trackId);
-      this.pollAfterRound = true; // ankieta „kolejna runda" po powrocie do menu
+      // ankieta „kolejna runda" tylko po ostatniej rundzie (Pan Młody), przy powrocie do menu
+      this.pollAfterRound = this.trackId === WEDDING;
       const nextMeta = resIdx >= 0 ? SONGS[resIdx + 1] : undefined;
       // „Następny poziom" na podsumowaniu pokazujemy tylko, gdy zaraz po tym
       // utworze w kolejce jest zwykły, grywalny poziom progresji — nie runda
