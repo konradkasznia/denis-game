@@ -1,19 +1,52 @@
-// Prototyp rundy pobocznej „Pociąg weselny" (Snake na sali weselnej).
-// Nie jest podpięty do gry: osobna strona /proto/pociag.html.
-const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 22, BY = 186; // sala do samego dołu (pod krzyżakiem też)
+// @ts-nocheck — kod przeniesiony 1:1 z prototypu (public/proto/pociag.js), rysowanie canvas
+// Runda „Pociąg weselny" (POCIĄG WESELNY, „A Ty teraz tańcz!"): Snake na sali weselnej.
+// Denis prowadzi pociąg gości; runda trwa tyle co piosenka albo do zderzenia.
+// Moneta co 5 gości (+5 monet, 5 s na złapanie), flaszka co 10 gości (5 s na
+// złapanie; po złapaniu 4 s odwróconego sterowania, a w rankingu liczy się na plus).
+//
+// Moduł niczego nie wie o grze: dostaje zegar/odtwarzanie muzyki przez `deps`
+// i oddaje wynik przez `deps.onFinish`. Układ 720×1280 (jak reszta gry);
+// game.ts rysuje go w swojej ramce i przekazuje stuknięcia we współrzędnych gry.
+
+export interface TrainResult {
+  /** zebrani goście (bez Denisa) */
+  len: number;
+  /** złapane flaszki */
+  flasks: number;
+  /** sekunda piosenki, w której pociąg osiągnął końcową długość (ms) */
+  timeMs: number;
+  /** monety z rundy (złapane monety × 5) */
+  coins: number;
+  /** dojechał do końca piosenki (bez zderzenia) */
+  survived: boolean;
+}
+
+export interface TrainDeps {
+  /** czas piosenki (s) */
+  time(): number;
+  /** długość piosenki (s); 0 = nieznana */
+  duration(): number;
+  /** start muzyki od początku */
+  play(): void;
+  stop(): void;
+  pause(): void;
+  resume(): void;
+  haptic(kind: "tick" | "hit" | "miss"): void;
+  onFinish(r: TrainResult): void;
+  /** „wróć do menu" z podsumowania */
+  onExit(): void;
+}
+
+export function createTrainRound(deps: TrainDeps) {
+const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 22, BY = 186;
 const HEAD_FONT = '"Roboto","Trebuchet MS","Segoe UI",system-ui,sans-serif';
-const cv = document.getElementById("cv"), x = cv.getContext("2d");
+let x = null; // kontekst canvasu podawany w draw()
+let vTop = 0, vH = H; // widoczny obszar (wyższe telefony: sala sięga dalej w górę i w dół)
 
 // ---- grafiki Denisa z gry (głowa + oczy z animacji Pana Młodego) ----
 const img = (src) => { const i = new Image(); i.src = src; return i; };
-const HEAD = img("denis-head.webp"), EYE_L = img("denis-eye-l.webp"), EYE_R = img("denis-eye-r.webp");
+const HEAD = img("assets/train/denis-head.webp"), EYE_L = img("assets/train/denis-eye-l.webp"), EYE_R = img("assets/train/denis-eye-r.webp");
 const ready = (i) => i.complete && i.naturalWidth > 0;
-
-// ---- muzyka (docelowo inny utwór) ----
-const music = new Audio("../assets/songs/panna-mloda.mp3");
-music.volume = 0.8;
-// runda trwa tyle, co piosenka — koniec utworu = podsumowanie
-music.addEventListener("ended", () => { if (state === "play") finish(); });
 
 // ---- plansza ----
 const TABLES = [[1, 4], [12, 4], [1, 10], [12, 10], [1, 16], [12, 16]];
@@ -40,14 +73,14 @@ const BRIDE = { body: "#fbf7ef", hair: "#6b4426", long: 1, dress: 1, veil: 1 };
 const GROOM = { body: "#22304d", hair: "#3b2416", suit: 1, tie: "#d4a017", flower: 1 };
 
 let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], lost = [];
-let items = [], coins = 0, drunkUntil = 0; // moneta (+5) i flaszka (odwrócone sterowanie)
+let items = [], coins = 0, drunkUntil = 0, flasks = 0, lastCatchT = 0; // moneta (+5) i flaszka (odwrócone sterowanie)
 const ITEM_MS = 5000, DRUNK_MS = 4000, COIN_VALUE = 5;
 
 function reset() {
   snake = [{ c: 7, r: 11, o: DENIS }]; // na start sam Denis
   snake.forEach((s) => { s.pc = s.c; s.pr = s.r; });
   dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; lost = [];
-  items = []; coins = 0; drunkUntil = 0;
+  items = []; coins = 0; drunkUntil = 0; flasks = 0; lastCatchT = 0;
   couple = [{ ...GROOM_AT, o: GROOM }, { ...BRIDE_AT, o: BRIDE }];
   spawn();
 }
@@ -56,9 +89,11 @@ const taken = (c, r) => snake.some((s) => s.c === c && s.r === r) || couple.some
 function freeCell() {
   let c, r, k = 0;
   do { c = Math.floor(Math.random() * COLS); r = 1 + Math.floor(Math.random() * (ROWS - 1)); k++; }
-  while ((blocked.has(c + "," + r) || taken(c, r) || underPad(c, r)) && k < 500);
+  while ((blocked.has(c + "," + r) || taken(c, r) || underPad(c, r) || nearChairs(c, r)) && k < 500);
   return { c, r };
 }
+/** Pole przy krzesłach stołu — da się przejść, ale gość by na nich stał. */
+function nearChairs(c, r) { return TABLES.some(([tc, tr]) => Math.hypot(px(c) - (tc + 1) * C, py(r) - (BY + (tr + 1) * C)) < 78); }
 function spawn() { food = { ...freeCell(), o: GUESTS[Math.floor(Math.random() * GUESTS.length)] }; }
 function spawnItem(kind) { items.push({ ...freeCell(), kind, born: performance.now() }); }
 /** Pole pod krzyżakiem — tam nie stawiamy gości (pociąg może tamtędy przejechać). */
@@ -70,7 +105,7 @@ function step() {
   const hitSelf = snake.slice(0, -1).some((s) => s.c === nc && s.r === nr);
   if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS || blocked.has(nc + "," + nr) || hitSelf) {
     // zderzenie (ściana, stół, własny pociąg) = koniec zabawy
-    shake = 20; buzz(80); finish();
+    shake = 20; buzz(80); deps.haptic("miss"); finish(false);
     return;
   }
   // moneta / flaszka pod głową pociągu
@@ -78,7 +113,7 @@ function step() {
   if (ii >= 0) {
     const it = items.splice(ii, 1)[0];
     if (it.kind === "coin") { coins += COIN_VALUE; fx.push({ x: px(nc), y: py(nr) - 40, vx: 0, vy: -90, t: 0, txt: "+" + COIN_VALUE }); buzz(20); }
-    else { drunkUntil = performance.now() + DRUNK_MS; queue = []; for (let i = 0; i < 8; i++) fx.push({ x: px(nc), y: py(nr) - 40, vx: (Math.random() - 0.5) * 160, vy: -60 - Math.random() * 90, t: 0, bubble: 1 }); buzz(40); }
+    else { flasks++; drunkUntil = performance.now() + DRUNK_MS; queue = []; for (let i = 0; i < 8; i++) fx.push({ x: px(nc), y: py(nr) - 40, vx: (Math.random() - 0.5) * 160, vy: -60 - Math.random() * 90, t: 0, bubble: 1 }); buzz(40); }
   }
   let got = null;
   if (food && food.c === nc && food.r === nr) { got = food; food = null; }
@@ -90,16 +125,20 @@ function step() {
   if (got) {
     const big = got.o === BRIDE || got.o === GROOM;
     for (let i = 0; i < (big ? 16 : 7); i++) fx.push({ x: px(nc), y: py(nr) - 50, vx: (Math.random() - 0.5) * 140, vy: -70 - Math.random() * 100, t: 0, heart: big });
-    tick = Math.max(125, tick - 5); buzz(15);
+    tick = Math.max(125, tick - 5); buzz(15); lastCatchT = deps.time();
     if (!food) spawn();
     const n = snake.length - 1;
     if (n % 5 === 0) spawnItem("coin"); // co 5 gości moneta
     if (n % 10 === 0) spawnItem("vodka"); // co 10 gości flaszka
   }
 }
-function finish() { state = "done"; overAt = performance.now(); queue = []; pressed.clear(); music.pause(); }
+function finish(survived) {
+  if (state !== "play") return;
+  state = "done"; overAt = performance.now(); queue = []; pressed.clear(); deps.stop();
+  deps.onFinish({ len: snake.length - 1, flasks, timeMs: Math.round(Math.max(0, lastCatchT) * 1000), coins, survived });
+}
 const px = (c) => (c + 0.5) * C, py = (r) => BY + (r + 0.5) * C;
-const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
+const buzz = (ms) => { if (ms >= 15) deps.haptic(ms >= 60 ? "miss" : "hit"); };
 
 // ---- postacie (styl figurek z gry: duża, szeroka głowa, wysokie błyszczące oczy) ----
 function rr(x0, y0, w, h, r) { x.beginPath(); x.roundRect(x0, y0, w, h, r); }
@@ -286,9 +325,9 @@ function bigSpeaker(x0, y0, now) {
 }
 function hall(now) {
   // podłoga: deski na całym ekranie (jak tła w innych rundach — bez czarnego paska)
-  x.fillStyle = "#9c6537"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "#9c6537"; x.fillRect(0, vTop, W, vH);
   const PL = 32;
-  for (let r = 0; r * PL < H; r++) {
+  for (let r = Math.floor(vTop / PL); r * PL < vTop + vH; r++) {
     const off = (r * 37) % 120;
     for (let c = -1; c * 120 < W + 120; c++) {
       const tone = ((r * 7 + c * 13) % 5);
@@ -296,7 +335,7 @@ function hall(now) {
       x.fillRect(c * 120 + off, r * PL, 118, PL - 2);
     }
   }
-  x.fillStyle = "rgba(60,30,10,0.18)"; for (let r = 0; r * PL < H; r++) x.fillRect(0, r * PL + PL - 2, W, 2);
+  x.fillStyle = "rgba(60,30,10,0.18)"; for (let r = Math.floor(vTop / PL); r * PL < vTop + vH; r++) x.fillRect(0, r * PL + PL - 2, W, 2);
   // parkiet
   const dx = DF[0] * C, dy = BY + DF[1] * C, dw = DF[2] * C, dh = DF[3] * C;
   for (let r = 0; r < DF[3] * 2; r++) for (let c = 0; c < DF[2] * 2; c++) { x.fillStyle = (r + c) % 2 ? "#ecd6aa" : "#e2c891"; x.fillRect(dx + c * C / 2, dy + r * C / 2, C / 2, C / 2); }
@@ -315,10 +354,10 @@ function hall(now) {
   // przyciemnienie krawędzi (winieta jak w innych rundach)
   const vg = x.createRadialGradient(W / 2, H * 0.45, 300, W / 2, H * 0.45, 820);
   vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(10,4,0,0.55)");
-  x.fillStyle = vg; x.fillRect(0, 0, W, H);
+  x.fillStyle = vg; x.fillRect(0, vTop, W, vH);
   // listwa pod salą (poza planszą, nie da się tam wejść)
   const by = BY + ROWS * C;
-  x.fillStyle = "#3a2214"; x.fillRect(0, by, W, H - by); x.fillStyle = "#d4a017"; x.fillRect(0, by, W, 4);
+  x.fillStyle = "rgba(20,10,4,0.55)"; x.fillRect(0, by, W, vTop + vH - by); x.fillStyle = "#3a2214"; x.fillRect(0, by, W, 30); x.fillStyle = "#d4a017"; x.fillRect(0, by, W, 4);
   stage(now);
 }
 
@@ -375,7 +414,7 @@ function counter() {
   x.fillStyle = "#fff7ec"; x.fillText(label, W / 2, y0 + h / 2 + 1);
   x.textBaseline = "alphabetic";
   // postęp piosenki (bez napisów)
-  const p = music.duration ? Math.min(1, music.currentTime / music.duration) : 0;
+  const p = deps.duration() ? Math.min(1, deps.time() / deps.duration()) : 0;
   const bw = 420, bx = (W - bw) / 2, by = y0 + h + 12;
   x.fillStyle = "rgba(0,0,0,0.45)"; rr(bx, by, bw, 10, 5); x.fill();
   const pg = x.createLinearGradient(bx, 0, bx + bw, 0); pg.addColorStop(0, "#ffe28a"); pg.addColorStop(1, "#e6a92e");
@@ -392,8 +431,8 @@ function plural(n) {
   return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? "osoby" : "osób";
 }
 function summary(now) {
-  x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, 0, W, H);
-  const pw = 600, ph = 640, x0 = (W - pw) / 2, y0 = 260;
+  x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, vTop, W, vH);
+  const pw = 600, ph = 700, x0 = (W - pw) / 2, y0 = 230;
   x.fillStyle = "rgba(0,0,0,0.45)"; rr(x0, y0 + 8, pw, ph, 32); x.fill();
   const g = x.createLinearGradient(0, y0, 0, y0 + ph); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#150d07");
   x.fillStyle = g; rr(x0, y0, pw, ph, 32); x.fill();
@@ -410,14 +449,24 @@ function summary(now) {
   const label = `Zebrałeś ${coins} ${monetyWord(coins)}`;
   x.font = `900 36px ${HEAD_FONT}`; const lw = x.measureText(label).width, lx = W / 2 - (lw + 56) / 2;
   coinIcon(lx + 22, y0 + 532, 0);
+  const fl = `Złapane flaszki: ${flasks}`;
+  x.font = `900 32px ${HEAD_FONT}`; const fw = x.measureText(fl).width, fx0 = W / 2 - (fw + 50) / 2;
+  x.save(); x.translate(fx0 + 18, y0 + 600); x.scale(0.7, 0.7); bottleIcon(0, 8, 0); x.restore();
+  x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#bfe6ff"; x.fillText(fl, fx0 + 50, y0 + 598);
+  x.font = `900 36px ${HEAD_FONT}`;
   x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#ffd24c"; x.fillText(label, lx + 56, y0 + 530); x.textAlign = "center";
   x.textBaseline = "alphabetic";
-  const o = goldBtn(W / 2, y0 + ph + 10, 120, 120, 60, false);
-  x.strokeStyle = "#4a2408"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(W / 2, y0 + ph + 10 + o, 28, -Math.PI * 0.2, Math.PI * 1.45); x.stroke();
-  x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(W / 2 + 21, y0 + ph - 23); x.lineTo(W / 2 + 33, y0 + ph); x.lineTo(W / 2 + 8, y0 + ph - 1); x.closePath(); x.fill();
+  // od nowa (↻) | wróć do menu (strzałka w lewo)
+  const by = y0 + ph + 10, ax = W / 2 - 90, bx = W / 2 + 90;
+  BTN_AGAIN = { x: ax, y: by }; BTN_MENU = { x: bx, y: by };
+  goldBtn(ax, by, 120, 120, 60, false);
+  x.strokeStyle = "#4a2408"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(ax, by, 28, -Math.PI * 0.2, Math.PI * 1.45); x.stroke();
+  x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(ax + 21, by - 33); x.lineTo(ax + 33, by - 10); x.lineTo(ax + 8, by - 11); x.closePath(); x.fill();
+  goldBtn(bx, by, 120, 120, 60, false);
+  x.save(); x.translate(bx, by); x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(-30, 0); x.lineTo(0, -28); x.lineTo(0, -12); x.lineTo(28, -12); x.lineTo(28, 12); x.lineTo(0, 12); x.lineTo(0, 28); x.closePath(); x.fill(); x.restore();
 }
 function bigIcon(kind, now) {
-  x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, vTop, W, vH);
   const p = 1 + Math.sin(now * 0.006) * 0.05;
   x.save(); x.translate(W / 2, BY + 7 * C); x.scale(p, p);
   goldBtn(0, 0, 170, 170, 85, false);
@@ -454,7 +503,7 @@ function bottleIcon(cx, cy, now) {
 /** Po flaszce: ikonka butelki z kurczącym się kółkiem czasu (bez napisów). */
 function drunkBadge(now) {
   const left = Math.max(0, (drunkUntil - now) / DRUNK_MS), cx = W - 70, cy = 230;
-  x.fillStyle = "rgba(120,200,120,0.07)"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "rgba(120,200,120,0.07)"; x.fillRect(0, vTop, W, vH);
   x.fillStyle = "rgba(20,10,4,0.7)"; x.beginPath(); x.arc(cx, cy, 40, 0, 7); x.fill();
   x.strokeStyle = "#7fd4ff"; x.lineWidth = 6; x.beginPath(); x.arc(cx, cy, 40, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2); x.stroke();
   x.save(); x.translate(cx, cy + 8); x.scale(0.75, 0.75); bottleIcon(0, 0, now); x.restore();
@@ -463,6 +512,7 @@ function drunkBadge(now) {
 // ---- pętla ----
 function frame(now) {
   const dt = Math.min(50, now - (last || now)); last = now;
+  if (state === "play") { const d = deps.duration(); if (d > 0 && deps.time() >= d - 0.05) finish(true); }
   if (state === "play") { acc += dt; while (acc >= tick && state === "play") { acc -= tick; step(); } }
   const k = state === "play" ? Math.min(1, acc / tick) : 1;
   x.save();
@@ -507,10 +557,17 @@ function frame(now) {
   if (drunk && state === "play") drunkBadge(now);
   counter();
   dpad();
-  if (state === "ready") bigIcon("play", now);
+  if (state === "ready" || state === "paused") bigIcon("play", now);
+  if (state === "loading") loadingIcon(now);
   if (state === "done" && now - overAt > 650) summary(now);
-  requestAnimationFrame(frame);
 }
+function loadingIcon(now) {
+  x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, vTop, W, vH);
+  x.save(); x.translate(W / 2, BY + 7 * C); x.rotate(now * 0.006);
+  x.strokeStyle = "#ffd24c"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(0, 0, 50, 0, Math.PI * 1.4); x.stroke();
+  x.restore();
+}
+let BTN_AGAIN = null, BTN_MENU = null;
 
 // ---- sterowanie: krzyżak (+ strzałki na klawiaturze) ----
 function turn(d) {
@@ -520,20 +577,6 @@ function turn(d) {
   if (d[0] === -lastDir[0] && d[1] === -lastDir[1]) return; // zawrócenie w siebie — ignoruj
   if (queue.length < 2) { queue.push(d); buzz(8); }
 }
-function start() {
-  if (state === "done" && performance.now() - overAt < 1200) return;
-  if (state === "done") reset();
-  state = "play"; acc = 0;
-  try { music.currentTime = 0; } catch {}
-  music.play().catch(() => {});
-}
-// canvas ma object-fit: contain — obraz jest wpisany w element z marginesami,
-// więc przeliczamy dotyk względem faktycznie narysowanego obszaru
-function toCanvas(e) {
-  const r = cv.getBoundingClientRect(), k = Math.min(r.width / W, r.height / H);
-  const ox = r.left + (r.width - W * k) / 2, oy = r.top + (r.height - H * k) / 2;
-  return [(e.clientX - ox) / k, (e.clientY - oy) / k];
-}
 /** Kierunek z krzyżaka: cały krąg dzielony na 4 ćwiartki (nie trzeba trafiać w sam przycisk). */
 function padAt(mx, my) {
   const dx = mx - DP.cx, dy = my - DP.cy, d = Math.hypot(dx, dy);
@@ -542,24 +585,38 @@ function padAt(mx, my) {
   if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? PAD[3] : PAD[2];
   return dy > 0 ? PAD[1] : PAD[0];
 }
-function padPress(e) {
-  const b = padAt(...toCanvas(e));
-  if (!b) return false;
-  if (pressed.get(e.pointerId) !== b) { pressed.set(e.pointerId, b); turn(b.k); }
-  return true;
+
+state = "loading"; reset();
+const near = (b, mx, my) => b && Math.hypot(mx - b.x, my - b.y) < 80;
+
+return {
+  /** muzyka wczytana — pokaż przycisk startu */
+  loaded() { if (state === "loading") state = "ready"; },
+  isPlaying() { return state === "play"; },
+  draw(ctx, now, top, vh) { x = ctx; vTop = top; vH = vh; frame(now); },
+  /** stuknięcie we współrzędnych gry (układ 720×1280) */
+  tap(mx, my) {
+    if (state === "loading") return;
+    if (state === "ready") { reset(); state = "play"; acc = 0; deps.play(); return; }
+    if (state === "paused") { state = "play"; acc = 0; deps.resume(); return; }
+    if (state === "done") {
+      if (performance.now() - overAt < 900) return;
+      if (near(BTN_MENU, mx, my)) { deps.onExit(); return; }
+      if (near(BTN_AGAIN, mx, my)) { reset(); state = "play"; acc = 0; deps.play(); }
+      return;
+    }
+    const b = padAt(mx, my);
+    if (b) { pressed.set(0, b); turn(b.k); setTimeout(() => pressed.delete(0), 120); }
+  },
+  /** klawiatura: 0 lewo, 1 góra, 2 dół, 3 prawo */
+  key(k) {
+    const d = [[-1, 0], [0, -1], [0, 1], [1, 0]][k];
+    if (!d) return;
+    if (state === "play") turn(d); else this.tap(-1, -1);
+  },
+  /** apka w tle — pauza */
+  pause() { if (state === "play") { state = "paused"; deps.pause(); } },
+  /** wyjście z rundy (wstecz) — bez wyniku */
+  abort() { if (state === "play" || state === "paused") deps.stop(); state = "loading"; },
+};
 }
-cv.addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  if (state !== "play") { start(); return; }
-  padPress(e);
-});
-// przesuwanie palca po krzyżaku też zmienia kierunek
-cv.addEventListener("pointermove", (e) => { if (state === "play" && pressed.has(e.pointerId)) padPress(e); });
-const release = (e) => pressed.delete(e.pointerId);
-cv.addEventListener("pointerup", release); cv.addEventListener("pointercancel", release);
-addEventListener("keydown", (e) => {
-  const m = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
-  if (!m) return; e.preventDefault();
-  if (state !== "play") start(); else turn(m);
-});
-state = "ready"; reset(); requestAnimationFrame(frame);

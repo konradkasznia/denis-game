@@ -143,6 +143,28 @@ function fullBoard(songId: string, period: Period): Entry[] {
   return list.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
+/** Runda „Pociąg weselny": serwer sam liczy wynik (długość, flaszki, czas) i monety
+ *  z rundy — klient wysyła surowe dane przebiegu. Lokalnie trzymamy najlepszy wynik. */
+export function submitTrain(songId: string, score: number, run: { len: number; flasks: number; timeMs: number; coins: number }, stars: number) {
+  const prev = myBest(songId) ?? 0;
+  if (score > prev) {
+    try {
+      localStorage.setItem(keyFor(songId), String(score));
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!backendReachable() || !getToken()) return;
+  void api<{ coins?: number }>("/api/scores", { method: "POST", body: { songId, stars, train: run }, auth: true })
+    .then(async (r) => {
+      applyServerCoins(r.coins);
+      await Promise.all([refreshBoard(songId, "all"), refreshBoard(songId, "month")]);
+    })
+    .catch(() => {
+      /* wynik zostaje lokalnie */
+    });
+}
+
 /** Zapisuje wynik gracza (trzyma najlepszy) i wysyła na serwer. Zwraca miejsce (all-time). */
 export function submitScore(songId: string, score: number, stars = 0): number {
   const prev = myBest(songId) ?? 0;

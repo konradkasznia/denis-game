@@ -46,6 +46,8 @@ import { isNative, openUrlNative } from "./native.ts";
 import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.ts";
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
+import { createTrainRound, type TrainResult } from "./train.ts";
+import { encodeTrain, formatTrain, TRAIN_SONG, trainStars } from "./trainScore.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
@@ -60,6 +62,7 @@ import {
   refreshBoard,
   serverRank,
   submitScore,
+  submitTrain,
   topN,
 } from "./leaderboard.ts";
 import { DEFAULT_TRACK, loadTrack } from "./tracks.ts";
@@ -111,7 +114,8 @@ type Scene =
   | "profile"
   | "changepw"
   | "play"
-  | "results";
+  | "results"
+  | "train";
 
 interface Rect {
   x: number;
@@ -126,6 +130,7 @@ const inRect = (r: Rect, x: number, y: number) =>
 // Tylko na sliderze — po starcie gry tło (drawStage) się nie zmienia.
 // panna-mloda celowo pominięta (zostaje domyślne stage-bg.jpg).
 const SLIDER_BG_SONGS = new Set([
+  "pociag-weselny", // na razie ta sama grafika co Pan Młody
   "ksiaze-z-bajki",
   "pogrzebowka",
   "byleby-nie-byla-ciepla",
@@ -230,7 +235,7 @@ const HIT_SIGN_R = 48; // znaki na karuzeli (Konrad 2026-09-07)
 const HIT_SIGN_X = VW - MARGIN - HIT_SIGN_R; // środek znaku (prawa krawędź = VW - MARGIN)
 const HIT_SIGN_DY = 105; // odstęp środków w kolumnie (skalowany razem ze znakami)
 
-type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "burnFast" | "hold";
+type ObstacleKind = "bomb" | "vodka" | "flashlight" | "fire" | "ice" | "burnFast" | "hold" | "trainVodka";
 // które znaki pokazać na sliderze danego utworu (tylko na karuzeli, nie w grze)
 const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   "ksiaze-z-bajki": ["hold"],
@@ -238,6 +243,7 @@ const SLIDER_OBSTACLES: Record<string, ObstacleKind[]> = {
   "pan-strazak": ["fire"],
   "byleby-nie-byla-ciepla": ["ice"],
   "pani-policjantko": ["burnFast"],
+  "pociag-weselny": ["trainVodka"],
 };
 const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   bomb: {
@@ -263,6 +269,10 @@ const OBSTACLE_INFO: Record<ObstacleKind, { title: string; body: string }> = {
   burnFast: {
     title: "MISS CLICK",
     body: "Nie stukaj na zapas! Stuknięcie w tor, zanim nutka dojedzie do okręgu, od razu ją spala i liczy się jako pudło. Do tego okno na trafienie jest o 40% węższe niż zwykle, a okręgi są mniejsze. Stukaj dopiero, gdy nutka jest w okręgu.",
+  },
+  trainVodka: {
+    title: "UWAŻAJ NA FLASZKĘ",
+    body: "Co 10 gości na parkiecie pojawia się flaszka, ale tylko na 5 sekund. Kto ją złapie, przez 4 sekundy steruje na odwrót: lewo to prawo, góra to dół. Ryzyko się opłaca, bo każda złapana flaszka podbija Cię w rankingu. Przy tej samej liczbie gości wyżej stoi ten, kto wypił więcej odwagi!",
   },
   hold: {
     title: "NUTY DO PRZYTRZYMANIA",
@@ -1101,7 +1111,7 @@ export class Game {
     this.syncFields();
     // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
     // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
-    const wantLoop = this.scene !== "play";
+    const wantLoop = this.scene !== "play" && this.scene !== "train";
     if (wantLoop !== this.loopOn) {
       this.loopOn = wantLoop;
       if (wantLoop) this.audio.startLoop();
@@ -1733,6 +1743,9 @@ export class Game {
       case "results":
         this.drawResults(ctx);
         break;
+      case "train":
+        this.train?.draw(ctx, performance.now(), -this.vdy, this.sh());
+        break;
     }
 
     if (this.soundModal) this.drawSoundModal(ctx);
@@ -1909,7 +1922,7 @@ export class Game {
       this.audioKickPending = false;
       if (this.scene !== "play") {
         void this.audio.unlock().then(() => {
-          if (this.scene !== "play") this.audio.startLoop();
+          if (this.scene !== "play" && this.scene !== "train") this.audio.startLoop();
         });
       }
     }
@@ -1924,6 +1937,13 @@ export class Game {
       return;
     }
     if (this.preparing) return this.cancelPrepare();
+    if (this.scene === "train") {
+      if (x < 0) {
+        if (lane >= 0) this.train?.key(lane);
+        else this.train?.tap(-1, -1);
+      } else this.train?.tap(x, y);
+      return;
+    }
     if (this.offlineNotice && this.scene === "results") {
       this.offlineNotice = false;
       return;
@@ -2311,6 +2331,11 @@ export class Game {
         uiSound("back");
         this.enterHits();
         return true;
+      case "train":
+        uiSound("back");
+        this.train?.abort();
+        this.enterHits();
+        return true;
       case "play":
         if (this.paused) {
           if (this.resumeAt) return true; // trwa odliczanie — zignoruj
@@ -2343,6 +2368,7 @@ export class Game {
     // (pętla update() zobaczy, że `loopOn` jest false, a scena to nie „play")
     this.audio.stopLoop(0.1);
     this.loopOn = false;
+    if (this.scene === "train") this.train?.pause();
     if (this.scene === "play") {
       this.resumeAt = 0; // anuluj ewentualne odliczanie 3-2-1
       if (!this.paused) this.pauseGame();
@@ -3228,7 +3254,61 @@ export class Game {
 
   // ---- przejścia stanów --------------------------------------------
 
+  // ---- Pociąg weselny (runda 3, mini-gra) ----------------------------
+  private train: ReturnType<typeof createTrainRound> | null = null;
+  private static readonly TRAIN_AUDIO = "assets/songs/panna-mloda.mp3"; // docelowo własne mp3
+  private static readonly TRAIN_FALLBACK_SEC = 186;
+
+  private async startTrain() {
+    this.soundModal = false;
+    this.healthModal = false;
+    this.tutModal = false;
+    this.audio.stop();
+    const url = Game.TRAIN_AUDIO;
+    let audioOk = false;
+    let wallStart = 0;
+    const round = createTrainRound({
+      time: () => (audioOk ? Math.max(0, this.audio.getSongTime()) : (performance.now() - wallStart) / 1000),
+      duration: () => (audioOk ? this.audio.trackDuration(url) : Game.TRAIN_FALLBACK_SEC),
+      play: () => {
+        wallStart = performance.now();
+        if (audioOk) this.audio.start({ id: TRAIN_SONG, audioUrl: url, notes: [], bpm: 120, bars: 1, startBar: 0, lanes: 4, title: "", artist: "", duration: Game.TRAIN_FALLBACK_SEC } as unknown as SongDef, 0.1);
+      },
+      stop: () => this.audio.stop(),
+      pause: () => this.audio.pause(),
+      resume: () => void this.audio.resumePlayback(),
+      haptic: (k) => haptic(k === "hit" ? "perfect" : k),
+      onFinish: (r) => this.finishTrain(r),
+      onExit: () => {
+        uiSound("back");
+        this.enterHits();
+      },
+    });
+    this.train = round;
+    this.scene = "train";
+    markDiscovered(TRAIN_SONG);
+    try {
+      await this.audio.unlock();
+      await this.audio.loadTrack(url);
+      audioOk = this.audio.trackDuration(url) > 0;
+    } catch (e) {
+      console.warn("[train] audio:", e); // gramy bez muzyki, na zegarze ściennym
+    }
+    if (this.train === round) round.loaded();
+  }
+
+  /** Koniec rundy Pociągu: wynik do rankingu, monety, gwiazdki, progresja. */
+  private finishTrain(r: TrainResult) {
+    const score = encodeTrain(r);
+    const stars = trainStars(r.len);
+    recordStars(TRAIN_SONG, stars);
+    // poziom zaliczony: dojechał do końca piosenki albo zebrał co najmniej 10 gości
+    if (r.survived || r.len >= 10) markCompleted(TRAIN_SONG);
+    if (r.len > 0 || r.coins > 0) submitTrain(TRAIN_SONG, score, { len: r.len, flasks: r.flasks, timeMs: r.timeMs, coins: r.coins }, stars);
+  }
+
   private async startPlay() {
+    if (this.trackId === TRAIN_SONG) return this.startTrain();
     if (this.preparing) return;
     this.soundModal = false;
     this.healthModal = false;
@@ -3603,11 +3683,12 @@ export class Game {
   /** Runda faktycznie leci (po ładowaniu i odliczaniu, bez pauzy) — tylko wtedy
    *  wolne klatki świadczą o wydajności rysowania, a nie o dekodowaniu audio. */
   isRoundRunning(): boolean {
+    if (this.scene === "train") return !!this.train?.isPlaying();
     return this.scene === "play" && !this.preparing && !this.awaitingStart && !this.paused && !this.rolling;
   }
 
   highFps(): boolean {
-    if (this.scene === "play") return true;
+    if (this.scene === "play" || this.scene === "train") return true;
     if (this.scene === "results") {
       if (this.coinsEarned > 0) {
         // lot monet do rogu + „naliczanie" na pigułce
@@ -5808,7 +5889,7 @@ export class Game {
         r.rank === 1 ? "#ffd24c" : r.rank === 2 ? "#cfd8e6" : r.rank === 3 ? "#e0a878" : "#9a8c7e";
       text(ctx, `${r.rank}`, MARGIN + 8, ry, { size: 20, align: "left", weight: "800", color: medal });
       text(ctx, r.nick + (r.me ? "  (Ty)" : ""), MARGIN + 78, ry, { size: 20, align: "left", color: col });
-      text(ctx, r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, ry, {
+      text(ctx, this.boardSongId === TRAIN_SONG ? formatTrain(r.score) : r.score.toLocaleString("pl-PL"), VW - MARGIN - 12, ry, {
         size: 20,
         align: "right",
         weight: "700",
@@ -5901,8 +5982,8 @@ export class Game {
       letterSpacing: "3px",
     });
     if (me) {
-      text(ctx, me.score.toLocaleString("pl-PL"), VW / 2, b.y + 76, {
-        size: 42,
+      text(ctx, this.boardSongId === TRAIN_SONG ? formatTrain(me.score) : me.score.toLocaleString("pl-PL"), VW / 2, b.y + 76, {
+        size: this.boardSongId === TRAIN_SONG ? 32 : 42,
         weight: "900",
         font: HEAD_FONT,
         color: "#fff7ec",
@@ -6186,6 +6267,7 @@ export class Game {
     ice: "LÓD",
     burnFast: "MISS-CLICK",
     hold: "PRZETRZYMAJ",
+    trainVodka: "FLASZKA",
   };
 
   private drawWarnSign(
@@ -6408,6 +6490,25 @@ export class Game {
           color: "#ffd7cc",
         });
       }
+    } else if (kind === "trainVodka") {
+      // pociąg jedzie w prawo, a strzałka „w lewo" (wciśnięta) skręca go w prawo
+      ctx.fillStyle = "#a8703f";
+      ctx.fillRect(ox, oy, ow, oh);
+      const cyc = (t * 0.6) % 1;
+      for (let i = 0; i < 6; i++) {
+        const px = ox + ow * (0.15 + ((cyc + 1 - i * 0.07) % 1) * 0.7);
+        ctx.beginPath();
+        ctx.arc(px, oy + oh * 0.55, i === 0 ? 11 : 9, 0, Math.PI * 2);
+        ctx.fillStyle = i === 0 ? "#18161d" : ["#c0182c", "#2b5fd9", "#e36aa6", "#3e7d4a", "#7a4fb5"][i - 1];
+        ctx.fill();
+      }
+      text(ctx, "◀  =  ▶", ox + ow / 2, oy + oh * 0.28, { size: 26, weight: "900", font: HEAD_FONT, color: "#ffd24c" });
+      text(ctx, "FLASZKA · sterowanie na odwrót 4 s", ox + ow / 2, oy + 17, {
+        size: 12.5,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#bfe6ff",
+      });
     } else if (kind === "vodka") {
       const env = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(((t % 4) / 4) * Math.PI * 2));
       ctx.save();
@@ -7050,7 +7151,7 @@ export class Game {
     // zajmują numeru, żeby kolejne poziomy nie „przeskakiwały" (levelNumber)
     text(
       ctx,
-      isBonusRound(meta?.id) ? "RUNDA BONUSOWA" : `POZIOM ${levelNumber(idx)}`,
+      meta?.id === TRAIN_SONG ? "POCIĄG WESELNY" : isBonusRound(meta?.id) ? "RUNDA BONUSOWA" : `POZIOM ${levelNumber(idx)}`,
       VW / 2,
       HIT_LEVEL_Y,
       {
@@ -7274,9 +7375,10 @@ export class Game {
     // już nie ma); zablokowany poziom = ta sama animacja w odcieniach szarości.
     // Obrys z pierwszej klatki dopasowuje postać tak jak dawny przycięty PNG;
     // elementy wychodzące poza obrys (dym, ręka) mogą wystawać.
-    if (hasSliderAnim(meta.id)) {
-      const frame = sliderAnimFrame(meta.id, !unlocked);
-      const tb = sliderAnimBounds(meta.id);
+    const animId = meta.id === TRAIN_SONG ? "pan-mlody-garnitur-1" : meta.id; // docelowo własna animacja
+    if (hasSliderAnim(animId)) {
+      const frame = sliderAnimFrame(animId, !unlocked);
+      const tb = sliderAnimBounds(animId);
       if (!frame || !tb) return; // ułamek sekundy przy starcie, zanim się wczyta
       const r = fit(tb.w / tb.h);
       this.charRect = r;

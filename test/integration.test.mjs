@@ -294,12 +294,14 @@ ok(levelUnlocked(1) === true, "ukończony poziom 1 odblokowuje poziom 2");
 // runda bonusowa (Pogrzebówka) — kupno omija bramkę gwiazdkową
 const { coinUnlockPrice } = await import("../src/songs.ts");
 const { UNLOCK_COST } = await import("../src/coins.ts");
+const { SONGS: SONGS_P } = await import("../src/songs.ts");
+const POGRZ = SONGS_P.findIndex((s) => s.id === "pogrzebowka");
 localStorage.removeItem("denis.stars");
 localStorage.removeItem("denis.unlocked");
-ok(coinUnlockPrice(2) === UNLOCK_COST.pogrzebowka, "Pogrzebówkę można kupić bez zaliczenia księcia");
-ok(levelUnlocked(2) === false, "Pogrzebówka zablokowana dopóki nie kupiona");
+ok(coinUnlockPrice(POGRZ) === UNLOCK_COST.pogrzebowka, "Pogrzebówkę można kupić bez zaliczenia księcia");
+ok(levelUnlocked(POGRZ) === false, "Pogrzebówka zablokowana dopóki nie kupiona");
 localStorage.setItem("denis.unlocked", JSON.stringify(["pogrzebowka"]));
-ok(levelUnlocked(2) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
+ok(levelUnlocked(POGRZ) === true, "kupiona Pogrzebówka gra się bez bramki gwiazdkowej");
 localStorage.removeItem("denis.unlocked");
 
 // aktualizacja apki: porównanie wersji X.Y.Z + zapamiętanie odrzucenia
@@ -391,7 +393,10 @@ ok(nextRound("wesele-trwa") === null, "po ostatniej rundzie brak kolejnej");
   // monety) -> przycisk „WRÓĆ DO MENU" zostawia na tym samym poziomie
   localStorage.setItem("denis.stars", JSON.stringify({ "panna-mloda": 5 }));
   const gl = new Game();
-  gl.trackId = "ksiaze-z-bajki"; // poziom 2; pogrzebówka (runda bonusowa) wymaga zakupu za monety
+  // Wódka Cytrynówka: następny w kolejce jest Pan Młody (runda bonusowa z zaproszeniem)
+  gl.trackId = "wodka-cytrynowka";
+  const { SONGS: SONGS_W } = await import("../src/songs.ts");
+  const WODKA = SONGS_W.findIndex((s) => s.id === "wodka-cytrynowka");
   await new Promise((r) => setTimeout(r, 5));
   await gl.startPlay();
   gl.score = 800;
@@ -401,7 +406,7 @@ ok(nextRound("wesele-trwa") === null, "po ostatniej rundzie brak kolejnej");
   gl.onPress(-1, 360, 1132); // WRÓĆ DO MENU (slot 3)
   await new Promise((r) => setTimeout(r, 10));
   ok(
-    gl.scene === "hits" && gl.hitIndex === 1,
+    gl.scene === "hits" && gl.hitIndex === WODKA,
     "brak kolejnego poziomu -> WRÓĆ DO MENU zostawia na tym samym poziomie",
   );
 }

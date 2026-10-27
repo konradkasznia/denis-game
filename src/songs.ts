@@ -50,6 +50,14 @@ export const SONGS: SongMeta[] = [
     playable: true,
   },
   {
+    // runda 3: mini-gra „Pociąg weselny" (Snake na sali weselnej, src/train.ts)
+    id: "pociag-weselny",
+    title: "A Ty teraz tańcz!",
+    artist: "Denis",
+    accent: "#ffd6e0",
+    playable: true,
+  },
+  {
     id: "pogrzebowka",
     title: "Pogrzebówka",
     artist: "Denis",
@@ -324,6 +332,9 @@ export function levelUnlocked(index: number): boolean {
   // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
   if (isPaidRound(id)) return isUnlocked(id!) && progressOk(index);
   if (SONGS[index]?.devOnly) return true; // poziom testowy — omija progresję
+  // kto już kiedyś ten poziom ukończył, nie traci do niego dostępu, gdy przed nim
+  // dojdzie nowa runda (np. Pociąg weselny wstawiony jako runda 3)
+  if (completedIds().has(id!) || bestStars(id!) > 0) return true;
   if (!prevRoundCleared(index)) return false;
   return true;
 }

@@ -2,6 +2,8 @@
 //   GET  /api/scores?songId=panna-mloda&period=month|all  → { top, me, total }
 //   GET  /api/scores?songId=koperty                         → „Najhojniejsi gracze" (suma kopert na weselu)
 //   POST /api/scores  { songId, score, stars }  (Bearer)  → { ok, best, stars, rank }
+//   POST /api/scores  { songId: "pociag-weselny", stars, train: { len, flasks, timeMs, coins } }
+//        → mini-gra Pociąg weselny: wynik liczy SERWER (patrz trainScore), monety = zebrane w rundzie
 
 import type { Client } from "@libsql/client/web";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -24,6 +26,7 @@ const SONG_SECONDS: Record<string, number> = {
   "panna-mloda": 186,
   "ksiaze-z-bajki": 178,
   pogrzebowka: 188,
+  "pociag-weselny": 186, // na razie podkład Panny Młodej
 };
 const DEFAULT_SONG_SECONDS = 150;
 
@@ -43,7 +46,29 @@ const STATIC_SONGS = new Set([
   "wodka-cytrynowka",
   "wesele-trwa",
   "pan-mlody",
+  "pociag-weselny",
 ]);
+
+// ---- Pociąg weselny (runda 3, mini-gra Snake) ----
+// Ranking: 1) długość pociągu, 2) złapane flaszki, 3) czas osiągnięcia długości.
+// Ten sam wzór co src/trainScore.ts (encodeTrain) — klient tylko wyświetla.
+const TRAIN_SONG = "pociag-weselny";
+const MIN_STEP_MS = 125; // najszybszy krok pociągu (src/train.ts: tick >= 125 ms)
+function trainScore(run: unknown, seconds: number): { score: number; coins: number } | null {
+  const r = (run || {}) as { len?: unknown; flasks?: unknown; timeMs?: unknown; coins?: unknown };
+  const len = Math.floor(Number(r.len));
+  const flasks = Math.floor(Number(r.flasks));
+  const timeMs = Math.floor(Number(r.timeMs));
+  const coins = Math.floor(Number(r.coins));
+  if (![len, flasks, timeMs, coins].every(Number.isFinite)) return null;
+  if (len < 0 || len > 400 || flasks < 0 || coins < 0) return null;
+  if (flasks > Math.floor(len / 10)) return null; // flaszka pojawia się co 10 gości
+  if (coins % 5 !== 0 || coins > Math.floor(len / 5) * 5) return null; // moneta (+5) co 5 gości
+  if (timeMs > seconds * 1000 + 10_000) return null;
+  if (len > 0 && timeMs < len * MIN_STEP_MS) return null; // fizycznie za szybko
+  const tenths = Math.max(0, Math.min(9999, Math.round(timeMs / 100)));
+  return { score: len * 1_000_000 + Math.min(99, flasks) * 10_000 + (9999 - tenths), coins };
+}
 
 /** Metadane utworu albo null, gdy takiego utworu nie ma. */
 async function songMeta(c: Client, songId: string): Promise<{ notes: number; seconds: number } | null> {
@@ -212,16 +237,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const u = await sessionUser(req);
     if (!u) return json(res, 401, { error: "Brak sesji." });
-    const b = body<{ songId?: string; score?: number; stars?: number }>(req);
+    const b = body<{ songId?: string; score?: number; stars?: number; train?: unknown }>(req);
     const songId = String(b.songId || "").trim();
-    const score = Math.max(0, Math.floor(Number(b.score) || 0));
+    let score = Math.max(0, Math.floor(Number(b.score) || 0));
     const stars = Math.max(0, Math.min(5, Math.floor(Number(b.stars) || 0)));
     if (!songId) return json(res, 400, { error: "Brak songId." });
 
     // anti-cheat: wynik poza rozsądnym zakresem dla tego utworu → odrzuć
     const meta = await songMeta(c, songId);
     if (!meta) return json(res, 400, { error: "Nieznany utwór." });
-    const cap = maxScoreFor(meta.notes);
+    // Pociąg weselny: wynik i monety z danych przebiegu (nie z „score" klienta)
+    let runCoins: number | null = null;
+    if (songId === TRAIN_SONG) {
+      const t = trainScore(b.train, meta.seconds);
+      if (!t) {
+        console.warn(`scores: odrzucony przebieg pociągu user ${u.id}: ${JSON.stringify(b.train)}`);
+        return json(res, 422, { error: "Wynik poza dopuszczalnym zakresem." });
+      }
+      score = t.score;
+      runCoins = t.coins;
+    }
+    const cap = songId === TRAIN_SONG ? Number.MAX_SAFE_INTEGER : maxScoreFor(meta.notes);
     if (score > cap) {
       console.warn(`scores: odrzucony wynik ${score} (cap ${cap}) user ${u.id} song ${songId}`);
       return json(res, 422, { error: "Wynik poza dopuszczalnym zakresem." });
@@ -229,7 +265,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // konto deweloperskie: żadnego zapisu wyniku, tylko monety za przebieg
     if (isHidden(u.login)) {
-      const coinsGained = Math.floor(score / 10_000);
+      const coinsGained = runCoins ?? Math.floor(score / 10_000);
       await c.execute({ sql: "UPDATE users SET coins = coins + ? WHERE id = ?", args: [coinsGained, u.id] });
       const cr = await c.execute({ sql: "SELECT coins FROM users WHERE id = ?", args: [u.id] });
       return json(res, 200, {
@@ -268,7 +304,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const gateMs = meta.seconds * 1000 * 0.85;
     const coinEligible = Date.now() - prevCoinMs >= gateMs;
     // 1 moneta za każde pełne 10 000 pkt TEGO przebiegu (wynik po capie anty-cheat)
-    const coinsGained = coinEligible ? Math.floor(score / 10_000) : 0;
+    const coinsGained = coinEligible ? (runCoins ?? Math.floor(score / 10_000)) : 0;
     // migawka aktualnego nicku (pomocniczo; ranking bierze nazwę z users przez JOIN)
     const displayName = u.nick || u.login;
     await c.batch(

@@ -826,6 +826,10 @@ export class AudioEngine {
       .join("  ");
   }
 
+  /** Długość wczytanego (zdekodowanego) utworu w sekundach; 0 = brak. */
+  trackDuration(url: string): number {
+    return this.trackBuffers.get(url)?.duration ?? 0;
+  }
   isTrackLoaded(url: string) {
     return this.trackBuffers.has(url);
   }

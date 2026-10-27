@@ -244,6 +244,17 @@ ok(long.status === 400, "bardzo długie songId odrzucone");
 const real = await call(h.scores, { method: "POST", token: tokA, body: { songId: "panna-mloda", score: 250_000, stars: 4 } });
 ok(real.status === 200 && real.body.coinsGained === 25, `prawdziwy utwór: 25 monet (${real.body?.coinsGained})`);
 {
+  // Pociąg weselny: wynik liczy serwer (długość > flaszki > czas), monety = zebrane w rundzie
+  const t1 = await call(h.scores, { method: "POST", token: tokA, body: { songId: "pociag-weselny", stars: 2, train: { len: 12, flasks: 1, timeMs: 41_000, coins: 10 } } });
+  ok(t1.status === 200 && t1.body.coinsGained === 10 && t1.body.best === 12 * 1_000_000 + 10_000 + (9999 - 410), `pociąg: wynik i 10 monet (${t1.status} ${t1.body?.best} ${t1.body?.coinsGained})`);
+  const t2 = await call(h.scores, { method: "POST", token: tokA, body: { songId: "pociag-weselny", stars: 2, train: { len: 12, flasks: 3, timeMs: 41_000, coins: 10 } } });
+  ok(t2.status === 422, "pociąg: więcej flaszek niż możliwe → 422");
+  const t3 = await call(h.scores, { method: "POST", token: tokA, body: { songId: "pociag-weselny", stars: 2, train: { len: 12, flasks: 1, timeMs: 41_000, coins: 15 } } });
+  ok(t3.status === 422, "pociąg: za dużo monet → 422");
+  const t4 = await call(h.scores, { method: "POST", token: tokA, body: { songId: "pociag-weselny", stars: 2, train: { len: 50, flasks: 0, timeMs: 1000, coins: 0 } } });
+  ok(t4.status === 422, "pociąg: fizycznie za szybko → 422");
+}
+{
   // konto deweloperskie: wynik nie trafia do bazy ani do rankingu, monety tak
   const regK = await call(h.register, {
     method: "POST",
