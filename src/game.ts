@@ -1001,7 +1001,7 @@ export class Game {
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
       // postacie z animacją Lottie (sliderAnim.ts) nie mają już statycznego PNG
-      ...SONGS.filter((s) => !hasSliderAnim(s.id)).map((s) => `select-${s.id}.png`),
+      ...SONGS.filter((s) => !hasSliderAnim(s.id) && s.id !== TRAIN_SONG).map((s) => `select-${s.id}.png`),
       ...[...SLIDER_BG_SONGS].map((id) => `slider-bg/${id}.jpg`),
       "Warning/BOMBA.png", "Warning/FLASZKA.png", "Warning/LATARKA.png",
     ]) {
