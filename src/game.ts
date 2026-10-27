@@ -3256,8 +3256,8 @@ export class Game {
 
   // ---- Pociąg weselny (runda 3, mini-gra) ----------------------------
   private train: ReturnType<typeof createTrainRound> | null = null;
-  private static readonly TRAIN_AUDIO = "assets/songs/panna-mloda.mp3"; // docelowo własne mp3
-  private static readonly TRAIN_FALLBACK_SEC = 186;
+  private static readonly TRAIN_AUDIO = "assets/songs/a-ty-teraz-tancz.mp3";
+  private static readonly TRAIN_FALLBACK_SEC = 154; // długość „A Ty teraz tańcz!"
 
   private async startTrain() {
     this.soundModal = false;

@@ -26,7 +26,7 @@ const SONG_SECONDS: Record<string, number> = {
   "panna-mloda": 186,
   "ksiaze-z-bajki": 178,
   pogrzebowka: 188,
-  "pociag-weselny": 186, // na razie podkład Panny Młodej
+  "pociag-weselny": 154, // „A Ty teraz tańcz!" (2:34)
 };
 const DEFAULT_SONG_SECONDS = 150;
 
