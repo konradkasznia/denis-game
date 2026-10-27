@@ -1,11 +1,11 @@
-// Pociąg weselny: 3 darmowe gry na konto, każda kolejna kosztuje 15 monet.
+// Pociąg weselny: 5 darmowych gier na konto, każda kolejna kosztuje 15 monet.
 // Serwer jest źródłem prawdy (api/account.ts, akcja "trainPlay" — atomowo zabiera
 // monety i nabija licznik). Tu tylko podręczna kopia licznika do napisu na przycisku.
 
 import { api, backendReachable, getToken } from "./net.ts";
 import { applyServerCoins, coins } from "./coins.ts";
 
-export const TRAIN_FREE_PLAYS = 3;
+export const TRAIN_FREE_PLAYS = 5;
 export const TRAIN_PLAY_COST = 15;
 const KEY = "denis.trainPlays";
 
@@ -37,10 +37,27 @@ export function trainFreeLeft(): number {
 /** Napis na przycisku startu rundy. */
 export function trainPlayLabel(): string {
   const n = trainFreeLeft();
-  if (n >= 3) return "MASZ 3 DARMOWE GRY!";
-  if (n === 2) return "MASZ 2 DARMOWE GRY!";
+  if (n >= 5) return "MASZ 5 DARMOWYCH GIER!";
+  if (n >= 2) return `MASZ ${n} DARMOWE GRY!`;
   if (n === 1) return "MASZ 1 DARMOWĄ GRĘ!";
   return `1 GRA - ${TRAIN_PLAY_COST} MONET`;
+}
+
+// samouczek przed pierwszą grą (per konto — znika przy wylogowaniu jak inne dane konta)
+const TUT_KEY = "denis.trainTut";
+export function trainTutSeen(): boolean {
+  try {
+    return localStorage.getItem(TUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function markTrainTutSeen(): void {
+  try {
+    localStorage.setItem(TUT_KEY, "1");
+  } catch {
+    /* ignore */
+  }
 }
 
 export type PayResult = { ok: true } | { ok: false; reason: "coins" | "net" };

@@ -25,7 +25,7 @@ import {
 } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
-const TRAIN_FREE = 3; // Pociąg weselny: darmowe gry na konto
+const TRAIN_FREE = 5; // Pociąg weselny: darmowe gry na konto
 const TRAIN_COST = 15; // każda kolejna gra (monety)
 const UNLOCK_COST: Record<string, number> = {
   pogrzebowka: 50,
@@ -166,7 +166,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Pociąg weselny: 3 darmowe gry, każda kolejna 15 monet — atomowo w jednym UPDATE
+    // Pociąg weselny: 5 darmowych gier, każda kolejna 15 monet — atomowo w jednym UPDATE
     if (b.action === "trainPlay") {
       const upd = await c.execute({
         sql: `UPDATE users

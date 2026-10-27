@@ -48,7 +48,7 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, TRAIN_SONG, trainStars } from "./trainScore.ts";
-import { applyServerTrainPlays, payTrainPlay, TRAIN_PLAY_COST, trainPlayLabel } from "./trainPlays.ts";
+import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
@@ -950,6 +950,8 @@ export class Game {
   private inviteOkRect: Rect | null = null;
   /** prosty modal informacyjny (ikona + tytuł + treść + ROZUMIEM) */
   private infoModal: { icon: string; title: string; body: string } | null = null;
+  /** akcja po kliknięciu OK w infoModal (np. start Pociągu po samouczku) */
+  private infoModalNext: (() => void) | null = null;
   /** karty garniturów na sliderze (do trafień) */
   private suitRects: { id: string; r: Rect }[] = [];
   private suitBusy = ""; // id kupowanego garnituru (loader na karcie)
@@ -2092,6 +2094,9 @@ export class Game {
       if (!this.modalOkRect || inRect(this.modalOkRect, x, y)) {
         uiSound("buttons");
         this.infoModal = null;
+        const next = this.infoModalNext;
+        this.infoModalNext = null;
+        next?.();
       }
       return;
     }
@@ -2301,6 +2306,7 @@ export class Game {
     if (this.infoModal) {
       uiSound("back");
       this.infoModal = null;
+      this.infoModalNext = null; // „wstecz" = bez akcji po zamknięciu
       return true;
     }
     if (this.envModal) {
@@ -3292,6 +3298,19 @@ export class Game {
     this.soundModal = false;
     this.healthModal = false;
     this.tutModal = false;
+    // pierwszy raz: samouczek (jak Snake), start dopiero po „OK"
+    if (!trainTutSeen()) {
+      this.infoModal = {
+        icon: "🚂",
+        title: "POCIĄG WESELNY",
+        body: "Zasady jak w grze Snake! Prowadzisz Denisa po sali weselnej krzyżakiem na dole ekranu i zbierasz gości do pociągu. Każdy złapany gość dołącza na koniec. Uważaj na stoły, ściany i własny pociąg, bo zderzenie kończy zabawę. Gra trwa, dopóki leci piosenka. Im dłuższy pociąg, tym wyżej w rankingu!",
+      };
+      this.infoModalNext = () => {
+        markTrainTutSeen();
+        void this.startTrain();
+      };
+      return;
+    }
     if (!(await this.payTrain())) {
       if (this.scene === "train") this.enterHits();
       return;
