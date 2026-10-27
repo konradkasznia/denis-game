@@ -27,7 +27,9 @@ const ready = (i) => i.complete && i.naturalWidth > 0;
 
 // ---- muzyka (docelowo inny utwór) ----
 const music = new Audio("../assets/songs/panna-mloda.mp3");
-music.loop = true; music.volume = 0.8;
+music.volume = 0.8;
+// runda trwa tyle, co piosenka — koniec utworu = podsumowanie
+music.addEventListener("ended", () => { if (state === "play") finish(); });
 
 // ---- plansza ----
 const TABLES = [[1, 4], [12, 4], [1, 9], [12, 9], [1, 13], [12, 13]];
@@ -52,12 +54,12 @@ const DENIS = { denis: 1, body: "#18161d", suit: 1, bow: 1, hair: "#2a1c14", bea
 const BRIDE = { body: "#fbf7ef", hair: "#6b4426", long: 1, dress: 1, veil: 1 };
 const GROOM = { body: "#22304d", hair: "#3b2416", suit: 1, tie: "#d4a017", flower: 1 };
 
-let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [];
+let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], stunned = false, lost = [];
 
 function reset() {
-  snake = [{ c: 7, r: 11, o: DENIS }, { c: 7, r: 12, o: GUESTS[3] }];
+  snake = [{ c: 7, r: 11, o: DENIS }]; // na start sam Denis
   snake.forEach((s) => { s.pc = s.c; s.pr = s.r; });
-  dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null;
+  dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; stunned = false; lost = [];
   couple = [{ c: 6, r: 1, o: GROOM }, { c: 8, r: 1, o: BRIDE }];
   spawn();
 }
@@ -69,12 +71,20 @@ function spawn() {
   food = { c, r, o: GUESTS[Math.floor(Math.random() * GUESTS.length)] };
 }
 function step() {
-  if (queue.length) dir = queue.shift();
-  const h = snake[0], nc = h.c + dir[0], nr = h.r + dir[1];
   for (const s of snake) { s.pc = s.c; s.pr = s.r; }
-  const hitSelf = snake.slice(0, -1).some((s) => s.c === nc && s.r === nr);
-  if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS || blocked.has(nc + "," + nr) || hitSelf) {
-    state = "over"; overAt = performance.now(); shake = 22; buzz(60); return;
+  // po zderzeniu pociąg stoi, aż gracz wybierze nowy kierunek
+  if (stunned && !queue.length) return;
+  if (queue.length) dir = queue.shift();
+  stunned = false;
+  const h = snake[0], nc = h.c + dir[0], nr = h.r + dir[1];
+  const hitIdx = snake.slice(0, -1).findIndex((s) => s.c === nc && s.r === nr);
+  if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS || blocked.has(nc + "," + nr) || hitIdx >= 0) {
+    // zderzenie nie kończy gry: ściana / stół = odpadają 3 ostatnie osoby,
+    // wjazd we własny pociąg = odpada wszystko od miejsca zderzenia
+    const from = hitIdx > 0 ? hitIdx : Math.max(1, snake.length - 3);
+    dropFrom(from);
+    stunned = true; queue = []; shake = 16; buzz(60);
+    return;
   }
   let got = null;
   if (food && food.c === nc && food.r === nr) { got = food; food = null; }
@@ -90,6 +100,16 @@ function step() {
     if (!food) spawn();
   }
 }
+function dropFrom(i) {
+  const gone = snake.splice(i);
+  for (const g of gone) {
+    lost.push({ x: px(g.c), y: py(g.r), o: g.o, t: 0, vx: (Math.random() - 0.5) * 160, vy: -120 - Math.random() * 80 });
+    // Para Młoda wraca na swoje miejsce przy stole
+    if (g.o === GROOM) couple.push({ c: 6, r: 1, o: GROOM });
+    if (g.o === BRIDE) couple.push({ c: 8, r: 1, o: BRIDE });
+  }
+}
+function finish() { state = "done"; overAt = performance.now(); music.pause(); }
 const px = (c) => (c + 0.5) * C, py = (r) => BY + (r + 0.5) * C;
 const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
 
@@ -330,7 +350,7 @@ function dpad() {
   x.fillStyle = g; x.beginPath(); x.arc(DP.cx, DP.cy, 26, 0, 7); x.fill();
 }
 function counter() {
-  const label = `Liczba osób w pociągu: ${snake.length}`;
+  const label = `Liczba osób w pociągu: ${snake.length - 1}`;
   x.font = `900 30px ${HEAD_FONT}`;
   const w = x.measureText(label).width + 56, h = 62, x0 = (W - w) / 2, y0 = 30;
   x.fillStyle = "rgba(0,0,0,0.4)"; rr(x0, y0 + 4, w, h, h / 2); x.fill();
@@ -341,6 +361,37 @@ function counter() {
   x.lineWidth = 5; x.strokeStyle = "rgba(0,0,0,0.5)"; x.strokeText(label, W / 2, y0 + h / 2 + 1);
   x.fillStyle = "#fff7ec"; x.fillText(label, W / 2, y0 + h / 2 + 1);
   x.textBaseline = "alphabetic";
+  // postęp piosenki (bez napisów)
+  const p = music.duration ? Math.min(1, music.currentTime / music.duration) : 0;
+  const bw = 420, bx = (W - bw) / 2, by = y0 + h + 12;
+  x.fillStyle = "rgba(0,0,0,0.45)"; rr(bx, by, bw, 10, 5); x.fill();
+  const pg = x.createLinearGradient(bx, 0, bx + bw, 0); pg.addColorStop(0, "#ffe28a"); pg.addColorStop(1, "#e6a92e");
+  x.fillStyle = pg; rr(bx, by, Math.max(10, bw * p), 10, 5); x.fill();
+}
+function plural(n) {
+  if (n === 1) return "osoba";
+  const d = n % 10, dd = n % 100;
+  return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? "osoby" : "osób";
+}
+function summary(now) {
+  x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, 0, W, H);
+  const pw = 600, ph = 560, x0 = (W - pw) / 2, y0 = 300;
+  x.fillStyle = "rgba(0,0,0,0.45)"; rr(x0, y0 + 8, pw, ph, 32); x.fill();
+  const g = x.createLinearGradient(0, y0, 0, y0 + ph); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#150d07");
+  x.fillStyle = g; rr(x0, y0, pw, ph, 32); x.fill();
+  x.strokeStyle = "#e6a92e"; x.lineWidth = 4; rr(x0, y0, pw, ph, 32); x.stroke();
+  figure(W / 2, y0 + 190, DENIS, "D", now, 0, null, 1.6);
+  const n = snake.length - 1;
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.font = `900 34px ${HEAD_FONT}`; x.fillStyle = "#fff7ec"; const pl = plural(n); x.fillText("Do pociągu " + (pl === "osoba" ? "dołączyła" : pl === "osoby" ? "dołączyły" : "dołączyło"), W / 2, y0 + 270);
+  x.font = `900 110px ${HEAD_FONT}`; x.lineWidth = 8; x.strokeStyle = "rgba(0,0,0,0.5)"; x.strokeText(String(n), W / 2, y0 + 360);
+  const ng = x.createLinearGradient(0, y0 + 310, 0, y0 + 410); ng.addColorStop(0, "#ffe28a"); ng.addColorStop(1, "#e6a92e");
+  x.fillStyle = ng; x.fillText(String(n), W / 2, y0 + 360);
+  x.font = `900 34px ${HEAD_FONT}`; x.fillStyle = "#fff7ec"; x.fillText(plural(n) + "!", W / 2, y0 + 440);
+  x.textBaseline = "alphabetic";
+  const o = goldBtn(W / 2, y0 + ph + 10, 120, 120, 60, false);
+  x.strokeStyle = "#4a2408"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(W / 2, y0 + ph + 10 + o, 28, -Math.PI * 0.2, Math.PI * 1.45); x.stroke();
+  x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(W / 2 + 21, y0 + ph - 23); x.lineTo(W / 2 + 33, y0 + ph); x.lineTo(W / 2 + 8, y0 + ph - 1); x.closePath(); x.fill();
 }
 function bigIcon(kind, now) {
   x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, 0, W, H);
@@ -376,6 +427,8 @@ function frame(now) {
   });
   for (const [c, r] of TABLES) { const ty = BY + (r + 1) * C; draw.push({ y: ty + 30, f: () => table((c + 1) * C, ty, true) }); }
   draw.sort((a, b) => a.y - b.y).forEach((d) => d.f());
+  lost = lost.filter((l) => l.t < 1);
+  for (const l of lost) { l.t += dt / 700; l.x += l.vx * dt / 1000; l.vy += 600 * dt / 1000; l.y += l.vy * dt / 1000; x.globalAlpha = 1 - l.t; figure(l.x, l.y, l.o, "D", now, 0, null, 0.82); x.globalAlpha = 1; }
   fx = fx.filter((n) => n.t < 1);
   x.font = `900 32px ${HEAD_FONT}`; x.textAlign = "center";
   for (const n of fx) { n.t += dt / 900; n.x += n.vx * dt / 1000; n.y += n.vy * dt / 1000; x.globalAlpha = 1 - n.t; x.fillStyle = n.heart ? "#ff6f9f" : "#ffd24c"; x.fillText(n.heart ? "♥" : "♪", n.x, n.y); x.globalAlpha = 1; }
@@ -383,7 +436,7 @@ function frame(now) {
   counter();
   dpad();
   if (state === "ready") bigIcon("play", now);
-  if (state === "over" && now - overAt > 700) bigIcon("again", now);
+  if (state === "done") summary(now);
   requestAnimationFrame(frame);
 }
 
@@ -395,9 +448,10 @@ function turn(d) {
   if (queue.length < 2) { queue.push(d); buzz(8); }
 }
 function start() {
-  if (state === "over" && performance.now() - overAt < 700) return;
-  if (state === "over") reset();
+  if (state === "done" && performance.now() - overAt < 1200) return;
+  if (state === "done") reset();
   state = "play"; acc = 0;
+  try { music.currentTime = 0; } catch {}
   music.play().catch(() => {});
 }
 function toCanvas(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; }
