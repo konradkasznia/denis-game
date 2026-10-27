@@ -253,6 +253,20 @@ ok(real.status === 200 && real.body.coinsGained === 25, `prawdziwy utwór: 25 mo
   ok(t3.status === 422, "pociąg: za dużo monet → 422");
   const t4 = await call(h.scores, { method: "POST", token: tokA, body: { songId: "pociag-weselny", stars: 2, train: { len: 50, flasks: 0, timeMs: 1000, coins: 0 } } });
   ok(t4.status === 422, "pociąg: fizycznie za szybko → 422");
+  // 3 darmowe gry, potem po 15 monet
+  const regT = await call(h.register, { method: "POST", body: { login: "Pociag1", password: "Haslo123!", password2: "Haslo123!", terms: true } });
+  const tokT = regT.body.token;
+  for (let i = 1; i <= 3; i++) {
+    const p = await call(h.account, { method: "POST", token: tokT, body: { action: "trainPlay" } });
+    ok(p.status === 200 && p.body.trainPlays === i && p.body.coins === 0, `pociąg: darmowa gra ${i}`);
+  }
+  const p4 = await call(h.account, { method: "POST", token: tokT, body: { action: "trainPlay" } });
+  ok(p4.status === 402 && p4.body.trainPlays === 3, "pociąg: 4. gra bez monet → 402");
+  await client.execute({ sql: "UPDATE users SET coins = 20 WHERE login = 'Pociag1'", args: [] });
+  const p5 = await call(h.account, { method: "POST", token: tokT, body: { action: "trainPlay" } });
+  ok(p5.status === 200 && p5.body.coins === 5 && p5.body.trainPlays === 4, "pociąg: płatna gra zabiera 15 monet");
+  const meT = await call(h.me, { token: tokT });
+  ok(meT.body.trainPlays === 4, "/me zwraca liczbę gier w pociąg");
 }
 {
   // konto deweloperskie: wynik nie trafia do bazy ani do rankingu, monety tak

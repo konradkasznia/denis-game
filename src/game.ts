@@ -48,6 +48,7 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, TRAIN_SONG, trainStars } from "./trainScore.ts";
+import { applyServerTrainPlays, payTrainPlay, TRAIN_PLAY_COST, trainPlayLabel } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
@@ -1026,6 +1027,7 @@ export class Game {
       applyServerCoins(me.coins);
       applyServerUnlocked(me.unlocked);
       mergeServerLemons(me.lemons);
+      applyServerTrainPlays(me.trainPlays);
       pushLogin(me.pushId); // push „po loginie" (zaproszenia weselne)
     } catch {
       /* brak sieci — działamy na lokalnej kopii */
@@ -3259,10 +3261,41 @@ export class Game {
   private static readonly TRAIN_AUDIO = "assets/songs/a-ty-teraz-tancz.mp3";
   private static readonly TRAIN_FALLBACK_SEC = 154; // długość „A Ty teraz tańcz!"
 
+  private trainPayBusy = false;
+
+  /** Opłata za grę w Pociąg (darmowa albo 15 monet). false = nie gramy (komunikat już pokazany). */
+  private async payTrain(): Promise<boolean> {
+    if (this.trainPayBusy) return false;
+    this.trainPayBusy = true;
+    try {
+      const r = await payTrainPlay();
+      if (r.ok) return true;
+      this.infoModal =
+        r.reason === "coins"
+          ? {
+              icon: "🪙",
+              title: "ZA MAŁO MONET",
+              body: `Darmowe gry się skończyły, a kolejna kosztuje ${TRAIN_PLAY_COST} monet. Masz ${fmtCoinsFull(coins())}. Zbieraj monety w pozostałych rundach i wracaj na wesele!`,
+            }
+          : {
+              icon: "📶",
+              title: "BRAK POŁĄCZENIA",
+              body: "Do gry w Pociąg weselny potrzebny jest internet. Sprawdź połączenie i spróbuj jeszcze raz.",
+            };
+      return false;
+    } finally {
+      this.trainPayBusy = false;
+    }
+  }
+
   private async startTrain() {
     this.soundModal = false;
     this.healthModal = false;
     this.tutModal = false;
+    if (!(await this.payTrain())) {
+      if (this.scene === "train") this.enterHits();
+      return;
+    }
     this.audio.stop();
     const url = Game.TRAIN_AUDIO;
     let audioOk = false;
@@ -3282,6 +3315,13 @@ export class Game {
       onExit: () => {
         uiSound("back");
         this.enterHits();
+      },
+      onAgain: () => {
+        uiSound("buttons");
+        void this.payTrain().then((ok) => {
+          if (ok) round.restart();
+          else this.enterHits(); // komunikat (brak monet / sieci) pokaże się na karuzeli
+        });
       },
     });
     this.train = round;
@@ -7318,6 +7358,8 @@ export class Game {
       this.grayBtn(ctx, graj, "WYBIERZ GARNITUR NA WESELE");
     } else if (meta.id === WEDDING_AFTER && !unlocked) {
       this.grayBtn(ctx, graj, "WŁÓŻ WIĘCEJ DO KOPERTY");
+    } else if (meta.id === TRAIN_SONG && unlocked) {
+      this.styledBtn(ctx, graj, trainPlayLabel(), "gold");
     } else if (lemonGated(idx)) {
       this.grayBtn(ctx, graj, `ZBIERZ CYTRYNY I ${fmtCoinsFull(coinPrice)} MONET`);
     } else if (coinPrice > 0) {

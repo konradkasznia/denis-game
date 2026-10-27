@@ -52,8 +52,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       /* kolumna jeszcze nie istnieje */
     }
 
+    // Pociąg weselny: ile gier już rozegrał (3 darmowe)
+    let trainPlays = 0;
+    try {
+      const tr = await db().execute({ sql: "SELECT train_plays FROM users WHERE id = ?", args: [u.id] });
+      trainPlays = Number(tr.rows[0]?.train_plays ?? 0);
+    } catch {
+      /* kolumna jeszcze nie istnieje */
+    }
+
     return json(res, 200, {
       ok: true,
+      trainPlays,
       login: u.login,
       nick: u.nick,
       terms: u.terms,

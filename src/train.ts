@@ -35,6 +35,8 @@ export interface TrainDeps {
   onFinish(r: TrainResult): void;
   /** „wróć do menu" z podsumowania */
   onExit(): void;
+  /** „zagraj jeszcze raz" z podsumowania — gra pobiera opłatę i woła restart() */
+  onAgain(): void;
 }
 
 export function createTrainRound(deps: TrainDeps) {
@@ -602,7 +604,7 @@ return {
     if (state === "done") {
       if (performance.now() - overAt < 900) return;
       if (near(BTN_MENU, mx, my)) { deps.onExit(); return; }
-      if (near(BTN_AGAIN, mx, my)) { reset(); state = "play"; acc = 0; deps.play(); }
+      if (near(BTN_AGAIN, mx, my)) deps.onAgain();
       return;
     }
     const b = padAt(mx, my);
@@ -614,6 +616,8 @@ return {
     if (!d) return;
     if (state === "play") turn(d); else this.tap(-1, -1);
   },
+  /** nowa gra od razu (po opłacie) */
+  restart() { reset(); state = "play"; acc = 0; deps.play(); },
   /** apka w tle — pauza */
   pause() { if (state === "play") { state = "paused"; deps.pause(); } },
   /** wyjście z rundy (wstecz) — bez wyniku */

@@ -16,6 +16,7 @@ export const SCHEMA_SQL: string[] = [
     unlocked TEXT NOT NULL DEFAULT '',
     lemons TEXT NOT NULL DEFAULT '',
     envelope_total INTEGER NOT NULL DEFAULT 0,
+    train_plays INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     login_key TEXT
   )`,

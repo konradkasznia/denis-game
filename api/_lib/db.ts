@@ -57,6 +57,10 @@ export function ensureSchema(): Promise<void> {
       if (cols.length && !cols.includes("envelope_total")) {
         await c.execute("ALTER TABLE users ADD COLUMN envelope_total INTEGER NOT NULL DEFAULT 0");
       }
+      // ile razy zagrał w Pociąg weselny (3 darmowe, potem po 15 monet)
+      if (cols.length && !cols.includes("train_plays")) {
+        await c.execute("ALTER TABLE users ADD COLUMN train_plays INTEGER NOT NULL DEFAULT 0");
+      }
       if (cols.length && !cols.includes("login_key")) {
         await c.execute("ALTER TABLE users ADD COLUMN login_key TEXT");
       }

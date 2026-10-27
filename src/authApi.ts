@@ -254,6 +254,7 @@ export interface Me {
   unlocked?: string[];
   lemons?: string[];
   pushId?: string;
+  trainPlays?: number;
 }
 
 /** Sprawdza sesję po stronie serwera (po starcie aplikacji / po zalogowaniu).
@@ -264,7 +265,7 @@ export async function fetchMe(): Promise<Me | null> {
   if (!backendReachable() || !getToken()) return null;
   try {
     const r = await api<Me>("/api/auth/me", { auth: true });
-    return { login: r.login, nick: r.nick, progress: r.progress, coins: r.coins, unlocked: r.unlocked, lemons: r.lemons, pushId: r.pushId };
+    return { login: r.login, nick: r.nick, progress: r.progress, coins: r.coins, unlocked: r.unlocked, lemons: r.lemons, pushId: r.pushId, trainPlays: r.trainPlays };
   } catch {
     return null;
   }

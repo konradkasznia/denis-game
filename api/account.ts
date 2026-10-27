@@ -25,6 +25,8 @@ import {
 } from "./_lib/util.js";
 
 // Ile monet kosztuje odblokowanie danego poziomu. Serwer jest źródłem prawdy.
+const TRAIN_FREE = 3; // Pociąg weselny: darmowe gry na konto
+const TRAIN_COST = 15; // każda kolejna gra (monety)
 const UNLOCK_COST: Record<string, number> = {
   pogrzebowka: 50,
   "wodka-cytrynowka": 500,
@@ -161,6 +163,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ok: true,
         coins: Math.max(0, Number(upd.rows[0].coins)),
         unlocked: csv(upd.rows[0].unlocked),
+      });
+    }
+
+    // Pociąg weselny: 3 darmowe gry, każda kolejna 15 monet — atomowo w jednym UPDATE
+    if (b.action === "trainPlay") {
+      const upd = await c.execute({
+        sql: `UPDATE users
+              SET coins = coins - CASE WHEN train_plays >= ? THEN ? ELSE 0 END,
+                  train_plays = train_plays + 1
+              WHERE id = ? AND (train_plays < ? OR coins >= ?)
+              RETURNING coins, train_plays`,
+        args: [TRAIN_FREE, TRAIN_COST, u.id, TRAIN_FREE, TRAIN_COST],
+      });
+      if (!upd.rows[0]) {
+        const st = await c.execute({ sql: "SELECT coins, train_plays FROM users WHERE id = ?", args: [u.id] });
+        return json(res, 402, {
+          error: "Za mało monet.",
+          coins: Math.max(0, Number(st.rows[0]?.coins ?? 0)),
+          trainPlays: Number(st.rows[0]?.train_plays ?? 0),
+        });
+      }
+      return json(res, 200, {
+        ok: true,
+        coins: Math.max(0, Number(upd.rows[0].coins)),
+        trainPlays: Number(upd.rows[0].train_plays),
       });
     }
 
