@@ -48,7 +48,7 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, TRAIN_SONG, trainStars } from "./trainScore.ts";
-import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
+import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
@@ -3320,11 +3320,15 @@ export class Game {
     let audioOk = false;
     let wallStart = 0;
     const round = createTrainRound({
-      time: () => (audioOk ? Math.max(0, this.audio.getSongTime()) : (performance.now() - wallStart) / 1000),
+      // ujemny czas = odliczanie 3-2-1 przed piosenką (jak w innych rundach)
+      time: () => (audioOk ? this.audio.getSongTime() : (performance.now() - wallStart) / 1000),
       duration: () => (audioOk ? this.audio.trackDuration(url) : Game.TRAIN_FALLBACK_SEC),
       play: () => {
-        wallStart = performance.now();
-        if (audioOk) this.audio.start({ id: TRAIN_SONG, audioUrl: url, notes: [], bpm: 120, bars: 1, startBar: 0, lanes: 4, title: "", artist: "", duration: Game.TRAIN_FALLBACK_SEC } as unknown as SongDef, 0.1);
+        // „3-2-1 + winyl", utwór rusza po odliczaniu (lead-in = długość klipu)
+        const lead = this.audio.countdownSeconds();
+        this.audio.countdownCue();
+        wallStart = performance.now() + lead * 1000;
+        if (audioOk) this.audio.start({ id: TRAIN_SONG, audioUrl: url, notes: [], bpm: 120, bars: 1, startBar: 0, lanes: 4, title: "", artist: "", duration: Game.TRAIN_FALLBACK_SEC } as unknown as SongDef, lead);
       },
       stop: () => this.audio.stop(),
       pause: () => this.audio.pause(),
@@ -3335,6 +3339,14 @@ export class Game {
         uiSound("back");
         this.enterHits();
       },
+      onBoard: () => {
+        uiSound("buttons");
+        this.boardSongId = TRAIN_SONG;
+        this.boardFrom = "hits";
+        this.scene = "board";
+        this.enterBoard();
+      },
+      againInfo: () => ({ free: trainFreeLeft(), cost: TRAIN_PLAY_COST, canPay: coins() >= TRAIN_PLAY_COST }),
       onAgain: () => {
         uiSound("buttons");
         void this.payTrain().then((ok) => {

@@ -37,6 +37,10 @@ export interface TrainDeps {
   onExit(): void;
   /** „zagraj jeszcze raz" z podsumowania — gra pobiera opłatę i woła restart() */
   onAgain(): void;
+  /** „WYNIKI" z podsumowania */
+  onBoard(): void;
+  /** czy da się zagrać ponownie: darmowe próby (left > 0), płatna (cost) albo nic */
+  againInfo(): { free: number; cost: number; canPay: boolean };
 }
 
 export function createTrainRound(deps: TrainDeps) {
@@ -75,14 +79,15 @@ const BRIDE = { body: "#fbf7ef", hair: "#6b4426", long: 1, dress: 1, veil: 1 };
 const GROOM = { body: "#22304d", hair: "#3b2416", suit: 1, tie: "#d4a017", flower: 1 };
 
 let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], lost = [];
-let items = [], coins = 0, drunkUntil = 0, flasks = 0, lastCatchT = 0; // moneta (+5) i flaszka (odwrócone sterowanie)
+let items = [], coins = 0, drunkUntil = 0, flasks = 0, lastCatchT = 0;
+let waiting = true; // Denis stoi, dopóki gracz nie wciśnie pierwszej strzałki // moneta (+5) i flaszka (odwrócone sterowanie)
 const ITEM_MS = 5000, DRUNK_MS = 4000, COIN_VALUE = 5;
 
 function reset() {
   snake = [{ c: 7, r: 11, o: DENIS }]; // na start sam Denis
   snake.forEach((s) => { s.pc = s.c; s.pr = s.r; });
   dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; lost = [];
-  items = []; coins = 0; drunkUntil = 0; flasks = 0; lastCatchT = 0;
+  items = []; coins = 0; drunkUntil = 0; flasks = 0; lastCatchT = 0; waiting = true;
   couple = [{ ...GROOM_AT, o: GROOM }, { ...BRIDE_AT, o: BRIDE }];
   spawn();
 }
@@ -102,6 +107,7 @@ function spawnItem(kind) { items.push({ ...freeCell(), kind, born: performance.n
 function underPad(c, r) { return Math.hypot(px(c) - DP.cx, py(r) - DP.cy) < DP.d + DP.s * 0.95; }
 function step() {
   for (const s of snake) { s.pc = s.c; s.pr = s.r; }
+  if (waiting) return; // odliczanie / czekamy na pierwszy ruch
   if (queue.length) dir = queue.shift();
   const h = snake[0], nc = h.c + dir[0], nr = h.r + dir[1];
   const hitSelf = snake.slice(0, -1).some((s) => s.c === nc && s.r === nr);
@@ -434,7 +440,8 @@ function plural(n) {
 }
 function summary(now) {
   x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, vTop, W, vH);
-  const pw = 600, ph = 700, x0 = (W - pw) / 2, y0 = 230;
+  const info = deps.againInfo(), canAgain = info.free > 0 || info.canPay;
+  const pw = 620, ph = canAgain ? 960 : 840, x0 = (W - pw) / 2, y0 = Math.round((H - ph) / 2) - 20;
   x.fillStyle = "rgba(0,0,0,0.45)"; rr(x0, y0 + 8, pw, ph, 32); x.fill();
   const g = x.createLinearGradient(0, y0, 0, y0 + ph); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#150d07");
   x.fillStyle = g; rr(x0, y0, pw, ph, 32); x.fill();
@@ -458,15 +465,43 @@ function summary(now) {
   x.font = `900 36px ${HEAD_FONT}`;
   x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#ffd24c"; x.fillText(label, lx + 56, y0 + 530); x.textAlign = "center";
   x.textBaseline = "alphabetic";
-  // od nowa (↻) | wróć do menu (strzałka w lewo)
-  const by = y0 + ph + 10, ax = W / 2 - 90, bx = W / 2 + 90;
-  BTN_AGAIN = { x: ax, y: by }; BTN_MENU = { x: bx, y: by };
-  goldBtn(ax, by, 120, 120, 60, false);
-  x.strokeStyle = "#4a2408"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(ax, by, 28, -Math.PI * 0.2, Math.PI * 1.45); x.stroke();
-  x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(ax + 21, by - 33); x.lineTo(ax + 33, by - 10); x.lineTo(ax + 8, by - 11); x.closePath(); x.fill();
-  goldBtn(bx, by, 120, 120, 60, false);
-  x.save(); x.translate(bx, by); x.fillStyle = "#4a2408"; x.beginPath(); x.moveTo(-30, 0); x.lineTo(0, -28); x.lineTo(0, -12); x.lineTo(28, -12); x.lineTo(28, 12); x.lineTo(0, 12); x.lineTo(0, 28); x.closePath(); x.fill(); x.restore();
+  // ZAGRAJ PONOWNIE (darmowa próba / 15 monet) | WYNIKI | WRÓĆ
+  let by = y0 + 680;
+  BTN_AGAIN = null;
+  if (canAgain) {
+    const r = { x: W / 2 - 260, y: by, w: 520, h: 118 };
+    BTN_AGAIN = r;
+    goldBtn(W / 2, by + r.h / 2, r.w, r.h, 28, false);
+    x.textAlign = "center"; x.textBaseline = "middle"; x.fillStyle = "#4a2408";
+    if (info.free > 0) {
+      x.font = `900 38px ${HEAD_FONT}`; x.fillText("ZAGRAJ PONOWNIE", W / 2, by + 44);
+      x.font = `900 22px ${HEAD_FONT}`; x.fillText(`(${freeLeftText(info.free)})`, W / 2, by + 84);
+    } else {
+      x.font = `900 36px ${HEAD_FONT}`; x.fillText(`ZAGRAJ PONOWNIE (${info.cost} MONET)`, W / 2, by + r.h / 2 + 2);
+    }
+    by += r.h + 30;
+  }
+  BTN_BOARD = { x: W / 2 - 260, y: by, w: 250, h: 92 };
+  BTN_MENU = { x: W / 2 + 10, y: by, w: 250, h: 92 };
+  darkBtn(BTN_BOARD, "WYNIKI");
+  darkBtn(BTN_MENU, "WRÓĆ");
+  x.textBaseline = "alphabetic";
 }
+function freeLeftText(n) {
+  if (n === 1) return "została Ci 1 darmowa próba";
+  const d = n % 10, dd = n % 100;
+  return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? `zostały Ci ${n} darmowe próby` : `zostało Ci ${n} darmowych prób`;
+}
+/** Ciemny przycisk ze złotą ramką (jak WYNIKI / NAGRODY na karuzeli). */
+function darkBtn(r, label) {
+  x.fillStyle = "rgba(0,0,0,0.4)"; rr(r.x, r.y + 6, r.w, r.h, 22); x.fill();
+  const g = x.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#140c06");
+  x.fillStyle = g; rr(r.x, r.y, r.w, r.h, 22); x.fill();
+  x.strokeStyle = "#e6a92e"; x.lineWidth = 3.5; rr(r.x, r.y, r.w, r.h, 22); x.stroke();
+  x.font = `900 34px ${HEAD_FONT}`; x.textAlign = "center"; x.textBaseline = "middle"; x.fillStyle = "#fff7ec";
+  x.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 2);
+}
+const inR = (r, mx, my) => r && mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
 function bigIcon(kind, now) {
   x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, vTop, W, vH);
   const p = 1 + Math.sin(now * 0.006) * 0.05;
@@ -514,7 +549,7 @@ function drunkBadge(now) {
 // ---- pętla ----
 function frame(now) {
   const dt = Math.min(50, now - (last || now)); last = now;
-  if (state === "play") { const d = deps.duration(); if (d > 0 && deps.time() >= d - 0.05) finish(true); }
+  if (state === "play") { const d = deps.duration(), t = deps.time(); if (d > 0 && t > 0 && t >= d - 0.05) finish(true); }
   if (state === "play") { acc += dt; while (acc >= tick && state === "play") { acc -= tick; step(); } }
   const k = state === "play" ? Math.min(1, acc / tick) : 1;
   x.save();
@@ -559,9 +594,36 @@ function frame(now) {
   if (drunk && state === "play") drunkBadge(now);
   counter();
   dpad();
-  if (state === "ready" || state === "paused") bigIcon("play", now);
+  if (state === "paused") bigIcon("play", now);
+  if (state === "play") countdown(now);
   if (state === "loading") loadingIcon(now);
   if (state === "done" && now - overAt > 650) summary(now);
+}
+/** 3-2-1 jak w innych rundach, potem podpowiedź: stuknij strzałkę, żeby ruszyć. */
+function countdown(now) {
+  const t = deps.time();
+  if (t < 0) {
+    const n = Math.min(3, Math.ceil(-t));
+    const f = -t - Math.floor(-t); // 1 → 0 w ramach sekundy
+    const sc = 1 + (1 - f) * 0.25;
+    x.save(); x.translate(W / 2, BY + 7 * C); x.scale(sc, sc);
+    x.font = `900 190px ${HEAD_FONT}`; x.textAlign = "center"; x.textBaseline = "middle";
+    x.lineWidth = 14; x.strokeStyle = "rgba(40,20,0,0.75)"; x.strokeText(String(n), 0, 0);
+    const g = x.createLinearGradient(0, -90, 0, 90); g.addColorStop(0, "#ffe28a"); g.addColorStop(1, "#e6a92e");
+    x.fillStyle = g; x.fillText(String(n), 0, 0);
+    x.restore(); x.textBaseline = "alphabetic";
+  } else if (waiting) {
+    // pulsujące strzałki wokół Denisa — „ruszaj!"
+    const h = snake[0], cx = px(h.c), cy = py(h.r) - 30, a = 0.5 + 0.5 * Math.sin(now * 0.008);
+    x.save(); x.globalAlpha = 0.45 + 0.55 * a;
+    for (const [dx, dy, rot] of [[0, -1, 0], [0, 1, Math.PI], [-1, 0, -Math.PI / 2], [1, 0, Math.PI / 2]]) {
+      x.save(); x.translate(cx + dx * 70, cy + dy * 70); x.rotate(rot);
+      x.fillStyle = "#ffd24c"; x.strokeStyle = "rgba(60,30,0,0.8)"; x.lineWidth = 4;
+      x.beginPath(); x.moveTo(0, -16); x.lineTo(16, 10); x.lineTo(-16, 10); x.closePath(); x.fill(); x.stroke();
+      x.restore();
+    }
+    x.restore();
+  }
 }
 function loadingIcon(now) {
   x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, vTop, W, vH);
@@ -569,10 +631,12 @@ function loadingIcon(now) {
   x.strokeStyle = "#ffd24c"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(0, 0, 50, 0, Math.PI * 1.4); x.stroke();
   x.restore();
 }
-let BTN_AGAIN = null, BTN_MENU = null;
+let BTN_AGAIN = null, BTN_MENU = null, BTN_BOARD = null;
 
 // ---- sterowanie: krzyżak (+ strzałki na klawiaturze) ----
 function turn(d) {
+  if (deps.time() < 0) return; // trwa odliczanie 3-2-1
+  if (waiting) { waiting = false; dir = d; queue = []; acc = 0; buzz(15); return; } // pierwszy ruch: dowolny kierunek
   if (performance.now() < drunkUntil) d = [-d[0], -d[1]]; // po flaszce: lewo i prawo, góra i dół zamienione
   const lastDir = queue.length ? queue[queue.length - 1] : dir;
   if (d[0] === lastDir[0] && d[1] === lastDir[1]) return;
@@ -593,18 +657,18 @@ const near = (b, mx, my) => b && Math.hypot(mx - b.x, my - b.y) < 80;
 
 return {
   /** muzyka wczytana — pokaż przycisk startu */
-  loaded() { if (state === "loading") state = "ready"; },
+  loaded() { if (state === "loading") { reset(); state = "play"; acc = 0; deps.play(); } },
   isPlaying() { return state === "play"; },
   draw(ctx, now, top, vh) { x = ctx; vTop = top; vH = vh; frame(now); },
   /** stuknięcie we współrzędnych gry (układ 720×1280) */
   tap(mx, my) {
     if (state === "loading") return;
-    if (state === "ready") { reset(); state = "play"; acc = 0; deps.play(); return; }
     if (state === "paused") { state = "play"; acc = 0; deps.resume(); return; }
     if (state === "done") {
       if (performance.now() - overAt < 900) return;
-      if (near(BTN_MENU, mx, my)) { deps.onExit(); return; }
-      if (near(BTN_AGAIN, mx, my)) deps.onAgain();
+      if (inR(BTN_MENU, mx, my)) { deps.onExit(); return; }
+      if (inR(BTN_BOARD, mx, my)) { deps.onBoard(); return; }
+      if (inR(BTN_AGAIN, mx, my)) deps.onAgain();
       return;
     }
     const b = padAt(mx, my);
