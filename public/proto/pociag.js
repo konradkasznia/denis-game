@@ -17,10 +17,11 @@ music.addEventListener("ended", () => { if (state === "play") finish(); });
 
 // ---- plansza ----
 const TABLES = [[1, 4], [12, 4], [1, 10], [12, 10], [1, 16], [12, 16]];
-const HEAD_TABLE = [5, 9]; // kolumny stołu Pary Młodej (rząd 0)
+const HEAD_TABLE = [5, 9], HEAD_ROW = 2; // stół Pary Młodej: kolumny 5-9, rząd 2 (rzędy 0-1 wolne, da się go obejść)
 const blocked = new Set();
 for (const [c, r] of TABLES) for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) blocked.add(c + a + "," + (r + b));
-for (let c = HEAD_TABLE[0]; c <= HEAD_TABLE[1]; c++) blocked.add(c + ",0");
+for (let c = HEAD_TABLE[0]; c <= HEAD_TABLE[1]; c++) blocked.add(c + "," + HEAD_ROW);
+const GROOM_AT = { c: 6, r: HEAD_ROW + 1 }, BRIDE_AT = { c: 8, r: HEAD_ROW + 1 };
 const DF = [4, 4, 7, 12]; // parkiet: kolumna, rząd, szer., wys.
 
 const SKIN = "#f1c39c", SKIN_D = "#d99f76";
@@ -39,21 +40,27 @@ const BRIDE = { body: "#fbf7ef", hair: "#6b4426", long: 1, dress: 1, veil: 1 };
 const GROOM = { body: "#22304d", hair: "#3b2416", suit: 1, tie: "#d4a017", flower: 1 };
 
 let snake, dir, queue, food, couple, state, tick, acc, last = 0, shake = 0, overAt = 0, fx = [], lost = [];
+let items = [], coins = 0, drunkUntil = 0; // moneta (+5) i flaszka (odwrócone sterowanie)
+const ITEM_MS = 5000, DRUNK_MS = 4000, COIN_VALUE = 5;
 
 function reset() {
   snake = [{ c: 7, r: 11, o: DENIS }]; // na start sam Denis
   snake.forEach((s) => { s.pc = s.c; s.pr = s.r; });
   dir = [0, -1]; queue = []; tick = 230; acc = 0; food = null; lost = [];
-  couple = [{ c: 6, r: 1, o: GROOM }, { c: 8, r: 1, o: BRIDE }];
+  items = []; coins = 0; drunkUntil = 0;
+  couple = [{ ...GROOM_AT, o: GROOM }, { ...BRIDE_AT, o: BRIDE }];
   spawn();
 }
-const taken = (c, r) => snake.some((s) => s.c === c && s.r === r) || couple.some((p) => p.c === c && p.r === r);
-function spawn() {
+const taken = (c, r) => snake.some((s) => s.c === c && s.r === r) || couple.some((p) => p.c === c && p.r === r) ||
+  items.some((it) => it.c === c && it.r === r) || (!!food && food.c === c && food.r === r);
+function freeCell() {
   let c, r, k = 0;
-  do { c = Math.floor(Math.random() * COLS); r = 2 + Math.floor(Math.random() * (ROWS - 2)); k++; }
+  do { c = Math.floor(Math.random() * COLS); r = 1 + Math.floor(Math.random() * (ROWS - 1)); k++; }
   while ((blocked.has(c + "," + r) || taken(c, r) || underPad(c, r)) && k < 500);
-  food = { c, r, o: GUESTS[Math.floor(Math.random() * GUESTS.length)] };
+  return { c, r };
 }
+function spawn() { food = { ...freeCell(), o: GUESTS[Math.floor(Math.random() * GUESTS.length)] }; }
+function spawnItem(kind) { items.push({ ...freeCell(), kind, born: performance.now() }); }
 /** Pole pod krzyżakiem — tam nie stawiamy gości (pociąg może tamtędy przejechać). */
 function underPad(c, r) { return Math.hypot(px(c) - DP.cx, py(r) - DP.cy) < DP.d + DP.s * 0.95; }
 function step() {
@@ -65,6 +72,13 @@ function step() {
     // zderzenie (ściana, stół, własny pociąg) = koniec zabawy
     shake = 20; buzz(80); finish();
     return;
+  }
+  // moneta / flaszka pod głową pociągu
+  const ii = items.findIndex((it) => it.c === nc && it.r === nr);
+  if (ii >= 0) {
+    const it = items.splice(ii, 1)[0];
+    if (it.kind === "coin") { coins += COIN_VALUE; fx.push({ x: px(nc), y: py(nr) - 40, vx: 0, vy: -90, t: 0, txt: "+" + COIN_VALUE }); buzz(20); }
+    else { drunkUntil = performance.now() + DRUNK_MS; queue = []; for (let i = 0; i < 8; i++) fx.push({ x: px(nc), y: py(nr) - 40, vx: (Math.random() - 0.5) * 160, vy: -60 - Math.random() * 90, t: 0, bubble: 1 }); buzz(40); }
   }
   let got = null;
   if (food && food.c === nc && food.r === nr) { got = food; food = null; }
@@ -78,6 +92,9 @@ function step() {
     for (let i = 0; i < (big ? 16 : 7); i++) fx.push({ x: px(nc), y: py(nr) - 50, vx: (Math.random() - 0.5) * 140, vy: -70 - Math.random() * 100, t: 0, heart: big });
     tick = Math.max(125, tick - 5); buzz(15);
     if (!food) spawn();
+    const n = snake.length - 1;
+    if (n % 5 === 0) spawnItem("coin"); // co 5 gości moneta
+    if (n % 10 === 0) spawnItem("vodka"); // co 10 gości flaszka
   }
 }
 function finish() { state = "done"; overAt = performance.now(); queue = []; pressed.clear(); music.pause(); }
@@ -218,7 +235,7 @@ function table(cx, cy, front) {
   }
 }
 function headTable() {
-  const x0 = HEAD_TABLE[0] * C + 6, w = (HEAD_TABLE[1] - HEAD_TABLE[0] + 1) * C - 12, y0 = BY + 4, h = C - 12;
+  const x0 = HEAD_TABLE[0] * C + 6, w = (HEAD_TABLE[1] - HEAD_TABLE[0] + 1) * C - 12, y0 = BY + HEAD_ROW * C + 4, h = C - 12;
   x.fillStyle = "rgba(0,0,0,0.3)"; rr(x0 + 3, y0 + 8, w, h, 10); x.fill();
   x.fillStyle = "#fffaf0"; rr(x0, y0, w, h, 10); x.fill();
   x.fillStyle = "#f3c6d6"; rr(x0, y0 + h - 12, w, 12, 6); x.fill();
@@ -245,10 +262,27 @@ function stage(now) {
   // perkusja
   for (const [dx, dy, r] of [[420, 30, 16], [452, 26, 12], [470, 46, 14], [438, 52, 10]]) { x.fillStyle = "#c0182c"; x.beginPath(); x.arc(dx, y0 + dy, r, 0, 7); x.fill(); x.fillStyle = "#f2efe8"; x.beginPath(); x.arc(dx, y0 + dy, r - 3, 0, 7); x.fill(); }
   x.fillStyle = "#d4a017"; x.beginPath(); x.ellipse(400, y0 + 14, 11, 5, 0, 0, 7); x.fill();
+  // wielkie kolumny w górnych rogach (tam nie da się wejść)
+  for (const sx of [12, W - 136]) bigSpeaker(sx, 100, now);
   // nutki nad sceną
   x.font = `900 22px ${HEAD_FONT}`; x.textAlign = "center";
   for (let i = 0; i < 3; i++) { const t = ((now * 0.0004 + i / 3) % 1); x.globalAlpha = 1 - t; x.fillStyle = "#ffd24c"; x.fillText("♪", 300 + i * 50, y0 + 6 - t * 40); }
   x.globalAlpha = 1;
+}
+function bigSpeaker(x0, y0, now) {
+  const w = 124, h = BY - y0 - 4;
+  x.fillStyle = "rgba(0,0,0,0.4)"; rr(x0 + 4, y0 + 8, w, h, 12); x.fill();
+  const g = x.createLinearGradient(x0, 0, x0 + w, 0); g.addColorStop(0, "#2a2428"); g.addColorStop(0.5, "#1b171a"); g.addColorStop(1, "#0e0c0d");
+  x.fillStyle = g; rr(x0, y0, w, h, 12); x.fill();
+  x.strokeStyle = "#d4a017"; x.lineWidth = 3; rr(x0, y0, w, h, 12); x.stroke();
+  const pulse = 1 + Math.max(0, Math.sin(now * 0.016)) * 0.08;
+  for (const [cx, cy, r] of [[x0 + w / 2 - 30, y0 + h / 2 + 4, 22], [x0 + w / 2 + 26, y0 + h / 2 + 4, 26]]) {
+    x.fillStyle = "#0a0809"; x.beginPath(); x.arc(cx, cy, r + 4, 0, 7); x.fill();
+    const cg = x.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 1, cx, cy, r * pulse); cg.addColorStop(0, "#5a5458"); cg.addColorStop(1, "#1a1618");
+    x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, r * pulse, 0, 7); x.fill();
+    x.fillStyle = "#2e292c"; x.beginPath(); x.arc(cx, cy, r * 0.32, 0, 7); x.fill();
+  }
+  for (let i = 0; i < 4; i++) { const on = Math.sin(now * 0.01 + i + x0) > 0; x.fillStyle = on ? ["#ff4f8b", "#4fa3ff", "#ffd24c", "#7dff9a"][i] : "#3a3438"; x.beginPath(); x.arc(x0 + 22 + i * 27, y0 + 11, 4, 0, 7); x.fill(); }
 }
 function hall(now) {
   // podłoga: deski na całym ekranie (jak tła w innych rundach — bez czarnego paska)
@@ -282,6 +316,9 @@ function hall(now) {
   const vg = x.createRadialGradient(W / 2, H * 0.45, 300, W / 2, H * 0.45, 820);
   vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(10,4,0,0.55)");
   x.fillStyle = vg; x.fillRect(0, 0, W, H);
+  // listwa pod salą (poza planszą, nie da się tam wejść)
+  const by = BY + ROWS * C;
+  x.fillStyle = "#3a2214"; x.fillRect(0, by, W, H - by); x.fillStyle = "#d4a017"; x.fillRect(0, by, W, 4);
   stage(now);
 }
 
@@ -344,6 +381,11 @@ function counter() {
   const pg = x.createLinearGradient(bx, 0, bx + bw, 0); pg.addColorStop(0, "#ffe28a"); pg.addColorStop(1, "#e6a92e");
   x.fillStyle = pg; rr(bx, by, Math.max(10, bw * p), 10, 5); x.fill();
 }
+function monetyWord(n) {
+  if (n === 1) return "monetę";
+  const d = n % 10, dd = n % 100;
+  return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? "monety" : "monet";
+}
 function plural(n) {
   if (n === 1) return "osoba";
   const d = n % 10, dd = n % 100;
@@ -351,7 +393,7 @@ function plural(n) {
 }
 function summary(now) {
   x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, 0, W, H);
-  const pw = 600, ph = 560, x0 = (W - pw) / 2, y0 = 300;
+  const pw = 600, ph = 640, x0 = (W - pw) / 2, y0 = 260;
   x.fillStyle = "rgba(0,0,0,0.45)"; rr(x0, y0 + 8, pw, ph, 32); x.fill();
   const g = x.createLinearGradient(0, y0, 0, y0 + ph); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#150d07");
   x.fillStyle = g; rr(x0, y0, pw, ph, 32); x.fill();
@@ -364,6 +406,11 @@ function summary(now) {
   const ng = x.createLinearGradient(0, y0 + 310, 0, y0 + 410); ng.addColorStop(0, "#ffe28a"); ng.addColorStop(1, "#e6a92e");
   x.fillStyle = ng; x.fillText(String(n), W / 2, y0 + 360);
   x.font = `900 34px ${HEAD_FONT}`; x.fillStyle = "#fff7ec"; x.fillText(plural(n) + "!", W / 2, y0 + 440);
+  // monety
+  const label = `Zebrałeś ${coins} ${monetyWord(coins)}`;
+  x.font = `900 36px ${HEAD_FONT}`; const lw = x.measureText(label).width, lx = W / 2 - (lw + 56) / 2;
+  coinIcon(lx + 22, y0 + 532, 0);
+  x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#ffd24c"; x.fillText(label, lx + 56, y0 + 530); x.textAlign = "center";
   x.textBaseline = "alphabetic";
   const o = goldBtn(W / 2, y0 + ph + 10, 120, 120, 60, false);
   x.strokeStyle = "#4a2408"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(W / 2, y0 + ph + 10 + o, 28, -Math.PI * 0.2, Math.PI * 1.45); x.stroke();
@@ -380,6 +427,39 @@ function bigIcon(kind, now) {
   x.restore();
 }
 
+// ---- przedmioty ----
+function coinIcon(cx, cy, now) {
+  const sx = Math.abs(Math.cos(now * 0.005)) * 0.8 + 0.2; // obrót monety
+  x.fillStyle = "rgba(255,210,80,0.35)"; x.beginPath(); x.ellipse(cx, cy + 14, 26, 10, 0, 0, 7); x.fill();
+  x.save(); x.translate(cx, cy - 10 + Math.sin(now * 0.006) * 4); x.scale(sx, 1);
+  x.fillStyle = "#a8650e"; x.beginPath(); x.arc(0, 3, 22, 0, 7); x.fill();
+  const g = x.createRadialGradient(-7, -8, 2, 0, 0, 24); g.addColorStop(0, "#fff3b0"); g.addColorStop(0.5, "#ffcf3a"); g.addColorStop(1, "#d48a14");
+  x.fillStyle = g; x.beginPath(); x.arc(0, 0, 22, 0, 7); x.fill();
+  x.strokeStyle = "#b8730f"; x.lineWidth = 3; x.beginPath(); x.arc(0, 0, 15, 0, 7); x.stroke();
+  x.fillStyle = "#b8730f"; x.font = `900 20px ${HEAD_FONT}`; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("5", 0, 1); x.textBaseline = "alphabetic";
+  x.restore();
+}
+function bottleIcon(cx, cy, now) {
+  x.fillStyle = "rgba(180,220,255,0.35)"; x.beginPath(); x.ellipse(cx, cy + 14, 24, 9, 0, 0, 7); x.fill();
+  x.save(); x.translate(cx, cy - 8); x.rotate(Math.sin(now * 0.005) * 0.12);
+  const g = x.createLinearGradient(-14, 0, 14, 0); g.addColorStop(0, "rgba(200,225,240,0.95)"); g.addColorStop(0.35, "rgba(255,255,255,0.98)"); g.addColorStop(1, "rgba(170,200,220,0.95)");
+  x.fillStyle = g; x.beginPath(); x.moveTo(-13, 26); x.lineTo(-13, -4); x.quadraticCurveTo(-13, -12, -6, -16); x.lineTo(-5, -30); x.lineTo(5, -30); x.lineTo(6, -16); x.quadraticCurveTo(13, -12, 13, -4); x.lineTo(13, 26); x.quadraticCurveTo(0, 30, -13, 26); x.fill();
+  x.strokeStyle = "rgba(120,150,170,0.8)"; x.lineWidth = 1.5; x.stroke();
+  x.fillStyle = "#c0182c"; rr(-6, -38, 12, 9, 2); x.fill();
+  x.fillStyle = "#fffaf0"; rr(-11, 2, 22, 16, 3); x.fill();
+  x.fillStyle = "#c0182c"; rr(-8, 6, 16, 3, 1); x.fill(); x.fillStyle = "#d4a017"; rr(-8, 11, 16, 2, 1); x.fill();
+  x.fillStyle = "rgba(255,255,255,0.8)"; rr(-10, -6, 4, 24, 2); x.fill();
+  x.restore();
+}
+/** Po flaszce: ikonka butelki z kurczącym się kółkiem czasu (bez napisów). */
+function drunkBadge(now) {
+  const left = Math.max(0, (drunkUntil - now) / DRUNK_MS), cx = W - 70, cy = 230;
+  x.fillStyle = "rgba(120,200,120,0.07)"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "rgba(20,10,4,0.7)"; x.beginPath(); x.arc(cx, cy, 40, 0, 7); x.fill();
+  x.strokeStyle = "#7fd4ff"; x.lineWidth = 6; x.beginPath(); x.arc(cx, cy, 40, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2); x.stroke();
+  x.save(); x.translate(cx, cy + 8); x.scale(0.75, 0.75); bottleIcon(0, 0, now); x.restore();
+}
+
 // ---- pętla ----
 function frame(now) {
   const dt = Math.min(50, now - (last || now)); last = now;
@@ -387,8 +467,10 @@ function frame(now) {
   const k = state === "play" ? Math.min(1, acc / tick) : 1;
   x.save();
   if (shake > 0) { x.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake); shake *= 0.86; if (shake < 0.5) shake = 0; }
+  const drunk = now < drunkUntil;
+  if (drunk) { const a = Math.sin(now * 0.004) * 0.025; x.translate(W / 2, H / 2); x.rotate(a); x.scale(1.03, 1.03); x.translate(-W / 2, -H / 2); }
   hall(now);
-  headTable();
+  if (state === "play") items = items.filter((it) => now - it.born < ITEM_MS);
   for (const [c, r] of TABLES) table((c + 1) * C, BY + (r + 1) * C, false);
   const draw = [];
   if (food) { const fxp = px(food.c), fyp = py(food.r); draw.push({ y: fyp, f: () => { const q = 1 + Math.sin(now * 0.008) * 0.14; x.fillStyle = "rgba(255,210,80,0.38)"; x.beginPath(); x.ellipse(fxp, fyp + 10, 32 * q, 14 * q, 0, 0, 7); x.fill(); figure(fxp, fyp + 12, food.o, "D", now, 0, null, 0.82); } }); }
@@ -402,13 +484,27 @@ function frame(now) {
     draw.push({ y: p.y, f: () => figure(p.x, p.y + 12, s.o, f, now, i * 0.8, i > 0 ? [dx / l, dy / l] : null, 0.82) });
   });
   for (const [c, r] of TABLES) { const ty = BY + (r + 1) * C; draw.push({ y: ty + 30, f: () => table((c + 1) * C, ty, true) }); }
+  draw.push({ y: BY + HEAD_ROW * C + C - 6, f: headTable });
+  for (const it of items) {
+    const left = ITEM_MS - (now - it.born);
+    if (left < 1500 && Math.floor(now / 120) % 2) continue; // miga przed zniknięciem
+    const ix = px(it.c), iy = py(it.r);
+    draw.push({ y: iy, f: () => (it.kind === "coin" ? coinIcon(ix, iy, now) : bottleIcon(ix, iy, now)) });
+  }
   draw.sort((a, b) => a.y - b.y).forEach((d) => d.f());
   lost = lost.filter((l) => l.t < 1);
   for (const l of lost) { l.t += dt / 700; l.x += l.vx * dt / 1000; l.vy += 600 * dt / 1000; l.y += l.vy * dt / 1000; x.globalAlpha = 1 - l.t; figure(l.x, l.y, l.o, "D", now, 0, null, 0.82); x.globalAlpha = 1; }
   fx = fx.filter((n) => n.t < 1);
   x.font = `900 32px ${HEAD_FONT}`; x.textAlign = "center";
-  for (const n of fx) { n.t += dt / 900; n.x += n.vx * dt / 1000; n.y += n.vy * dt / 1000; x.globalAlpha = 1 - n.t; x.fillStyle = n.heart ? "#ff6f9f" : "#ffd24c"; x.fillText(n.heart ? "♥" : "♪", n.x, n.y); x.globalAlpha = 1; }
+  for (const n of fx) {
+    n.t += dt / 900; n.x += n.vx * dt / 1000; n.y += n.vy * dt / 1000; x.globalAlpha = 1 - n.t;
+    if (n.txt) { x.font = `900 44px ${HEAD_FONT}`; x.lineWidth = 7; x.strokeStyle = "rgba(60,30,0,0.7)"; x.strokeText(n.txt, n.x, n.y); x.fillStyle = "#ffd24c"; x.fillText(n.txt, n.x, n.y); x.font = `900 32px ${HEAD_FONT}`; }
+    else if (n.bubble) { x.strokeStyle = "rgba(220,240,255,0.9)"; x.lineWidth = 3; x.beginPath(); x.arc(n.x, n.y, 6 + n.t * 8, 0, 7); x.stroke(); }
+    else { x.fillStyle = n.heart ? "#ff6f9f" : "#ffd24c"; x.fillText(n.heart ? "♥" : "♪", n.x, n.y); }
+    x.globalAlpha = 1;
+  }
   x.restore();
+  if (drunk && state === "play") drunkBadge(now);
   counter();
   dpad();
   if (state === "ready") bigIcon("play", now);
@@ -418,6 +514,7 @@ function frame(now) {
 
 // ---- sterowanie: krzyżak (+ strzałki na klawiaturze) ----
 function turn(d) {
+  if (performance.now() < drunkUntil) d = [-d[0], -d[1]]; // po flaszce: lewo i prawo, góra i dół zamienione
   const lastDir = queue.length ? queue[queue.length - 1] : dir;
   if (d[0] === lastDir[0] && d[1] === lastDir[1]) return;
   if (d[0] === -lastDir[0] && d[1] === -lastDir[1]) return; // zawrócenie w siebie — ignoruj
@@ -440,7 +537,8 @@ function toCanvas(e) {
 /** Kierunek z krzyżaka: cały krąg dzielony na 4 ćwiartki (nie trzeba trafiać w sam przycisk). */
 function padAt(mx, my) {
   const dx = mx - DP.cx, dy = my - DP.cy, d = Math.hypot(dx, dy);
-  if (d < 14 || d > DP.d + DP.s * 1.05) return null;
+  // cały dół ekranu działa jak krzyżak: przyciski wyglądają tak samo, ale łapią dużo szerzej
+  if (d < 10 || (d > 330 && my < DP.cy - 230)) return null;
   if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? PAD[3] : PAD[2];
   return dy > 0 ? PAD[1] : PAD[0];
 }
