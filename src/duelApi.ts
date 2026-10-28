@@ -108,3 +108,42 @@ export async function declineDuel(id: number): Promise<boolean> {
     return false;
   }
 }
+
+// ---- „nowe" wyniki (przeciwnik odpowiedział / odrzucił) — pulsujące kółko ----
+const SEEN_KEY = "duelSeenResults";
+const NEW_KINDS: DuelResultKind[] = ["won", "lost", "draw", "oppDeclined", "oppExpired"];
+
+function readSeen(): Set<number> | null {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return raw ? new Set(JSON.parse(raw) as number[]) : null;
+  } catch {
+    return new Set();
+  }
+}
+function writeSeen(s: Set<number>) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-300)));
+  } catch {
+    /* brak storage — najwyżej kółko pulsuje dłużej */
+  }
+}
+
+/** Ile wyników pojedynków gracz jeszcze nie obejrzał. */
+export function unseenDuelResults(): number {
+  if (!duelState.loaded) return 0;
+  let seen = readSeen();
+  if (!seen) {
+    // pierwsze uruchomienie: stare wyniki nie są „nowe"
+    seen = new Set(duelState.results.map((r) => r.id));
+    writeSeen(seen);
+  }
+  return duelState.results.filter((r) => NEW_KINDS.includes(r.result) && !seen!.has(r.id)).length;
+}
+
+export function markDuelSeen(id?: number) {
+  const seen = readSeen() || new Set<number>();
+  if (id != null) seen.add(id);
+  else for (const r of duelState.results) if (NEW_KINDS.includes(r.result)) seen.add(r.id);
+  writeSeen(seen);
+}

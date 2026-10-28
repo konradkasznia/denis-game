@@ -49,7 +49,7 @@ import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, osob, TRAIN_SONG, trainStars } from "./trainScore.ts";
 import { createTortRound } from "./tort.ts";
-import { answerDuel, checkDuelNick, createDuel, declineDuel, duelState, refreshDuelRank, refreshDuels } from "./duelApi.ts";
+import { answerDuel, checkDuelNick, createDuel, declineDuel, duelState, markDuelSeen, refreshDuelRank, refreshDuels, unseenDuelResults } from "./duelApi.ts";
 import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainFreeLeftText, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
@@ -241,7 +241,9 @@ const HIT_COINS: Rect = { x: 14, y: 22 + TOP_SAFE, w: 178, h: 62 };
 const DUEL_ICON: Rect = { x: HIT_GEAR.x - 14 - 62, y: HIT_GEAR.y, w: 62, h: 68 };
 const HITS_HEAD_COINS: Rect = { x: DUEL_ICON.x - 14 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
 // ekrany pojedynków
-const DUEL_BTN = (i: number): Rect => ({ x: MARGIN, y: 780 + i * 104, w: VW - MARGIN * 2, h: 88 });
+const DUEL_BTN = (i: number): Rect => ({ x: MARGIN, y: 940 + i * 104, w: VW - MARGIN * 2, h: 88 });
+const DUEL_CIRC_Y = 790; // kółka „Twoje pojedynki" / „Ranking" na ekranie wyzwań
+const DUEL_CIRC_DX = 240;
 const DUEL_NICK_FIELD: Rect = { x: MARGIN, y: 360, w: VW - MARGIN * 2, h: 84 };
 const DUEL_NICK_GO: Rect = { x: MARGIN, y: 540, w: VW - MARGIN * 2, h: 96 };
 const DUEL_NICK_BACK: Rect = { x: MARGIN, y: 654, w: VW - MARGIN * 2, h: 88 };
@@ -9943,7 +9945,7 @@ export class Game {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    const n = duelState.incoming.length;
+    const n = duelState.incoming.length + unseenDuelResults();
     if (n > 0) {
       ctx.fillStyle = "#e5342f";
       ctx.beginPath();
@@ -9999,25 +10001,42 @@ export class Game {
     }
     if (!this.tortPreviewRound) this.tortPreviewRound = createTortRound({ onFinish: () => {} });
     const bob = Math.sin(performance.now() * 0.002) * 4;
-    this.tortPreviewRound.preview(ctx, VW / 2, 660 + bob, 0.85);
+    this.tortPreviewRound.preview(ctx, VW / 2, 600 + bob, 0.85);
 
+    // dwa kółka: Twoje pojedynki (pulsuje przy nowym wyzwaniu / odpowiedzi) + Ranking
     const any = duelState.incoming.length > 0 || duelState.results.length > 0;
+    const n = duelState.incoming.length;
+    const fresh = n + unseenDuelResults();
+    const mine = { cx: VW / 2 - DUEL_CIRC_DX / 2, cy: DUEL_CIRC_Y };
+    const rank = { cx: VW / 2 + DUEL_CIRC_DX / 2, cy: DUEL_CIRC_Y };
+    this.roundIconBtn(ctx, 0, "target", ["TWOJE", "POJEDYNKI"], !any, { ...mine, pulse: fresh > 0, badge: fresh });
+    this.roundIconBtn(ctx, 0, "trophy", ["RANKING", ""], false, rank);
+    const hit = (c: { cx: number; cy: number }): Rect => ({ x: c.cx - 80, y: c.cy - RES_CIRC_R - 10, w: 160, h: RES_CIRC_R * 2 + 80 });
+    if (any) {
+      this.duelRects.push({
+        r: hit(mine),
+        act: () => {
+          this.duelTab = n ? "live" : "results";
+          if (!n) markDuelSeen();
+          this.duelScroll = 0;
+          this.scene = "duelList";
+        },
+      });
+    }
+    this.duelRects.push({
+      r: hit(rank),
+      act: () => {
+        this.duelScroll = 0;
+        this.scene = "duelRank";
+        void refreshDuelRank();
+      },
+    });
+
     this.duelBtn(ctx, DUEL_BTN(0), "RZUĆ WYZWANIE", "gold", () => {
       this.duelNickMsg = "";
       this.scene = "duelNick";
     });
-    const n = duelState.incoming.length;
-    this.duelBtn(ctx, DUEL_BTN(1), n ? `TWOJE POJEDYNKI (${n})` : "TWOJE POJEDYNKI", any ? "dark-gold" : "gray", () => {
-      this.duelTab = n ? "live" : "results";
-      this.duelScroll = 0;
-      this.scene = "duelList";
-    });
-    this.duelBtn(ctx, DUEL_BTN(2), "RANKING", "dark-gold", () => {
-      this.duelScroll = 0;
-      this.scene = "duelRank";
-      void refreshDuelRank();
-    });
-    this.duelBtn(ctx, DUEL_BTN(3), "POWRÓT", "dark-gold", () => this.enterHits());
+    this.duelBtn(ctx, DUEL_BTN(1), "POWRÓT", "dark-gold", () => this.enterHits());
   }
 
   private drawDuelNick(ctx: CanvasRenderingContext2D) {
@@ -10121,6 +10140,7 @@ export class Game {
       const r = await createDuel(c.nick, floors);
       this.tortRes = { ...this.tortRes!, pending: false, error: r.ok ? undefined : r.error };
     } else {
+      markDuelSeen(c.id);
       const r = await answerDuel(c.id, floors);
       if (r.ok) {
         this.tortRes = { ...this.tortRes!, pending: false, oppScore: r.oppScore, result: r.result };
@@ -10206,6 +10226,7 @@ export class Game {
       () => {
         this.duelTab = "results";
         this.duelScroll = 0;
+        markDuelSeen();
       },
     );
     const top = DUEL_LIST_TOP;
@@ -10455,13 +10476,33 @@ export class Game {
   private roundIconBtn(
     ctx: CanvasRenderingContext2D,
     i: number,
-    icon: "trophy" | "spotify" | "replay" | "piggy",
+    icon: "trophy" | "spotify" | "replay" | "piggy" | "target",
     label: [string, string],
     dim = false,
+    at?: { cx: number; cy: number; pulse?: boolean; badge?: number },
   ) {
-    const cx = VW / 2 + (i - 1) * RES_CIRC_DX;
-    const cy = RES_CIRC_Y;
+    const cx = at ? at.cx : VW / 2 + (i - 1) * RES_CIRC_DX;
+    const cy = at ? at.cy : RES_CIRC_Y;
     const r = RES_CIRC_R;
+    if (at?.pulse) {
+      // „oddychające" kółko + rozchodząca się poświata — coś czeka
+      const ph = (performance.now() % 1400) / 1400;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,180,87,${(1 - ph) * 0.8})`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 4 + ph * 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      const k = 1 + Math.sin(performance.now() * 0.009) * 0.06;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(k, k);
+      ctx.translate(-cx, -cy);
+      this.roundIconBtn(ctx, i, icon, label, dim, { cx, cy, badge: at.badge });
+      ctx.restore();
+      return;
+    }
     const green = icon === "spotify";
     const pink = icon === "piggy";
     ctx.save();
@@ -10485,7 +10526,52 @@ export class Game {
     const u = r / 56; // skala ikon (projekt dla r = 56)
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    if (icon === "trophy") {
+    if (icon === "target") {
+      // tarcza ze strzałką w środku + gwiazdka (Twoje pojedynki)
+      const tx = cx + 3 * u;
+      const ty = cy - 3 * u;
+      ctx.strokeStyle = "#ffffff";
+      ctx.fillStyle = "#ffffff";
+      ctx.lineWidth = 5 * u;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 25 * u, -Math.PI * 0.12, Math.PI * 1.62);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(tx, ty, 15 * u, -Math.PI * 0.2, Math.PI * 1.7);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(tx, ty, 5.5 * u, 0, Math.PI * 2);
+      ctx.fill();
+      // strzała z prawego górnego rogu w środek
+      ctx.lineWidth = 4.5 * u;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + 26 * u, ty - 26 * u);
+      ctx.stroke();
+      ctx.beginPath(); // lotki
+      ctx.moveTo(tx + 21 * u, ty - 31 * u);
+      ctx.lineTo(tx + 21 * u, ty - 21 * u);
+      ctx.lineTo(tx + 31 * u, ty - 21 * u);
+      ctx.lineTo(tx + 34 * u, ty - 28 * u);
+      ctx.lineTo(tx + 28 * u, ty - 34 * u);
+      ctx.closePath();
+      ctx.fill();
+      // gwiazdka w lewym dolnym rogu
+      const sx = cx - 20 * u;
+      const sy = cy + 20 * u;
+      ctx.fillStyle = "#ffb457";
+      ctx.strokeStyle = "#1d0d07";
+      ctx.lineWidth = 4 * u;
+      ctx.beginPath();
+      for (let k = 0; k < 10; k++) {
+        const a = -Math.PI / 2 + (k * Math.PI) / 5;
+        const rr = (k % 2 ? 6 : 14) * u;
+        ctx.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fill();
+    } else if (icon === "trophy") {
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = "#ffffff";
       // czasza
@@ -10607,8 +10693,15 @@ export class Game {
       ctx.restore();
     }
 
+    if (at?.badge) {
+      ctx.fillStyle = "#e5342f";
+      ctx.beginPath();
+      ctx.arc(cx + r * 0.72, cy - r * 0.72, 17, 0, Math.PI * 2);
+      ctx.fill();
+      text(ctx, String(Math.min(9, at.badge)), cx + r * 0.72, cy - r * 0.72 + 1, { size: 19, weight: "900", font: HEAD_FONT, color: "#fff" });
+    }
     text(ctx, label[0], cx, cy + r + 34, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
-    text(ctx, label[1], cx, cy + r + 60, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
+    if (label[1]) text(ctx, label[1], cx, cy + r + 60, { size: 21, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
     ctx.restore();
   }
 
