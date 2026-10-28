@@ -9403,9 +9403,23 @@ export class Game {
     const tail = Math.max(0, lead - 3);
     const cd = rel - tail; // 3 → 0 przez pierwsze 3 s
     if (cd > 3.05) return;
-    const n = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1; // w fazie „hold" trzymamy „1"
-    const f = cd > 0.05 ? n - cd : 0;
     ctx.save();
+    if (cd <= 0.05) {
+      // faza „hold" (winyl na końcu klipu): START! zamiast drugiej „1"
+      const k = clamp(-cd / 0.25, 0, 1); // szybkie „wskoczenie"
+      text(ctx, "START!", VW / 2, this.sh() / 2 - this.vdy - 60, {
+        size: 96 + k * 14,
+        weight: "900",
+        font: HEAD_FONT,
+        color: "#ffd24c",
+        glow: "#ffb457",
+        glowBlur: 40,
+      });
+      ctx.restore();
+      return;
+    }
+    const n = Math.min(3, Math.ceil(cd));
+    const f = n - cd;
     ctx.globalAlpha = clamp(1 - f, 0.15, 1);
     text(ctx, String(n), VW / 2, this.sh() / 2 - this.vdy - 60, {
       size: 150 + f * 50,
