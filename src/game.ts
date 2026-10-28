@@ -2013,9 +2013,9 @@ export class Game {
       if (!this.soundModalTested) {
         // 1. kliknięcie = akcja: odblokuj audio (czysty gest — iOS Safari
         // wymaga stworzenia/wznowienia AudioContextu w reakcji na dotknięcie)
-        // i zagraj dźwięk testowy, żeby gracz OD RAZU słyszał, czy ma dźwięk
+        // — testem jest sama muzyka tła menu (bez klipu „3-2-1", tu bez sensu)
         this.soundModalTested = true;
-        void this.audio.unlock().then(() => this.audio.playCountdownTest());
+        void this.audio.unlock();
         return;
       }
       uiSound("buttons");
