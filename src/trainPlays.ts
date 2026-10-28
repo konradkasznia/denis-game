@@ -43,6 +43,14 @@ export function trainPlayLabel(): string {
   return `1 GRA - ${TRAIN_PLAY_COST} MONET`;
 }
 
+/** „zostały Ci 4 darmowe próby" (odmiana). */
+export function trainFreeLeftText(n: number): string {
+  if (n === 1) return "została Ci 1 darmowa próba";
+  const d = n % 10;
+  const dd = n % 100;
+  return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? `zostały Ci ${n} darmowe próby` : `zostało Ci ${n} darmowych prób`;
+}
+
 // samouczek przed pierwszą grą (per konto — znika przy wylogowaniu jak inne dane konta)
 const TUT_KEY = "denis.trainTut";
 export function trainTutSeen(): boolean {

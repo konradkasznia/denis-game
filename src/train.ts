@@ -33,14 +33,6 @@ export interface TrainDeps {
   resume(): void;
   haptic(kind: "tick" | "hit" | "miss"): void;
   onFinish(r: TrainResult): void;
-  /** „wróć do menu" z podsumowania */
-  onExit(): void;
-  /** „zagraj jeszcze raz" z podsumowania — gra pobiera opłatę i woła restart() */
-  onAgain(): void;
-  /** „WYNIKI" z podsumowania */
-  onBoard(): void;
-  /** czy da się zagrać ponownie: darmowe próby (left > 0), płatna (cost) albo nic */
-  againInfo(): { free: number; cost: number; canPay: boolean };
 }
 
 export function createTrainRound(deps: TrainDeps) {
@@ -438,70 +430,6 @@ function plural(n) {
   const d = n % 10, dd = n % 100;
   return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? "osoby" : "osób";
 }
-function summary(now) {
-  x.fillStyle = "rgba(10,5,2,0.6)"; x.fillRect(0, vTop, W, vH);
-  const info = deps.againInfo(), canAgain = info.free > 0 || info.canPay;
-  const pw = 620, ph = canAgain ? 960 : 840, x0 = (W - pw) / 2, y0 = Math.round((H - ph) / 2) - 20;
-  x.fillStyle = "rgba(0,0,0,0.45)"; rr(x0, y0 + 8, pw, ph, 32); x.fill();
-  const g = x.createLinearGradient(0, y0, 0, y0 + ph); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#150d07");
-  x.fillStyle = g; rr(x0, y0, pw, ph, 32); x.fill();
-  x.strokeStyle = "#e6a92e"; x.lineWidth = 4; rr(x0, y0, pw, ph, 32); x.stroke();
-  figure(W / 2, y0 + 190, DENIS, "D", now, 0, null, 1.6);
-  const n = snake.length - 1;
-  x.textAlign = "center"; x.textBaseline = "middle";
-  x.font = `900 34px ${HEAD_FONT}`; x.fillStyle = "#fff7ec"; const pl = plural(n); x.fillText("Do pociągu " + (pl === "osoba" ? "dołączyła" : pl === "osoby" ? "dołączyły" : "dołączyło"), W / 2, y0 + 270);
-  x.font = `900 110px ${HEAD_FONT}`; x.lineWidth = 8; x.strokeStyle = "rgba(0,0,0,0.5)"; x.strokeText(String(n), W / 2, y0 + 360);
-  const ng = x.createLinearGradient(0, y0 + 310, 0, y0 + 410); ng.addColorStop(0, "#ffe28a"); ng.addColorStop(1, "#e6a92e");
-  x.fillStyle = ng; x.fillText(String(n), W / 2, y0 + 360);
-  x.font = `900 34px ${HEAD_FONT}`; x.fillStyle = "#fff7ec"; x.fillText(plural(n) + "!", W / 2, y0 + 440);
-  // monety
-  const label = `Zebrałeś ${coins} ${monetyWord(coins)}`;
-  x.font = `900 36px ${HEAD_FONT}`; const lw = x.measureText(label).width, lx = W / 2 - (lw + 56) / 2;
-  coinIcon(lx + 22, y0 + 532, 0);
-  const fl = `Złapane flaszki: ${flasks}`;
-  x.font = `900 32px ${HEAD_FONT}`; const fw = x.measureText(fl).width, fx0 = W / 2 - (fw + 50) / 2;
-  x.save(); x.translate(fx0 + 18, y0 + 600); x.scale(0.7, 0.7); bottleIcon(0, 8, 0); x.restore();
-  x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#bfe6ff"; x.fillText(fl, fx0 + 50, y0 + 598);
-  x.font = `900 36px ${HEAD_FONT}`;
-  x.textAlign = "left"; x.textBaseline = "middle"; x.fillStyle = "#ffd24c"; x.fillText(label, lx + 56, y0 + 530); x.textAlign = "center";
-  x.textBaseline = "alphabetic";
-  // ZAGRAJ PONOWNIE (darmowa próba / 15 monet) | WYNIKI | WRÓĆ
-  let by = y0 + 680;
-  BTN_AGAIN = null;
-  if (canAgain) {
-    const r = { x: W / 2 - 260, y: by, w: 520, h: 118 };
-    BTN_AGAIN = r;
-    goldBtn(W / 2, by + r.h / 2, r.w, r.h, 28, false);
-    x.textAlign = "center"; x.textBaseline = "middle"; x.fillStyle = "#4a2408";
-    if (info.free > 0) {
-      x.font = `900 38px ${HEAD_FONT}`; x.fillText("ZAGRAJ PONOWNIE", W / 2, by + 44);
-      x.font = `900 22px ${HEAD_FONT}`; x.fillText(`(${freeLeftText(info.free)})`, W / 2, by + 84);
-    } else {
-      x.font = `900 36px ${HEAD_FONT}`; x.fillText(`ZAGRAJ PONOWNIE (${info.cost} MONET)`, W / 2, by + r.h / 2 + 2);
-    }
-    by += r.h + 30;
-  }
-  BTN_BOARD = { x: W / 2 - 260, y: by, w: 250, h: 92 };
-  BTN_MENU = { x: W / 2 + 10, y: by, w: 250, h: 92 };
-  darkBtn(BTN_BOARD, "WYNIKI");
-  darkBtn(BTN_MENU, "WRÓĆ");
-  x.textBaseline = "alphabetic";
-}
-function freeLeftText(n) {
-  if (n === 1) return "została Ci 1 darmowa próba";
-  const d = n % 10, dd = n % 100;
-  return d >= 2 && d <= 4 && !(dd >= 12 && dd <= 14) ? `zostały Ci ${n} darmowe próby` : `zostało Ci ${n} darmowych prób`;
-}
-/** Ciemny przycisk ze złotą ramką (jak WYNIKI / NAGRODY na karuzeli). */
-function darkBtn(r, label) {
-  x.fillStyle = "rgba(0,0,0,0.4)"; rr(r.x, r.y + 6, r.w, r.h, 22); x.fill();
-  const g = x.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, "#2a1d12"); g.addColorStop(1, "#140c06");
-  x.fillStyle = g; rr(r.x, r.y, r.w, r.h, 22); x.fill();
-  x.strokeStyle = "#e6a92e"; x.lineWidth = 3.5; rr(r.x, r.y, r.w, r.h, 22); x.stroke();
-  x.font = `900 34px ${HEAD_FONT}`; x.textAlign = "center"; x.textBaseline = "middle"; x.fillStyle = "#fff7ec";
-  x.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 2);
-}
-const inR = (r, mx, my) => r && mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
 function bigIcon(kind, now) {
   x.fillStyle = "rgba(10,5,2,0.45)"; x.fillRect(0, vTop, W, vH);
   const p = 1 + Math.sin(now * 0.006) * 0.05;
@@ -597,7 +525,6 @@ function frame(now) {
   if (state === "paused") bigIcon("play", now);
   if (state === "play") countdown(now);
   if (state === "loading") loadingIcon(now);
-  if (state === "done" && now - overAt > 650) summary(now);
 }
 /** 3-2-1 jak w innych rundach, potem podpowiedź: stuknij strzałkę, żeby ruszyć. */
 function countdown(now) {
@@ -631,7 +558,6 @@ function loadingIcon(now) {
   x.strokeStyle = "#ffd24c"; x.lineWidth = 12; x.lineCap = "round"; x.beginPath(); x.arc(0, 0, 50, 0, Math.PI * 1.4); x.stroke();
   x.restore();
 }
-let BTN_AGAIN = null, BTN_MENU = null, BTN_BOARD = null;
 
 // ---- sterowanie: krzyżak (+ strzałki na klawiaturze) ----
 function turn(d) {
@@ -653,7 +579,6 @@ function padAt(mx, my) {
 }
 
 state = "loading"; reset();
-const near = (b, mx, my) => b && Math.hypot(mx - b.x, my - b.y) < 80;
 
 return {
   /** muzyka wczytana — pokaż przycisk startu */
@@ -664,13 +589,7 @@ return {
   tap(mx, my) {
     if (state === "loading") return;
     if (state === "paused") { state = "play"; acc = 0; deps.resume(); return; }
-    if (state === "done") {
-      if (performance.now() - overAt < 900) return;
-      if (inR(BTN_MENU, mx, my)) { deps.onExit(); return; }
-      if (inR(BTN_BOARD, mx, my)) { deps.onBoard(); return; }
-      if (inR(BTN_AGAIN, mx, my)) deps.onAgain();
-      return;
-    }
+    if (state === "done") return; // podsumowanie rysuje gra (ekran „trainResults")
     const b = padAt(mx, my);
     if (b) { pressed.set(0, b); turn(b.k); setTimeout(() => pressed.delete(0), 120); }
   },

@@ -47,8 +47,8 @@ import { hasSliderAnim, sliderAnimBounds, sliderAnimFrame } from "./sliderAnim.t
 import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
-import { encodeTrain, formatTrain, TRAIN_SONG, trainStars } from "./trainScore.ts";
-import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
+import { encodeTrain, formatTrain, osob, TRAIN_SONG, trainStars } from "./trainScore.ts";
+import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainFreeLeftText, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
 import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
@@ -116,7 +116,8 @@ type Scene =
   | "changepw"
   | "play"
   | "results"
-  | "train";
+  | "train"
+  | "trainResults";
 
 interface Rect {
   x: number;
@@ -912,7 +913,7 @@ export class Game {
   private boardScrollMax = 0;
   private boardScrollInit = false; // po wejściu/zmianie zakładki: ustaw scroll (na gracza)
   /** dokąd wraca „POWRÓT" z tablicy wyników (zależnie od tego, skąd weszliśmy) */
-  private boardFrom: "hits" | "results" = "hits";
+  private boardFrom: "hits" | "results" | "trainResults" = "hits";
   private resultRank = 0;
   /** true = serwer długo nie odpowiedział (offline / padł request) — przestajemy
    *  czekać i pokazujemy komunikat zamiast zgadywanego miejsca. */
@@ -1749,6 +1750,13 @@ export class Game {
         break;
       case "train":
         this.train?.draw(ctx, performance.now(), -this.vdy, this.sh());
+        if (this.trainResult && performance.now() >= this.trainResultAt) {
+          this.scene = "trainResults";
+          this.resultsAt = performance.now();
+        }
+        break;
+      case "trainResults":
+        this.drawTrainResults(ctx);
         break;
     }
 
@@ -2133,6 +2141,7 @@ export class Game {
     if (this.scene === "profile") return this.handleProfileTap(x, y);
     if (this.scene === "changepw") return this.handleChangePwTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
+    if (this.scene === "trainResults") return this.handleTrainResultsTap(x, y);
     if (this.scene === "play") {
       if (this.rolling) return; // ciche odliczanie 3-2-1 — ignoruj dotyk
       if (this.paused) {
@@ -2342,6 +2351,10 @@ export class Game {
       case "train":
         uiSound("back");
         this.train?.abort();
+        this.enterHits();
+        return true;
+      case "trainResults":
+        uiSound("back");
         this.enterHits();
         return true;
       case "play":
@@ -3335,27 +3348,9 @@ export class Game {
       resume: () => void this.audio.resumePlayback(),
       haptic: (k) => haptic(k === "hit" ? "perfect" : k),
       onFinish: (r) => this.finishTrain(r),
-      onExit: () => {
-        uiSound("back");
-        this.enterHits();
-      },
-      onBoard: () => {
-        uiSound("buttons");
-        this.boardSongId = TRAIN_SONG;
-        this.boardFrom = "hits";
-        this.scene = "board";
-        this.enterBoard();
-      },
-      againInfo: () => ({ free: trainFreeLeft(), cost: TRAIN_PLAY_COST, canPay: coins() >= TRAIN_PLAY_COST }),
-      onAgain: () => {
-        uiSound("buttons");
-        void this.payTrain().then((ok) => {
-          if (ok) round.restart();
-          else this.enterHits(); // komunikat (brak monet / sieci) pokaże się na karuzeli
-        });
-      },
     });
     this.train = round;
+    this.trainResult = null;
     this.scene = "train";
     markDiscovered(TRAIN_SONG);
     try {
@@ -3369,7 +3364,12 @@ export class Game {
   }
 
   /** Koniec rundy Pociągu: wynik do rankingu, monety, gwiazdki, progresja. */
+  private trainResult: TrainResult | null = null;
+  private trainResultAt = 0;
+
   private finishTrain(r: TrainResult) {
+    this.trainResult = r;
+    this.trainResultAt = performance.now() + 750; // chwila na wstrząs po zderzeniu
     const score = encodeTrain(r);
     const stars = trainStars(r.len);
     recordStars(TRAIN_SONG, stars);
@@ -9788,6 +9788,112 @@ export class Game {
     else this.styledBtn(ctx, RES_MAIN, "WRÓĆ DO MENU", "dark-gold");
 
     ctx.restore();
+  }
+
+  // ---- podsumowanie Pociągu weselnego (osobny ekran, styl jak drawResults) ----
+
+  /** Pozycje okrągłych przycisków: tabela + (opcjonalnie) zagraj ponownie. */
+  private trainResIcons(): { board: number; again: number | null } {
+    const canAgain = trainFreeLeft() > 0 || coins() >= TRAIN_PLAY_COST;
+    return canAgain ? { board: 0.5, again: 1.5 } : { board: 1, again: null };
+  }
+
+  private drawTrainResults(ctx: CanvasRenderingContext2D) {
+    const r = this.trainResult;
+    this.drawUiBg(ctx);
+    if (!r) return;
+    const now = performance.now();
+    const reveal = clamp((now - this.resultsAt) / 1200, 0, 1);
+    const eased = 1 - Math.pow(1 - reveal, 3);
+
+    text(ctx, "POCIĄG WESELNY", VW / 2, 92, { size: 22, weight: "900", font: HEAD_FONT, color: "#ffce8a", letterSpacing: "4px", shadows: HEAD_SHADOWS });
+    text(ctx, "A TY TERAZ TAŃCZ!", VW / 2, 146, { size: 46, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+    const stars = trainStars(r.len) * eased;
+    for (let i = 0; i < 5; i++) this.drawStar(ctx, VW / 2 - 108 + i * 54, 227, 23, clamp(stars - i, 0, 1));
+
+    // kafelki: goście · flaszki · czas
+    const sec = Math.round(r.timeMs / 1000);
+    const tiles: { label: string; value: string }[] = [
+      { label: "GOŚCIE", value: String(Math.round(r.len * eased)) },
+      { label: "FLASZKI", value: String(Math.round(r.flasks * eased)) },
+      { label: "CZAS", value: `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` },
+    ];
+    const gap = 18;
+    const cw = (VW - MARGIN * 2 - gap * 2) / 3;
+    const ch = 138;
+    tiles.forEach((t, i) => {
+      const x0 = MARGIN + i * (cw + gap);
+      const y0 = 286;
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      roundRect(ctx, x0, y0, cw, ch, 18);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.14)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x0, y0, cw, ch, 18);
+      ctx.stroke();
+      text(ctx, t.value, x0 + cw / 2, y0 + 58, { size: 52, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+      text(ctx, t.label, x0 + cw / 2, y0 + 108, { size: 15, weight: "900", color: "#e9d9c3", letterSpacing: "2px" });
+    });
+
+    // liczba osób w pociągu (jak „123 456 PKT")
+    const n = Math.round(r.len * eased);
+    text(ctx, `${n} ${osob(n).toUpperCase()} W POCIĄGU`, VW / 2, 540, { size: 50, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+
+    // monety: „Zdobyłeś X monet" + pigułka
+    const label = `Zdobyłeś ${r.coins} ${monetyWord(r.coins)}`;
+    ctx.save();
+    ctx.font = `900 24px ${HEAD_FONT}`;
+    const mw = ctx.measureText(label)?.width;
+    const tw = typeof mw === "number" && mw > 0 ? mw : 240;
+    ctx.restore();
+    this.drawCoinIcon(ctx, VW / 2 - tw / 2 - 20, 624, 13, now / 90);
+    text(ctx, label, VW / 2 + 14, 625, { size: 24, weight: "900", font: HEAD_FONT, color: r.coins > 0 ? "#ffd867" : "#c9bda9", shadows: HEAD_SHADOWS });
+    this.drawCoinPill(ctx, { ...HITS_HEAD_COINS, y: HITS_HEAD_COINS.y - this.vdy }, coins(), 0);
+
+    if (reveal < 1) return;
+    const fadeIn = clamp((now - this.resultsAt - 1200) / 400, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+    const pos = this.trainResIcons();
+    this.roundIconBtn(ctx, pos.board, "trophy", ["TABELA", "WYNIKÓW"]);
+    if (pos.again != null) {
+      this.roundIconBtn(ctx, pos.again, "replay", ["ZAGRAJ", "PONOWNIE"]);
+      const free = trainFreeLeft();
+      const sub = free > 0 ? `(${trainFreeLeftText(free)})` : `(${TRAIN_PLAY_COST} monet)`;
+      text(ctx, sub, VW / 2 + (pos.again - 1) * RES_CIRC_DX, RES_CIRC_Y + RES_CIRC_R + 92, { size: 15, weight: "800", color: "#ffd867" });
+    }
+    this.styledBtn(ctx, RES_MAIN, "WRÓĆ DO MENU", "dark-gold");
+    ctx.restore();
+  }
+
+  private handleTrainResultsTap(x: number, y: number) {
+    if (performance.now() - this.resultsAt < 1200) {
+      this.resultsAt = performance.now() - 1200; // pomiń animację
+      return;
+    }
+    const pos = this.trainResIcons();
+    if (inRect(resCircle(pos.board), x, y)) {
+      uiSound("buttons");
+      this.boardSongId = TRAIN_SONG;
+      this.boardFrom = "trainResults";
+      this.scene = "board";
+      this.enterBoard();
+      return;
+    }
+    if (pos.again != null && inRect(resCircle(pos.again), x, y)) {
+      uiSound("buttons");
+      void this.payTrain().then((ok) => {
+        if (!ok || !this.train) return; // komunikat (brak monet / sieci) zostaje na tym ekranie
+        this.trainResult = null;
+        this.scene = "train";
+        this.train.restart();
+      });
+      return;
+    }
+    if (inRect(RES_MAIN, x, y)) {
+      uiSound("back");
+      this.enterHits();
+    }
   }
 
   /** Okrągły przycisk z ikoną + dwuwierszowy podpis (podsumowanie rundy). */
