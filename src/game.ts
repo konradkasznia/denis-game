@@ -7429,7 +7429,10 @@ export class Game {
         w = maxW;
         h = w / ar;
       }
-      return { x: VW / 2 - w / 2, y: box.y + box.h - h, w, h };
+      // zwykle postać stoi na przycisku (dół pasa); szeroka grupa Pociągu jest niska,
+      // więc wyśrodkowana w pionie między gwiazdkami a przyciskiem
+      const y = meta.id === TRAIN_SONG ? box.y + (box.h - h) / 2 : box.y + box.h - h;
+      return { x: VW / 2 - w / 2, y, w, h };
     };
 
     // animowana postać (Lottie) — jedyna grafika tych utworów (statycznych PNG
