@@ -181,7 +181,7 @@ export async function duelsHandler(req: VercelRequest, res: VercelResponse) {
       args: [GAME, u.id, t.id, score, nowIso()],
     });
     const me = u.nick || u.login;
-    await push(t.id, "🎂 Wyzwanie: Tort weselny!", `${me} rzuca Ci wyzwanie. Ułóż wyższy tort i pokaż, kto tu rządzi!`);
+    await push(t.id, "🎂 Nowe wyzwanie!", `Użytkownik ${me} rzucił Ci wyzwanie w Tort Weselny`);
     return json(res, 200, { ok: true, id: Number(ins.rows[0]?.id), nick: t.name });
   }
 
