@@ -9880,6 +9880,9 @@ export class Game {
   private duelBusy = false;
   private duelCtx: { mode: "challenge"; nick: string } | { mode: "answer"; id: number; nick: string } | null = null;
   private tortRound: ReturnType<typeof createTortRound> | null = null;
+  private tortGoAt = 0; // performance.now() startu gry po odliczaniu (0 = trwa ładowanie)
+  private tortLead = 3;
+  private static readonly TORT_AUDIO = "assets/songs/pan-mlody.mp3"; // tymczasowo, docelowo własny utwór
   private tortPreviewRound: ReturnType<typeof createTortRound> | null = null;
   private tortRes: {
     mode: "challenge" | "answer";
@@ -9906,6 +9909,7 @@ export class Game {
   /** „Wstecz" na ekranach pojedynków. */
   private duelBack() {
     if (this.scene === "duel") return this.enterHits();
+    if (this.scene === "tort" || this.scene === "tortResult") this.audio.stop();
     if (this.scene === "tort") {
       this.tortRound = null; // przerwana gra: wyzwanie nie zostaje wysłane / pojedynek czeka dalej
       this.duelCtx = null;
@@ -9966,6 +9970,7 @@ export class Game {
     this.duelRects = [];
     if (this.scene === "tort") {
       this.tortRound?.draw(ctx, performance.now(), -this.vdy, this.sh());
+      if (this.tortRound && !this.tortRound.isPlaying()) this.drawTortCountdown(ctx);
       return;
     }
     this.drawUiBg(ctx, false, "slider-bg/pan-mlody.jpg");
@@ -10055,14 +10060,60 @@ export class Game {
     this.duelCtx = ctx;
     const round = createTortRound({ onFinish: (floors) => void this.finishTort(round, floors) });
     this.tortRound = round;
-    round.start();
+    round.prepare();
     this.scene = "tort";
+    this.tortGoAt = 0;
+    void this.startTortAudio(round);
+  }
+
+  /** Muzyka + „3-2-1 + winyl" (jak w innych rundach); piętra ruszają po odliczaniu. */
+  private async startTortAudio(round: ReturnType<typeof createTortRound>) {
+    const url = Game.TORT_AUDIO;
+    this.audio.stop();
+    let ok = false;
+    try {
+      await this.audio.unlock();
+      await this.audio.loadTrack(url);
+      ok = this.audio.trackDuration(url) > 0;
+    } catch (e) {
+      console.warn("[tort] audio:", e); // gramy bez muzyki
+    }
+    if (this.tortRound !== round || this.scene !== "tort") return;
+    const lead = this.audio.countdownSeconds();
+    this.tortLead = lead;
+    this.audio.countdownCue();
+    if (ok) this.audio.start({ id: "tort", audioUrl: url, notes: [], bpm: 120, bars: 1, startBar: 0, lanes: 4, title: "", artist: "", duration: 157 } as unknown as SongDef, lead);
+    this.tortGoAt = performance.now() + lead * 1000;
+  }
+
+  /** Odliczanie nad tortem; po nim piętra ruszają (round.go). */
+  private drawTortCountdown(ctx: CanvasRenderingContext2D) {
+    const cy = this.sh() / 2 - this.vdy - 160;
+    if (!this.tortGoAt) {
+      text(ctx, "…", VW / 2, cy, { size: 90, weight: "800", color: "#fff7ec" });
+      return;
+    }
+    const rel = (this.tortGoAt - performance.now()) / 1000;
+    if (rel <= 0) {
+      this.tortRound?.go();
+      return;
+    }
+    // jak drawCountdown: 3-2-1 w tempie 1 s, nadmiar klipu = „hold" na „1"
+    const cd = rel - Math.max(0, this.tortLead - 3);
+    if (cd > 3.05) return;
+    const n = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1;
+    const f = cd > 0.05 ? n - cd : 0;
+    ctx.save();
+    ctx.globalAlpha = clamp(1 - f, 0.15, 1);
+    text(ctx, String(n), VW / 2, cy, { size: 150 + f * 50, weight: "800", color: "#fff7ec", glow: "#ffb457", glowBlur: 40 });
+    ctx.restore();
   }
 
   private async finishTort(round: ReturnType<typeof createTortRound>, floors: number) {
     if (round !== this.tortRound || !this.duelCtx) return;
     const c = this.duelCtx;
     this.duelCtx = null;
+    this.audio.stop(); // koniec tortu = koniec muzyki
     this.tortRes = { mode: c.mode, nick: c.nick, floors, pending: true };
     this.scene = "tortResult";
     this.resultsAt = performance.now();

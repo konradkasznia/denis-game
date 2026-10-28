@@ -189,7 +189,7 @@ function frame(now) {
   x.fillStyle = "#f3c6d6"; rr(40, BASE_Y + TH, W - 80, 26, 10); x.fill();
   x.fillStyle = "#d9d2c4"; rr(110, BASE_Y + TH - 8, 500, 16, 8); x.fill();
   tiers.forEach((t, i) => tier(t, BASE_Y - i * TH));
-  if (state === "play") tier(cur, BASE_Y - tiers.length * TH);
+  if (state === "play" || state === "ready") tier(cur, BASE_Y - tiers.length * TH);
   if (state === "over") topper(tiers[tiers.length - 1].x + tiers[tiers.length - 1].w / 2, BASE_Y - (tiers.length - 1) * TH);
   falling = falling.filter((f) => f.y < BASE_Y + 600);
   for (const f of falling) { f.vy += 1400 * dt; f.y += f.vy * dt; f.x += f.vx * dt; f.r += f.vx * dt * 0.002; x.save(); x.translate(f.x + f.w / 2, f.y + TH / 2); x.rotate(f.r); x.translate(-(f.x + f.w / 2), -(f.y + TH / 2)); tier(f, f.y, 0.9); x.restore(); }
@@ -205,6 +205,9 @@ function frame(now) {
 
 return {
   start() { reset(); },
+  /** plansza gotowa, ale piętro jeszcze nie jedzie (odliczanie 3-2-1) */
+  prepare() { reset(); state = "ready"; },
+  go() { if (state === "ready") state = "play"; },
   isPlaying() { return state === "play"; },
   draw(ctx, now, top, vh) { x = ctx; vTop = top; vH = vh; frame(now); },
   tap() { if (state === "play") drop(); },
