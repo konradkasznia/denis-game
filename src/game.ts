@@ -3088,7 +3088,8 @@ export class Game {
       this.tutModalAt = performance.now();
       return;
     }
-    this.burstFx(this.comboFxKind(), VW / 2, 660);
+    // Pociąg: konfetti tylko przy ODBLOKUJ (needsReveal), nie przy każdym starcie
+    if (this.trackId !== TRAIN_SONG) this.burstFx(this.comboFxKind(), VW / 2, 660);
     void this.startPlay();
   }
 
