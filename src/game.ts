@@ -1004,7 +1004,7 @@ export class Game {
       "arrow-left.png", "arrow-right.png", "arrow-left-disabled.png", "arrow-right-disabled.png",
       "wkrotce.png", "przejdz-poprzedni-poziom.png", "head.png",
       // postacie z animacją Lottie (sliderAnim.ts) nie mają już statycznego PNG
-      ...SONGS.filter((s) => !hasSliderAnim(s.id) && s.id !== TRAIN_SONG).map((s) => `select-${s.id}.png`),
+      ...SONGS.filter((s) => !hasSliderAnim(s.id)).map((s) => `select-${s.id}.png`),
       ...[...SLIDER_BG_SONGS].map((id) => `slider-bg/${id}.jpg`),
       "Warning/BOMBA.png", "Warning/FLASZKA.png", "Warning/LATARKA.png",
     ]) {
@@ -7438,8 +7438,10 @@ export class Game {
     const fit = (ar: number) => {
       let h = box.h;
       let w = h * ar;
-      if (w > VW * 1.12) {
-        w = VW * 1.12;
+      // Pociąg weselny: trzy postacie w rzędzie — cała grupa musi się zmieścić
+      const maxW = meta.id === TRAIN_SONG ? VW * 0.94 : VW * 1.12;
+      if (w > maxW) {
+        w = maxW;
         h = w / ar;
       }
       return { x: VW / 2 - w / 2, y: box.y + box.h - h, w, h };
@@ -7449,7 +7451,7 @@ export class Game {
     // już nie ma); zablokowany poziom = ta sama animacja w odcieniach szarości.
     // Obrys z pierwszej klatki dopasowuje postać tak jak dawny przycięty PNG;
     // elementy wychodzące poza obrys (dym, ręka) mogą wystawać.
-    const animId = meta.id === TRAIN_SONG ? "pan-mlody-garnitur-1" : meta.id; // docelowo własna animacja
+    const animId = meta.id;
     if (hasSliderAnim(animId)) {
       const frame = sliderAnimFrame(animId, !unlocked);
       const tb = sliderAnimBounds(animId);

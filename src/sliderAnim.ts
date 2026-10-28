@@ -29,6 +29,7 @@ const ANIMATED = new Set([
   "byleby-nie-byla-ciepla",
   "pan-strazak",
   "wodka-cytrynowka",
+  "pociag-weselny",
   "prezent",
   // Pan Młody: Denis w bokserkach / w czarnym (garnitur-1) / w białym (garnitur-2) —
   // wczytywane dopiero, gdy runda jest na ekranie (patrz main.ts initSliderAnims)
