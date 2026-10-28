@@ -332,6 +332,10 @@ export function levelUnlocked(index: number): boolean {
   // także testowa (Wódka Cytrynówka), żeby dało się sprawdzić całą ścieżkę
   if (isPaidRound(id)) return isUnlocked(id!) && progressOk(index);
   if (SONGS[index]?.devOnly) return true; // poziom testowy — omija progresję
+  // konta deweloperskie (konrad, DenisImpulsywni): ich wyniki nie trafiają na serwer,
+  // więc postęp nie przetrwałby wylogowania / czyszczenia Safari — zwykłe poziomy
+  // są dla nich zawsze otwarte (rundy płatne i weselne dalej wymagają zakupu/zaproszenia)
+  if (devUnlocked()) return true;
   // kto już kiedyś ten poziom ukończył, nie traci do niego dostępu, gdy przed nim
   // dojdzie nowa runda (np. Pociąg weselny wstawiony jako runda 3)
   if (completedIds().has(id!) || bestStars(id!) > 0) return true;
@@ -361,6 +365,7 @@ export function needsReveal(index: number): boolean {
   const s = SONGS[index];
   if (!s || index <= 0 || !s.playable || s.devOnly || s.inviteOnly) return false;
   if (isPaidRound(s.id)) return false; // rundy płatne mają własne odblokowanie
+  if (devUnlocked()) return false; // konta deweloperskie: bez „ODBLOKUJ" na każdym poziomie
   if (!levelUnlocked(index)) return false;
   if (isDiscovered(s.id) || bestStars(s.id) > 0) return false;
   return !revealedIds().has(s.id);

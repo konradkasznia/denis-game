@@ -6377,10 +6377,12 @@ export class Game {
     const lineH = 36;
     const lines = wrapText(info.body, 40);
     const prevW = pw - 56;
-    const prevH = 210;
+    // Pociąg weselny: bez podglądu (sam opis wystarcza)
+    const showPrev = kind !== "trainVodka";
+    const prevH = showPrev ? 210 : 0;
     const btnH = MODAL_OK.h;
     const bodyTop = 182;
-    const prevGap = 18;
+    const prevGap = showPrev ? 18 : 0;
     const ph = bodyTop + lines.length * lineH + prevGap + prevH + 26 + btnH + 40;
     const py = Math.max(20, (VH - ph) / 2);
 
@@ -6406,23 +6408,25 @@ export class Game {
 
     const prevX = VW / 2 - prevW / 2;
     const prevY = py + bodyTop + lines.length * lineH + prevGap;
-    ctx.save();
-    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
-    ctx.clip();
-    const t = (performance.now() - this.obstacleModalAt) / 1000;
-    this.drawObstaclePreview(ctx, prevX, prevY, prevW, prevH, kind, t);
-    ctx.restore();
-    ctx.strokeStyle = "rgba(255,255,255,0.12)";
-    ctx.lineWidth = 1;
-    roundRect(ctx, prevX, prevY, prevW, prevH, 14);
-    ctx.stroke();
-    text(ctx, "PODGLĄD", prevX + 12, prevY + 15, {
-      size: 10,
-      weight: "900",
-      align: "left",
-      color: "rgba(255,255,255,0.4)",
-      letterSpacing: "2px",
-    });
+    if (showPrev) {
+      ctx.save();
+      roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+      ctx.clip();
+      const t = (performance.now() - this.obstacleModalAt) / 1000;
+      this.drawObstaclePreview(ctx, prevX, prevY, prevW, prevH, kind, t);
+      ctx.restore();
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, prevX, prevY, prevW, prevH, 14);
+      ctx.stroke();
+      text(ctx, "PODGLĄD", prevX + 12, prevY + 15, {
+        size: 10,
+        weight: "900",
+        align: "left",
+        color: "rgba(255,255,255,0.4)",
+        letterSpacing: "2px",
+      });
+    }
 
     this.obstacleOkRect = {
       x: VW / 2 - MODAL_OK.w / 2,
@@ -6562,25 +6566,6 @@ export class Game {
           color: "#ffd7cc",
         });
       }
-    } else if (kind === "trainVodka") {
-      // pociąg jedzie w prawo, a strzałka „w lewo" (wciśnięta) skręca go w prawo
-      ctx.fillStyle = "#a8703f";
-      ctx.fillRect(ox, oy, ow, oh);
-      const cyc = (t * 0.6) % 1;
-      for (let i = 0; i < 6; i++) {
-        const px = ox + ow * (0.15 + ((cyc + 1 - i * 0.07) % 1) * 0.7);
-        ctx.beginPath();
-        ctx.arc(px, oy + oh * 0.55, i === 0 ? 11 : 9, 0, Math.PI * 2);
-        ctx.fillStyle = i === 0 ? "#18161d" : ["#c0182c", "#2b5fd9", "#e36aa6", "#3e7d4a", "#7a4fb5"][i - 1];
-        ctx.fill();
-      }
-      text(ctx, "◀  =  ▶", ox + ow / 2, oy + oh * 0.28, { size: 26, weight: "900", font: HEAD_FONT, color: "#ffd24c" });
-      text(ctx, "FLASZKA · sterowanie na odwrót 4 s", ox + ow / 2, oy + 17, {
-        size: 12.5,
-        weight: "900",
-        font: HEAD_FONT,
-        color: "#bfe6ff",
-      });
     } else if (kind === "vodka") {
       const env = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(((t % 4) / 4) * Math.PI * 2));
       ctx.save();
