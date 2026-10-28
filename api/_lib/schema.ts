@@ -90,6 +90,21 @@ export const SCHEMA_SQL: string[] = [
     updated_at TEXT NOT NULL,
     PRIMARY KEY (song_id, part)
   )`,
+  // pojedynki 1 na 1 (Tort weselny) — patrz api/_lib/duels.ts
+  `CREATE TABLE IF NOT EXISTS duels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game TEXT NOT NULL,
+    a_id INTEGER NOT NULL,
+    b_id INTEGER NOT NULL,
+    a_score INTEGER NOT NULL,
+    b_score INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS duels_a ON duels (a_id, game)`,
+  `CREATE INDEX IF NOT EXISTS duels_b ON duels (b_id, game)`,
+  `CREATE INDEX IF NOT EXISTS duels_status ON duels (status, game, created_at)`,
 ];
 
 /**

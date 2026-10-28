@@ -10,6 +10,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ensureSchema, db } from "./_lib/db.js";
 import { limitReq } from "./_lib/ratelimit.js";
 import { allow, body, json, nowIso, sessionUser } from "./_lib/util.js";
+import { duelsHandler } from "./_lib/duels.js";
+//   GET/POST /api/scores?duels=…  → pojedynki 1 na 1 (api/_lib/duels.ts)
 
 // Bez limitu: tabela deduplikuje po graczu (PRIMARY KEY user_id+song_id w schema),
 // więc wierszy jest tyle co graczy którzy zagrali dany utwór — nie rośnie per wynik.
@@ -129,6 +131,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET", "POST"])) return;
   try {
     await ensureSchema();
+    // pojedynki 1 na 1 (osobna funkcja przekroczyłaby limit 12 funkcji Vercela)
+    if (req.query.duels) return await duelsHandler(req, res);
     const c = db();
 
     if (req.method === "GET") {

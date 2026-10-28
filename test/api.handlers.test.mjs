@@ -267,6 +267,40 @@ ok(real.status === 200 && real.body.coinsGained === 25, `prawdziwy utwór: 25 mo
   ok(p5.status === 200 && p5.body.coins === 5 && p5.body.trainPlays === 6, "pociąg: płatna gra zabiera 15 monet");
   const meT = await call(h.me, { token: tokT });
   ok(meT.body.trainPlays === 6, "/me zwraca liczbę gier w pociąg");
+
+  console.log("· pojedynki (Tort weselny):");
+  const D = (q) => ({ duels: "1", ...q });
+  const chk = await call(h.scores, { query: D({ duels: "check", nick: "basiab" }), token: tokA });
+  ok(chk.status === 200 && chk.body.nick === "BasiaB", "wyzwanie: nick bez względu na wielkość liter");
+  const self = await call(h.scores, { query: D({ duels: "check", nick: "Łukasz" }), token: tokA });
+  ok(self.status === 400, "wyzwanie: nie można wyzwać siebie");
+  const bad = await call(h.scores, { query: D({ duels: "check", nick: "nieistnieje" }), token: tokA });
+  ok(bad.status === 400, "wyzwanie: zły nick odrzucony");
+  const cr = await call(h.scores, { method: "POST", query: D(), token: tokA, body: { action: "create", nick: "BasiaB", score: 12 } });
+  ok(cr.status === 200 && cr.body.id, "wyzwanie rzucone (wynik 12)");
+  const cr2 = await call(h.scores, { method: "POST", query: D(), token: tokA, body: { action: "create", nick: "BasiaB", score: 30 } });
+  ok(cr2.status === 400, "drugie wyzwanie tej samej osobie zablokowane, dopóki trwa pierwsze");
+  const back = await call(h.scores, { query: D({ duels: "check", nick: "Łukasz" }), token: tokB });
+  ok(back.status === 400, "wyzwany też nie może wyzwać, dopóki pojedynek trwa");
+  const mineB = await call(h.scores, { query: D({ duels: "mine" }), token: tokB });
+  ok(mineB.body.incoming.length === 1 && mineB.body.incoming[0].opp === "Łukasz" && mineB.body.incoming[0].myScore === undefined, "wyzwany widzi wyzwanie bez wyniku przeciwnika");
+  const ans = await call(h.scores, { method: "POST", query: D(), token: tokB, body: { action: "answer", id: cr.body.id, score: 15 } });
+  ok(ans.status === 200 && ans.body.result === "won" && ans.body.oppScore === 12, "wyzwany zagrał: 15 > 12 → wygrana");
+  const ans2 = await call(h.scores, { method: "POST", query: D(), token: tokB, body: { action: "answer", id: cr.body.id, score: 99 } });
+  ok(ans2.status === 409, "drugie rozegranie tego samego pojedynku odrzucone");
+  const mineA = await call(h.scores, { query: D({ duels: "mine" }), token: tokA });
+  ok(mineA.body.results[0].result === "lost" && mineA.body.results[0].oppScore === 15, "wyzywający widzi porażkę 12 : 15");
+  const dc = await call(h.scores, { method: "POST", query: D(), token: tokT, body: { action: "create", nick: "BasiaB", score: 5 } });
+  const dcl = await call(h.scores, { method: "POST", query: D(), token: tokB, body: { action: "decline", id: dc.body.id } });
+  ok(dcl.status === 200, "odrzucenie wyzwania");
+  const mineT = await call(h.scores, { query: D({ duels: "mine" }), token: tokT });
+  ok(mineT.body.results[0].result === "oppDeclined", "wyzywający widzi: przeciwnik odrzucił");
+  const mineB2 = await call(h.scores, { query: D({ duels: "mine" }), token: tokB });
+  ok(mineB2.body.results.some((r) => r.result === "iDeclined") && mineB2.body.incoming.length === 0, "wyzwany widzi: odrzuciłeś wyzwanie");
+  const rk = await call(h.scores, { query: D({ duels: "rank" }) });
+  ok(rk.body.rows[0].nick === "BasiaB" && rk.body.rows[0].wins === 1 && rk.body.rows[0].best === 15 && rk.body.rows[1].losses === 1, "ranking pojedynków: bilans, zwycięstwa, najwyższe piętro");
+  const big = await call(h.scores, { method: "POST", query: D(), token: tokT, body: { action: "create", nick: "Łukasz", score: 9999 } });
+  ok(big.status === 400, "absurdalny wynik odrzucony");
 }
 {
   // konto deweloperskie: wynik nie trafia do bazy ani do rankingu, monety tak

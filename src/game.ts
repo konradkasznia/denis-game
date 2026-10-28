@@ -48,6 +48,8 @@ import { diag, diagActive } from "./diag.ts";
 import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, osob, TRAIN_SONG, trainStars } from "./trainScore.ts";
+import { createTortRound } from "./tort.ts";
+import { answerDuel, checkDuelNick, createDuel, declineDuel, duelState, refreshDuelRank, refreshDuels } from "./duelApi.ts";
 import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainFreeLeftText, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
@@ -117,7 +119,14 @@ type Scene =
   | "play"
   | "results"
   | "train"
-  | "trainResults";
+  | "trainResults"
+  // pojedynki 1 na 1 (Tort weselny)
+  | "duel"
+  | "duelNick"
+  | "duelList"
+  | "duelRank"
+  | "tort"
+  | "tortResult";
 
 interface Rect {
   x: number;
@@ -228,7 +237,17 @@ const HIT_COINS: Rect = { x: 14, y: 22 + TOP_SAFE, w: 178, h: 62 };
 // WYBIERZ HIT = [Cześć, X!] ... [monety][zębatka] (Konrad 2026-09-11), tuż
 // przy zębatce. Rewards i Wyniki (drawRewards/drawResults) rysują pigułkę
 // dokładnie tu, żeby nigdy nie „skakała" między ekranami.
-const HITS_HEAD_COINS: Rect = { x: HIT_GEAR.x - 16 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
+// ikonka pojedynków (dwa ludziki) — między monetami a zębatką
+const DUEL_ICON: Rect = { x: HIT_GEAR.x - 14 - 62, y: HIT_GEAR.y, w: 62, h: 68 };
+const HITS_HEAD_COINS: Rect = { x: DUEL_ICON.x - 14 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
+// ekrany pojedynków
+const DUEL_BTN = (i: number): Rect => ({ x: MARGIN, y: 780 + i * 104, w: VW - MARGIN * 2, h: 88 });
+const DUEL_NICK_FIELD: Rect = { x: MARGIN, y: 360, w: VW - MARGIN * 2, h: 84 };
+const DUEL_NICK_GO: Rect = { x: MARGIN, y: 540, w: VW - MARGIN * 2, h: 96 };
+const DUEL_NICK_BACK: Rect = { x: MARGIN, y: 654, w: VW - MARGIN * 2, h: 88 };
+const DUEL_LIST_TOP = 214;
+const DUEL_LIST_BOT = 1000;
+const TORT_RES_BTN = (i: number): Rect => ({ x: MARGIN, y: 820 + i * 108, w: VW - MARGIN * 2, h: 92 });
 
 // znaki ostrzegawcze o przeszkodach — prawa krawędź slidera, kolumna 3 znaków.
 // Margines od krawędzi = MARGIN (tyle samo co przyciski). Kolumna jest w pionie
@@ -1050,6 +1069,7 @@ export class Game {
     this.scene = "hits";
     this.preloadHitAudio();
     void syncVoted(POLL_NEXT); // hydratacja „już głosował" z serwera
+    void refreshDuels(); // licznik wyzwań na ikonce pojedynków
     if (this.pollAfterRound) {
       this.pollAfterRound = false;
       if (!votedChoice(POLL_NEXT)) this.voteModal = "pick";
@@ -1758,6 +1778,14 @@ export class Game {
       case "trainResults":
         this.drawTrainResults(ctx);
         break;
+      case "duel":
+      case "duelNick":
+      case "duelList":
+      case "duelRank":
+      case "tort":
+      case "tortResult":
+        this.drawDuelScene(ctx);
+        break;
     }
 
     if (this.soundModal) this.drawSoundModal(ctx);
@@ -2141,6 +2169,7 @@ export class Game {
     if (this.scene === "profile") return this.handleProfileTap(x, y);
     if (this.scene === "changepw") return this.handleChangePwTap(x, y);
     if (this.scene === "results") return this.handleResultsTap(x, y);
+    if (this.isDuelScene()) return this.handleDuelTap(x, y);
     if (this.scene === "trainResults") return this.handleTrainResultsTap(x, y);
     if (this.scene === "play") {
       if (this.rolling) return; // ciche odliczanie 3-2-1 — ignoruj dotyk
@@ -2357,6 +2386,15 @@ export class Game {
         uiSound("back");
         this.enterHits();
         return true;
+      case "duel":
+      case "duelNick":
+      case "duelList":
+      case "duelRank":
+      case "tort":
+      case "tortResult":
+        uiSound("back");
+        this.duelBack();
+        return true;
       case "play":
         if (this.paused) {
           if (this.resumeAt) return true; // trwa odliczanie — zignoruj
@@ -2552,6 +2590,28 @@ export class Game {
       this.fields.sync(this.authFieldSpecs());
     } else if (this.scene === "changepw") {
       this.fields.sync(this.changePwFieldSpecs());
+    } else if (this.scene === "duelNick" && !this.infoModal) {
+      this.fields.sync([
+        {
+          key: "duelnick",
+          type: "text",
+          value: this.duelNickInput,
+          placeholder: "Nick przeciwnika",
+          autocomplete: "off",
+          maxLength: 24,
+          enterKeyHint: "go",
+          x: DUEL_NICK_FIELD.x,
+          y: DUEL_NICK_FIELD.y + this.frameDY(),
+          w: DUEL_NICK_FIELD.w,
+          h: DUEL_NICK_FIELD.h,
+          error: !!this.duelNickMsg,
+          onInput: (v) => {
+            this.duelNickInput = v;
+            this.duelNickMsg = "";
+          },
+          onEnter: () => void this.startChallenge(this.duelNickInput),
+        },
+      ]);
     } else {
       this.fields.clear();
     }
@@ -2803,6 +2863,11 @@ export class Game {
     if (inRect(HITS_HEAD_COINS, x, y)) {
       uiSound("buttons");
       this.scene = "rewards";
+      return;
+    }
+    if (inRect(DUEL_ICON, x, y)) {
+      uiSound("buttons");
+      this.enterDuelHub();
       return;
     }
     if (inRect(HIT_GEAR, x, y)) {
@@ -3074,6 +3139,10 @@ export class Game {
 
   /** Przeciąganie w pionie — przewija listę TOP 100 na tablicy wyników. */
   onDrag(dy: number) {
+    if (this.scene === "duelList" || this.scene === "duelRank") {
+      this.duelScroll = clamp(this.duelScroll - dy, 0, this.duelScrollMax);
+      return;
+    }
     if (this.scene !== "board" || this.boardScrollMax <= 0) return;
     this.boardScroll = clamp(this.boardScroll - dy, 0, this.boardScrollMax);
   }
@@ -3081,6 +3150,10 @@ export class Game {
     /* nic — scroll zostaje tam, gdzie jest */
   }
   onWheel(dy: number) {
+    if (this.scene === "duelList" || this.scene === "duelRank") {
+      this.duelScroll = clamp(this.duelScroll + dy * 0.6, 0, this.duelScrollMax);
+      return;
+    }
     if (this.scene !== "board" || this.boardScrollMax <= 0) return;
     this.boardScroll = clamp(this.boardScroll + dy * 0.6, 0, this.boardScrollMax);
   }
@@ -3760,7 +3833,7 @@ export class Game {
   }
 
   highFps(): boolean {
-    if (this.scene === "play" || this.scene === "train") return true;
+    if (this.scene === "play" || this.scene === "train" || this.scene === "tort") return true;
     if (this.scene === "results") {
       if (this.coinsEarned > 0) {
         // lot monet do rogu + „naliczanie" na pigułce
@@ -7183,6 +7256,8 @@ export class Game {
     if (imgReady(gear)) ctx.drawImage(gear, HIT_GEAR.x, HIT_GEAR.y, HIT_GEAR.w, HIT_GEAR.h);
     else text(ctx, "⚙", HIT_GEAR.x + HIT_GEAR.w / 2, HIT_GEAR.y + HIT_GEAR.h / 2, { size: 44, color: "#ffce8a" });
 
+    this.drawDuelIcon(ctx);
+
     // monety — tuż przy zębatce (klik → NAGRODY)
     this.drawCoinPill(ctx, HITS_HEAD_COINS, coins());
 
@@ -9792,6 +9867,420 @@ export class Game {
 
     ctx.restore();
   }
+
+  // ---- Pojedynki 1 na 1: „Rzuć wyzwanie znajomym" (Tort weselny) ----------
+  // Serwer: api/_lib/duels.ts. Wyzywający gra pierwszy, wyzwany nie widzi jego
+  // wyniku, dopóki sam nie zagra.
+
+  private duelTab: "live" | "results" = "live";
+  private duelScroll = 0;
+  private duelScrollMax = 0;
+  private duelNickInput = "";
+  private duelNickMsg = "";
+  private duelBusy = false;
+  private duelCtx: { mode: "challenge"; nick: string } | { mode: "answer"; id: number; nick: string } | null = null;
+  private tortRound: ReturnType<typeof createTortRound> | null = null;
+  private tortPreviewRound: ReturnType<typeof createTortRound> | null = null;
+  private tortRes: {
+    mode: "challenge" | "answer";
+    nick: string;
+    floors: number;
+    pending: boolean;
+    error?: string;
+    oppScore?: number;
+    result?: "won" | "lost" | "draw";
+  } | null = null;
+  private duelRects: { r: Rect; act: () => void }[] = [];
+
+  private isDuelScene(): boolean {
+    const s = this.scene;
+    return s === "duel" || s === "duelNick" || s === "duelList" || s === "duelRank" || s === "tort" || s === "tortResult";
+  }
+
+  private enterDuelHub() {
+    this.fields.clear();
+    this.scene = "duel";
+    void refreshDuels(true);
+  }
+
+  /** „Wstecz" na ekranach pojedynków. */
+  private duelBack() {
+    if (this.scene === "duel") return this.enterHits();
+    if (this.scene === "tort") {
+      this.tortRound = null; // przerwana gra: wyzwanie nie zostaje wysłane / pojedynek czeka dalej
+      this.duelCtx = null;
+    }
+    this.fields.clear();
+    this.scene = "duel";
+  }
+
+  /** Ikonka pojedynków w nagłówku karuzeli (dwa ludziki + licznik wyzwań). */
+  private drawDuelIcon(ctx: CanvasRenderingContext2D) {
+    const r = DUEL_ICON;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    ctx.save();
+    ctx.fillStyle = "rgba(8,6,12,0.55)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r.w * 0.85, 0, Math.PI * 2);
+    ctx.fill();
+    // dwie sylwetki (głowa + ramiona), z tyłu mniejsza
+    const g = ctx.createLinearGradient(0, cy - 26, 0, cy + 26);
+    g.addColorStop(0, "#ffe28a");
+    g.addColorStop(1, "#e6a92e");
+    for (const [dx, k, a] of [[11, 0.8, 0.75], [-6, 1, 1]] as const) {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx + dx, cy - 9 * k, 9 * k, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + dx, cy + 15 * k, 16 * k, 12 * k, 0, Math.PI, 0);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const n = duelState.incoming.length;
+    if (n > 0) {
+      ctx.fillStyle = "#e5342f";
+      ctx.beginPath();
+      ctx.arc(r.x + r.w - 2, r.y + 6, 15, 0, Math.PI * 2);
+      ctx.fill();
+      text(ctx, String(Math.min(9, n)), r.x + r.w - 2, r.y + 7, { size: 18, weight: "900", font: HEAD_FONT, color: "#fff" });
+    }
+    ctx.restore();
+  }
+
+  /** Przycisk z akcją (rejestrowany na bieżąco do obsługi stuknięć). */
+  private duelBtn(ctx: CanvasRenderingContext2D, r: Rect, label: string, style: "gold" | "dark-gold" | "gray", act: () => void) {
+    if (style === "gray") this.grayBtn(ctx, r, label);
+    else this.styledBtn(ctx, r, label, style);
+    if (style !== "gray") this.duelRects.push({ r, act });
+  }
+
+  private duelHeader(ctx: CanvasRenderingContext2D, title: string, sub?: string) {
+    text(ctx, title, VW / 2, 96, { size: 34, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+    if (sub) text(ctx, sub, VW / 2, 146, { size: 20, weight: "900", font: HEAD_FONT, color: "#ffce8a", letterSpacing: "3px" });
+  }
+
+  private drawDuelScene(ctx: CanvasRenderingContext2D) {
+    this.duelRects = [];
+    if (this.scene === "tort") {
+      this.tortRound?.draw(ctx, performance.now(), -this.vdy, this.sh());
+      return;
+    }
+    this.drawUiBg(ctx, false, "slider-bg/pan-mlody.jpg");
+    this.fillViewport(ctx, "rgba(10,6,4,0.45)");
+    if (this.scene === "duel") return this.drawDuelHub(ctx);
+    if (this.scene === "duelNick") return this.drawDuelNick(ctx);
+    if (this.scene === "duelList") return this.drawDuelList(ctx);
+    if (this.scene === "duelRank") return this.drawDuelRank(ctx);
+    if (this.scene === "tortResult") return this.drawTortResult(ctx);
+  }
+
+  private drawDuelHub(ctx: CanvasRenderingContext2D) {
+    this.duelHeader(ctx, "RZUĆ WYZWANIE ZNAJOMYM", "WYBIERZ GRĘ");
+    // „slider" gier — na razie jedna: Tort weselny
+    text(ctx, "TORT WESELNY", VW / 2, 222, { size: 42, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+    for (const [x0, dir] of [[MARGIN + 26, -1], [VW - MARGIN - 26, 1]] as const) {
+      ctx.save();
+      ctx.globalAlpha = 0.3; // jedna gra — strzałki nieaktywne
+      ctx.fillStyle = "#ffce8a";
+      ctx.beginPath();
+      ctx.moveTo(x0 + dir * 12, 222);
+      ctx.lineTo(x0 - dir * 10, 206);
+      ctx.lineTo(x0 - dir * 10, 238);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (!this.tortPreviewRound) this.tortPreviewRound = createTortRound({ onFinish: () => {} });
+    const bob = Math.sin(performance.now() * 0.002) * 4;
+    this.tortPreviewRound.preview(ctx, VW / 2, 660 + bob, 0.85);
+
+    const any = duelState.incoming.length > 0 || duelState.results.length > 0;
+    this.duelBtn(ctx, DUEL_BTN(0), "RZUĆ WYZWANIE", "gold", () => {
+      this.duelNickMsg = "";
+      this.scene = "duelNick";
+    });
+    const n = duelState.incoming.length;
+    this.duelBtn(ctx, DUEL_BTN(1), n ? `TWOJE POJEDYNKI (${n})` : "TWOJE POJEDYNKI", any ? "dark-gold" : "gray", () => {
+      this.duelTab = n ? "live" : "results";
+      this.duelScroll = 0;
+      this.scene = "duelList";
+    });
+    this.duelBtn(ctx, DUEL_BTN(2), "RANKING", "dark-gold", () => {
+      this.duelScroll = 0;
+      this.scene = "duelRank";
+      void refreshDuelRank();
+    });
+    this.duelBtn(ctx, DUEL_BTN(3), "POWRÓT", "dark-gold", () => this.enterHits());
+  }
+
+  private drawDuelNick(ctx: CanvasRenderingContext2D) {
+    this.duelHeader(ctx, "RZUĆ WYZWANIE", "TORT WESELNY");
+    wrapText("Wpisz nick przeciwnika dokładnie tak, jak wyświetla się w grze. Najpierw Ty układasz tort, a przeciwnik zobaczy Twój wynik dopiero po swojej grze.", 44).forEach((ln, i) =>
+      text(ctx, ln, VW / 2, 214 + i * 30, { size: 20, weight: "700", color: "#e9d9c3" }),
+    );
+    text(ctx, "NICK PRZECIWNIKA", MARGIN + 4, DUEL_NICK_FIELD.y - 18, { size: 16, weight: "900", align: "left", color: "#ffce8a", letterSpacing: "2px" });
+    if (this.duelNickMsg) {
+      wrapText(this.duelNickMsg, 46).forEach((ln, i) =>
+        text(ctx, ln, VW / 2, DUEL_NICK_FIELD.y + DUEL_NICK_FIELD.h + 32 + i * 28, { size: 19, weight: "800", color: "#ff7a7a" }),
+      );
+    }
+    if (this.duelBusy) this.drawBtnLoader(ctx, DUEL_NICK_GO);
+    else this.duelBtn(ctx, DUEL_NICK_GO, "GRAJ I RZUĆ WYZWANIE", "gold", () => void this.startChallenge(this.duelNickInput));
+    this.duelBtn(ctx, DUEL_NICK_BACK, "POWRÓT", "dark-gold", () => this.duelBack());
+  }
+
+  /** Sprawdza nick i od razu startuje grę wyzywającego (także „Rewanż"). */
+  private async startChallenge(nick: string) {
+    if (this.duelBusy) return;
+    if (!nick.trim()) {
+      this.duelNickMsg = "Wpisz nick przeciwnika.";
+      return;
+    }
+    this.duelBusy = true;
+    this.fields.blur();
+    const r = await checkDuelNick(nick);
+    this.duelBusy = false;
+    if (!r.ok) {
+      if (this.scene === "duelNick") this.duelNickMsg = r.error;
+      else this.infoModal = { icon: "⚔️", title: "NIE MOŻNA RZUCIĆ WYZWANIA", body: r.error };
+      return;
+    }
+    this.startTort({ mode: "challenge", nick: r.nick });
+  }
+
+  private startTort(ctx: { mode: "challenge"; nick: string } | { mode: "answer"; id: number; nick: string }) {
+    this.fields.clear();
+    this.duelCtx = ctx;
+    const round = createTortRound({ onFinish: (floors) => void this.finishTort(round, floors) });
+    this.tortRound = round;
+    round.start();
+    this.scene = "tort";
+  }
+
+  private async finishTort(round: ReturnType<typeof createTortRound>, floors: number) {
+    if (round !== this.tortRound || !this.duelCtx) return;
+    const c = this.duelCtx;
+    this.duelCtx = null;
+    this.tortRes = { mode: c.mode, nick: c.nick, floors, pending: true };
+    this.scene = "tortResult";
+    this.resultsAt = performance.now();
+    if (c.mode === "challenge") {
+      const r = await createDuel(c.nick, floors);
+      this.tortRes = { ...this.tortRes!, pending: false, error: r.ok ? undefined : r.error };
+    } else {
+      const r = await answerDuel(c.id, floors);
+      if (r.ok) {
+        this.tortRes = { ...this.tortRes!, pending: false, oppScore: r.oppScore, result: r.result };
+        if (r.result === "won") this.burstFx("confetti", VW / 2, 520);
+      } else this.tortRes = { ...this.tortRes!, pending: false, error: r.error };
+    }
+  }
+
+  private drawTortResult(ctx: CanvasRenderingContext2D) {
+    const r = this.tortRes;
+    if (!r) return;
+    this.duelHeader(ctx, "TORT WESELNY", r.mode === "challenge" ? "WYZWANIE" : "POJEDYNEK");
+    const floors = (n: number) => `${n} ${n === 1 ? "piętro" : n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? "piętra" : "pięter"}`;
+    if (r.pending) {
+      text(ctx, "Ułożyłeś " + floors(r.floors), VW / 2, 300, { size: 40, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+      this.drawSpinner(ctx, VW / 2, 420, 26, true);
+      return;
+    }
+    if (r.error) {
+      text(ctx, "Ułożyłeś " + floors(r.floors), VW / 2, 300, { size: 40, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+      wrapText(r.error, 44).forEach((ln, i) => text(ctx, ln, VW / 2, 400 + i * 30, { size: 21, weight: "800", color: "#ff7a7a" }));
+      this.duelBtn(ctx, TORT_RES_BTN(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+      return;
+    }
+    if (r.mode === "challenge") {
+      text(ctx, "Ułożyłeś " + floors(r.floors) + "!", VW / 2, 300, { size: 44, weight: "900", font: HEAD_FONT, color: "#ffd24c", shadows: HEAD_SHADOWS });
+      text(ctx, `Wyzwanie wysłane do: ${r.nick}`, VW / 2, 390, { size: 26, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
+      wrapText("Twój wynik zobaczy dopiero po swojej grze. Wynik pojedynku znajdziesz w zakładce Twoje pojedynki.", 44).forEach((ln, i) =>
+        text(ctx, ln, VW / 2, 450 + i * 30, { size: 20, weight: "700", color: "#e9d9c3" }),
+      );
+      this.duelBtn(ctx, TORT_RES_BTN(0), "TWOJE POJEDYNKI", "gold", () => {
+        this.duelTab = "results";
+        this.duelScroll = 0;
+        this.scene = "duelList";
+      });
+      this.duelBtn(ctx, TORT_RES_BTN(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+      return;
+    }
+    const verdict = r.result === "won" ? "WYGRAŁEŚ!" : r.result === "lost" ? "PRZEGRAŁEŚ" : "REMIS";
+    const col = r.result === "won" ? "#7dffb0" : r.result === "lost" ? "#ff7a7a" : "#ffd24c";
+    text(ctx, verdict, VW / 2, 290, { size: 64, weight: "900", font: HEAD_FONT, color: col, shadows: HEAD_SHADOWS });
+    text(ctx, `Ty: ${floors(r.floors)}`, VW / 2, 400, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
+    text(ctx, `${r.nick}: ${floors(r.oppScore ?? 0)}`, VW / 2, 450, { size: 32, weight: "900", font: HEAD_FONT, color: "#e9d9c3" });
+    this.duelBtn(ctx, TORT_RES_BTN(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
+    this.duelBtn(ctx, TORT_RES_BTN(1), "TWOJE POJEDYNKI", "dark-gold", () => {
+      this.duelTab = "results";
+      this.duelScroll = 0;
+      this.scene = "duelList";
+    });
+    this.duelBtn(ctx, TORT_RES_BTN(2), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+  }
+
+  private duelTabs(ctx: CanvasRenderingContext2D, a: string, b: string, first: boolean, onA: () => void, onB: () => void) {
+    const tab = (r: Rect, label: string, active: boolean, act: () => void) => {
+      ctx.fillStyle = active ? "#ff9f43" : "rgba(255,255,255,0.07)";
+      roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+      ctx.fill();
+      if (!active) {
+        ctx.strokeStyle = "rgba(255,206,138,0.28)";
+        ctx.lineWidth = 2;
+        roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+        ctx.stroke();
+      }
+      text(ctx, label, r.x + r.w / 2, r.y + r.h / 2, { size: 19, weight: "900", font: HEAD_FONT, color: active ? "#1a0d12" : "#c9b7a6", letterSpacing: "1px" });
+      this.duelRects.push({ r, act });
+    };
+    tab(BOARD_TAB_M, a, first, onA);
+    tab(BOARD_TAB_A, b, !first, onB);
+  }
+
+  private drawDuelList(ctx: CanvasRenderingContext2D) {
+    text(ctx, "TWOJE POJEDYNKI", VW / 2, 84, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+    const n = duelState.incoming.length;
+    this.duelTabs(
+      ctx,
+      n ? `W TRAKCIE (${n})` : "W TRAKCIE",
+      "WYNIKI",
+      this.duelTab === "live",
+      () => {
+        this.duelTab = "live";
+        this.duelScroll = 0;
+      },
+      () => {
+        this.duelTab = "results";
+        this.duelScroll = 0;
+      },
+    );
+    const top = DUEL_LIST_TOP;
+    const viewH = DUEL_LIST_BOT - top;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, top, VW, viewH);
+    ctx.clip();
+    if (this.duelTab === "live") {
+      const rowH = 168;
+      this.duelScrollMax = Math.max(0, n * rowH - viewH);
+      if (!n) text(ctx, "Nikt nie czeka teraz na Twój ruch.", VW / 2, top + 80, { size: 22, weight: "800", color: "#c9b7a6" });
+      duelState.incoming.forEach((d, i) => {
+        const y = top + 8 + i * rowH - this.duelScroll;
+        if (y > DUEL_LIST_BOT || y + rowH < top) return;
+        ctx.fillStyle = "rgba(255,255,255,0.07)";
+        roundRect(ctx, MARGIN, y, VW - MARGIN * 2, rowH - 16, 18);
+        ctx.fill();
+        text(ctx, d.opp, MARGIN + 24, y + 36, { size: 28, weight: "900", font: HEAD_FONT, align: "left", color: "#fff7ec" });
+        text(ctx, "rzuca Ci wyzwanie w Tort weselny", MARGIN + 24, y + 68, { size: 18, weight: "700", align: "left", color: "#ffce8a" });
+        const bw = (VW - MARGIN * 2 - 48 - 16) / 2;
+        const take: Rect = { x: MARGIN + 24, y: y + 88, w: bw, h: 56 };
+        const no: Rect = { x: MARGIN + 24 + bw + 16, y: y + 88, w: bw, h: 56 };
+        const vis = take.y >= top && take.y + take.h <= DUEL_LIST_BOT;
+        this.styledBtn(ctx, take, "PODEJMIJ", "gold");
+        this.styledBtn(ctx, no, "ODRZUĆ", "dark-gold");
+        if (vis) {
+          this.duelRects.push({ r: take, act: () => this.startTort({ mode: "answer", id: d.id, nick: d.opp }) });
+          this.duelRects.push({
+            r: no,
+            act: () =>
+              void declineDuel(d.id).then((ok) => {
+                if (!ok) this.infoModal = { icon: "📶", title: "BRAK POŁĄCZENIA", body: "Nie udało się odrzucić wyzwania. Spróbuj jeszcze raz." };
+              }),
+          });
+        }
+      });
+    } else {
+      const rows = duelState.results;
+      const rowH = 104;
+      this.duelScrollMax = Math.max(0, rows.length * rowH - viewH);
+      if (!rows.length) text(ctx, "Nie masz jeszcze żadnych pojedynków.", VW / 2, top + 80, { size: 22, weight: "800", color: "#c9b7a6" });
+      const LABEL: Record<string, [string, string]> = {
+        won: ["Wygrana", "#7dffb0"],
+        lost: ["Porażka", "#ff7a7a"],
+        draw: ["Remis", "#ffd24c"],
+        waiting: ["Czeka na przeciwnika", "#c9b7a6"],
+        oppDeclined: ["Przeciwnik odrzucił", "#c9b7a6"],
+        iDeclined: ["Odrzuciłeś wyzwanie", "#c9b7a6"],
+        oppExpired: ["Przeciwnik nie zagrał na czas", "#c9b7a6"],
+        iExpired: ["Wyzwanie wygasło", "#c9b7a6"],
+      };
+      rows.forEach((d, i) => {
+        const y = top + 8 + i * rowH - this.duelScroll;
+        if (y > DUEL_LIST_BOT || y + rowH < top) return;
+        ctx.fillStyle = "rgba(255,255,255,0.06)";
+        roundRect(ctx, MARGIN, y, VW - MARGIN * 2, rowH - 12, 16);
+        ctx.fill();
+        const [lab, col] = LABEL[d.result] ?? ["", "#c9b7a6"];
+        text(ctx, d.opp, MARGIN + 22, y + 32, { size: 24, weight: "900", font: HEAD_FONT, align: "left", color: "#fff7ec" });
+        text(ctx, lab, MARGIN + 22, y + 64, { size: 18, weight: "800", align: "left", color: col });
+        const score = d.oppScore != null ? `${d.myScore} : ${d.oppScore}` : d.myScore != null ? `${d.myScore} : ?` : "";
+        if (score) text(ctx, score, VW - MARGIN - 24, y + 46, { size: 28, weight: "900", font: HEAD_FONT, align: "right", color: "#fff7ec" });
+      });
+    }
+    ctx.restore();
+    this.duelBtn(ctx, BOARD_BACK, "POWRÓT", "dark-gold", () => this.duelBack());
+  }
+
+  private drawDuelRank(ctx: CanvasRenderingContext2D) {
+    this.duelHeader(ctx, "RANKING POJEDYNKÓW", "TORT WESELNY");
+    const cols = [
+      { label: "GRACZ", x: MARGIN + 54, align: "left" as const },
+      { label: "W", x: 420, align: "center" as const },
+      { label: "P", x: 482, align: "center" as const },
+      { label: "BILANS", x: 562, align: "center" as const },
+      { label: "PIĘTRO", x: VW - MARGIN - 6, align: "right" as const },
+    ];
+    cols.forEach((c) => text(ctx, c.label, c.x, 196, { size: 15, weight: "900", align: c.align, color: "#ffce8a", letterSpacing: "1px" }));
+    const top = 222;
+    const bot = DUEL_LIST_BOT;
+    const rowH = 52;
+    const rows = duelState.rank;
+    this.duelScrollMax = Math.max(0, rows.length * rowH - (bot - top));
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, top, VW, bot - top);
+    ctx.clip();
+    if (!duelState.rankLoaded) this.drawSpinner(ctx, VW / 2, top + 80, 22, true);
+    else if (!rows.length) text(ctx, "Nikt jeszcze nie rozegrał pojedynku.", VW / 2, top + 80, { size: 22, weight: "800", color: "#c9b7a6" });
+    rows.forEach((r, i) => {
+      const y = top + i * rowH + rowH / 2 - this.duelScroll;
+      if (y < top - rowH || y > bot + rowH) return;
+      if (r.me) {
+        ctx.fillStyle = "rgba(255,159,67,0.2)";
+        roundRect(ctx, MARGIN - 6, y - rowH / 2 + 3, VW - (MARGIN - 6) * 2, rowH - 6, 12);
+        ctx.fill();
+      }
+      const col = r.me ? "#ffce8a" : "#fff";
+      const bal = r.wins - r.losses;
+      text(ctx, String(r.rank), MARGIN + 8, y, { size: 20, weight: "800", align: "left", color: r.rank <= 3 ? "#ffd24c" : "#9a8c7e" });
+      text(ctx, r.nick.length > 13 ? r.nick.slice(0, 12) + "…" : r.nick, cols[0].x, y, { size: 20, weight: "800", align: "left", color: col });
+      text(ctx, String(r.wins), cols[1].x, y, { size: 20, weight: "800", color: "#7dffb0" });
+      text(ctx, String(r.losses), cols[2].x, y, { size: 20, weight: "800", color: "#ff9a9a" });
+      text(ctx, bal > 0 ? `+${bal}` : String(bal), cols[3].x, y, { size: 20, weight: "900", color: col });
+      text(ctx, String(r.best), cols[4].x, y, { size: 20, weight: "800", align: "right", color: col });
+    });
+    ctx.restore();
+    this.duelBtn(ctx, BOARD_BACK, "POWRÓT", "dark-gold", () => this.duelBack());
+  }
+
+  private handleDuelTap(x: number, y: number) {
+    if (this.scene === "tort") {
+      this.tortRound?.tap();
+      return;
+    }
+    if (this.scene === "tortResult" && performance.now() - this.resultsAt < 500) return;
+    for (const b of this.duelRects) {
+      if (inRect(b.r, x, y)) {
+        uiSound("buttons");
+        b.act();
+        return;
+      }
+    }
+  }
+
 
   // ---- podsumowanie Pociągu weselnego (osobny ekran, styl jak drawResults) ----
 
