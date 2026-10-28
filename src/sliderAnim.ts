@@ -36,6 +36,9 @@ const ANIMATED = new Set([
   "pan-mlody-bokserki",
   "pan-mlody-garnitur-1",
   "pan-mlody-garnitur-2",
+  // Tort weselny (pojedynki): slider ekranu wyzwań + podsumowanie wyniku
+  "pan-mlody-tort-glowa",
+  "pan-mlody-tort",
 ]);
 
 /** Czy dana postać jest animacją (a nie statycznym select-<id>.png). */

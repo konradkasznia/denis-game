@@ -241,9 +241,6 @@ const HIT_COINS: Rect = { x: 14, y: 22 + TOP_SAFE, w: 178, h: 62 };
 const DUEL_ICON: Rect = { x: HIT_GEAR.x - 14 - 62, y: HIT_GEAR.y, w: 62, h: 68 };
 const HITS_HEAD_COINS: Rect = { x: DUEL_ICON.x - 14 - HIT_COINS.w, y: HIT_COINS.y, w: HIT_COINS.w, h: HIT_COINS.h };
 // ekrany pojedynków
-const DUEL_BTN = (i: number): Rect => ({ x: MARGIN, y: 940 + i * 104, w: VW - MARGIN * 2, h: 88 });
-const DUEL_CIRC_Y = 790; // kółka „Twoje pojedynki" / „Ranking" na ekranie wyzwań
-const DUEL_CIRC_DX = 240;
 const DUEL_NICK_FIELD: Rect = { x: MARGIN, y: 360, w: VW - MARGIN * 2, h: 84 };
 const DUEL_NICK_GO: Rect = { x: MARGIN, y: 540, w: VW - MARGIN * 2, h: 96 };
 const DUEL_NICK_BACK: Rect = { x: MARGIN, y: 654, w: VW - MARGIN * 2, h: 88 };
@@ -1136,6 +1133,8 @@ export class Game {
 
   update(dt: number, _nowMs: number) {
     this.syncFields();
+    // stan pojedynków na ekranie głównym (mrugająca kropka) — co najwyżej raz na minutę
+    if (this.scene === "hits" && performance.now() - duelState.lastFetch > 60_000) void refreshDuels();
     // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
     // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
     const wantLoop = this.scene !== "play" && this.scene !== "train" && this.scene !== "tort";
@@ -9885,7 +9884,6 @@ export class Game {
   private tortGoAt = 0; // performance.now() startu gry po odliczaniu (0 = trwa ładowanie)
   private tortLead = 3;
   private static readonly TORT_AUDIO = "assets/songs/pan-mlody.mp3"; // tymczasowo, docelowo własny utwór
-  private tortPreviewRound: ReturnType<typeof createTortRound> | null = null;
   private tortRes: {
     mode: "challenge" | "answer";
     nick: string;
@@ -9947,6 +9945,13 @@ export class Game {
     ctx.globalAlpha = 1;
     const n = duelState.incoming.length + unseenDuelResults();
     if (n > 0) {
+      // mrugająca czerwona kropka: ktoś rzucił wyzwanie / odpowiedział na nasze
+      const ph = (performance.now() % 1000) / 1000;
+      ctx.fillStyle = `rgba(229,52,47,${(1 - ph) * 0.55})`;
+      ctx.beginPath();
+      ctx.arc(r.x + r.w - 2, r.y + 6, 15 + ph * 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.55 + 0.45 * Math.abs(Math.cos(ph * Math.PI));
       ctx.fillStyle = "#e5342f";
       ctx.beginPath();
       ctx.arc(r.x + r.w - 2, r.y + 6, 15, 0, Math.PI * 2);
@@ -9999,16 +10004,20 @@ export class Game {
       ctx.fill();
       ctx.restore();
     }
-    if (!this.tortPreviewRound) this.tortPreviewRound = createTortRound({ onFinish: () => {} });
-    const bob = Math.sin(performance.now() * 0.002) * 4;
-    this.tortPreviewRound.preview(ctx, VW / 2, 600 + bob, 0.85);
+    // przyciski dosunięte do dołu jak na głównym sliderze (HIT_GRAJ / HIT_RES) —
+    // postać zajmuje całą wysokość między tytułem a przyciskiem
+    const lift = this.extraH() - this.vdy;
+    const btn0: Rect = { ...HIT_GRAJ, y: HIT_GRAJ.y + lift };
+    const btn1: Rect = { x: MARGIN, y: HIT_RES.y + lift, w: VW - MARGIN * 2, h: HIT_RES.h };
+    this.drawDuelAnim(ctx, "pan-mlody-tort-glowa", { x: 0, y: 262, w: VW, h: btn0.y - 14 - 262 }, true);
 
     // dwa kółka: Twoje pojedynki (pulsuje przy nowym wyzwaniu / odpowiedzi) + Ranking
     const any = duelState.incoming.length > 0 || duelState.results.length > 0;
     const n = duelState.incoming.length;
     const fresh = n + unseenDuelResults();
-    const mine = { cx: VW / 2 - DUEL_CIRC_DX / 2, cy: DUEL_CIRC_Y };
-    const rank = { cx: VW / 2 + DUEL_CIRC_DX / 2, cy: DUEL_CIRC_Y };
+    const cy = btn0.y - 130; // po bokach postaci, nad przyciskiem
+    const mine = { cx: MARGIN + 70, cy };
+    const rank = { cx: VW - MARGIN - 70, cy };
     this.roundIconBtn(ctx, 0, "target", ["TWOJE", "POJEDYNKI"], !any, { ...mine, pulse: fresh > 0, badge: fresh });
     this.roundIconBtn(ctx, 0, "trophy", ["RANKING", ""], false, rank);
     const hit = (c: { cx: number; cy: number }): Rect => ({ x: c.cx - 80, y: c.cy - RES_CIRC_R - 10, w: 160, h: RES_CIRC_R * 2 + 80 });
@@ -10032,11 +10041,28 @@ export class Game {
       },
     });
 
-    this.duelBtn(ctx, DUEL_BTN(0), "RZUĆ WYZWANIE", "gold", () => {
+    this.duelBtn(ctx, btn0, "RZUĆ WYZWANIE", "gold", () => {
       this.duelNickMsg = "";
       this.scene = "duelNick";
     });
-    this.duelBtn(ctx, DUEL_BTN(1), "POWRÓT", "dark-gold", () => this.enterHits());
+    this.duelBtn(ctx, btn1, "POWRÓT", "dark-gold", () => this.enterHits());
+  }
+
+  /** Animacja Lottie (sliderAnim.ts) wpasowana w prostokąt: stoi na dole albo wyśrodkowana. */
+  private drawDuelAnim(ctx: CanvasRenderingContext2D, id: string, box: Rect, bottom = false) {
+    const frame = sliderAnimFrame(id, false);
+    const tb = sliderAnimBounds(id);
+    if (!frame || !tb || box.h <= 0) return;
+    let h = box.h;
+    let w = (h * tb.w) / tb.h;
+    if (w > box.w) {
+      w = box.w;
+      h = (w * tb.h) / tb.w;
+    }
+    const x = box.x + (box.w - w) / 2;
+    const y = bottom ? box.y + box.h - h : box.y + (box.h - h) / 2;
+    const k = w / tb.w;
+    ctx.drawImage(frame, x - tb.x * k, y - tb.y * k, frame.width * k, frame.height * k);
   }
 
   private drawDuelNick(ctx: CanvasRenderingContext2D) {
@@ -10171,6 +10197,7 @@ export class Game {
       wrapText("Twój wynik zobaczy dopiero po swojej grze. Wynik pojedynku znajdziesz w zakładce Twoje pojedynki.", 44).forEach((ln, i) =>
         text(ctx, ln, VW / 2, 450 + i * 30, { size: 20, weight: "700", color: "#e9d9c3" }),
       );
+      this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 530, w: VW, h: TORT_RES_BTN(0).y - 24 - 530 });
       this.duelBtn(ctx, TORT_RES_BTN(0), "TWOJE POJEDYNKI", "gold", () => {
         this.duelTab = "results";
         this.duelScroll = 0;
@@ -10184,6 +10211,7 @@ export class Game {
     text(ctx, verdict, VW / 2, 290, { size: 64, weight: "900", font: HEAD_FONT, color: col, shadows: HEAD_SHADOWS });
     text(ctx, `Ty: ${floors(r.floors)}`, VW / 2, 400, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
     text(ctx, `${r.nick}: ${floors(r.oppScore ?? 0)}`, VW / 2, 450, { size: 32, weight: "900", font: HEAD_FONT, color: "#e9d9c3" });
+    this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 490, w: VW, h: TORT_RES_BTN(0).y - 24 - 490 });
     this.duelBtn(ctx, TORT_RES_BTN(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
     this.duelBtn(ctx, TORT_RES_BTN(1), "TWOJE POJEDYNKI", "dark-gold", () => {
       this.duelTab = "results";
