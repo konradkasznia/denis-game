@@ -10212,7 +10212,7 @@ export class Game {
       this.duelBtn(ctx, B(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
       return;
     }
-    const verdict = r.result === "won" ? "WYGRAŁEŚ!" : r.result === "lost" ? "PRZEGRAŁEŚ" : "REMIS";
+    const verdict = r.result === "won" ? "WYGRANA!" : r.result === "lost" ? "PRZEGRANA" : "REMIS";
     const col = r.result === "won" ? "#7dffb0" : r.result === "lost" ? "#ff7a7a" : "#ffd24c";
     text(ctx, verdict, VW / 2, 290, { size: 64, weight: "900", font: HEAD_FONT, color: col, shadows: HEAD_SHADOWS });
     text(ctx, `Ty: ${floors(r.floors)}`, VW / 2, 400, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
