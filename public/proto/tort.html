@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Tort weselny</title>
+<style>
+/* jeden ekran gry: ciemna sala weselna, kanwa 9:16 wpisana w ekran */
+:root { --bg: #1a110a; --fg: #fff7ec; --muted: #c9b7a6; color-scheme: dark; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); box-sizing: border-box; overflow: hidden; touch-action: manipulation; font-family: system-ui, sans-serif; }
+#tc { display: block; height: calc(100% - 34px); max-height: 1280px; aspect-ratio: 720 / 1280; max-width: 100%; width: auto; border-radius: 14px; touch-action: none; }
+p { margin: 0; font-size: 13px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="tc" width="720" height="1280" aria-label="Gra Tort: stuknij, żeby położyć piętro tortu"></canvas>
+<p>Stuknij, żeby położyć piętro. Prototyp rundy do gry DENIS Impulsywni Live.</p>
+<script src="tort.js"></script>
+</body>
+</html>
