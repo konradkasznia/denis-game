@@ -9792,10 +9792,12 @@ export class Game {
 
   // ---- podsumowanie Pociągu weselnego (osobny ekran, styl jak drawResults) ----
 
-  /** Pozycje okrągłych przycisków: tabela + (opcjonalnie) zagraj ponownie. */
-  private trainResIcons(): { board: number; again: number | null } {
+  /** Układ przycisków podsumowania Pociągu: okrągła TABELA WYNIKÓW (wyżej, gdy
+   *  pod nią jest żółty CTA „ZAGRAJ PONOWNIE"), CTA i „WRÓĆ DO MENU". */
+  private trainResLayout(): { dy: number; cta: Rect | null } {
     const canAgain = trainFreeLeft() > 0 || coins() >= TRAIN_PLAY_COST;
-    return canAgain ? { board: 0.5, again: 1.5 } : { board: 1, again: null };
+    if (!canAgain) return { dy: 0, cta: null };
+    return { dy: -175, cta: { x: MARGIN, y: 968, w: VW - MARGIN * 2, h: 116 } };
   }
 
   private drawTrainResults(ctx: CanvasRenderingContext2D) {
@@ -9854,13 +9856,21 @@ export class Game {
     const fadeIn = clamp((now - this.resultsAt - 1200) / 400, 0, 1);
     ctx.save();
     ctx.globalAlpha = fadeIn;
-    const pos = this.trainResIcons();
-    this.roundIconBtn(ctx, pos.board, "trophy", ["TABELA", "WYNIKÓW"]);
-    if (pos.again != null) {
-      this.roundIconBtn(ctx, pos.again, "replay", ["ZAGRAJ", "PONOWNIE"]);
+    const lay = this.trainResLayout();
+    ctx.save();
+    ctx.translate(0, lay.dy);
+    this.roundIconBtn(ctx, 1, "trophy", ["TABELA", "WYNIKÓW"]);
+    ctx.restore();
+    if (lay.cta) {
+      // tylko w tej rundzie: „ZAGRAJ PONOWNIE" jako szeroki żółty CTA
       const free = trainFreeLeft();
-      const sub = free > 0 ? `(${trainFreeLeftText(free)})` : `(${TRAIN_PLAY_COST} monet)`;
-      text(ctx, sub, VW / 2 + (pos.again - 1) * RES_CIRC_DX, RES_CIRC_Y + RES_CIRC_R + 92, { size: 15, weight: "800", color: "#ffd867" });
+      this.styledBtn(ctx, lay.cta, "", "gold");
+      text(ctx, "ZAGRAJ PONOWNIE", VW / 2, lay.cta.y + 44, { size: 34, weight: "900", font: HEAD_FONT, color: "#4a2408" });
+      text(ctx, free > 0 ? `(${trainFreeLeftText(free)})` : `(${TRAIN_PLAY_COST} monet)`, VW / 2, lay.cta.y + 82, {
+        size: 19,
+        weight: "800",
+        color: "#6b3a10",
+      });
     }
     this.styledBtn(ctx, RES_MAIN, "WRÓĆ DO MENU", "dark-gold");
     ctx.restore();
@@ -9871,8 +9881,9 @@ export class Game {
       this.resultsAt = performance.now() - 1200; // pomiń animację
       return;
     }
-    const pos = this.trainResIcons();
-    if (inRect(resCircle(pos.board), x, y)) {
+    const lay = this.trainResLayout();
+    const board = resCircle(1);
+    if (inRect({ ...board, y: board.y + lay.dy }, x, y)) {
       uiSound("buttons");
       this.boardSongId = TRAIN_SONG;
       this.boardFrom = "trainResults";
@@ -9880,7 +9891,7 @@ export class Game {
       this.enterBoard();
       return;
     }
-    if (pos.again != null && inRect(resCircle(pos.again), x, y)) {
+    if (lay.cta && inRect(lay.cta, x, y)) {
       uiSound("buttons");
       void this.payTrain().then((ok) => {
         if (!ok || !this.train) return; // komunikat (brak monet / sieci) zostaje na tym ekranie
