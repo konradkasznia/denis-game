@@ -1771,6 +1771,7 @@ export class Game {
         break;
       case "train":
         this.train?.draw(ctx, performance.now(), -this.vdy, this.sh());
+        if (this.train?.isPlaying()) this.drawCountdownAt(ctx, Math.max(0, -this.trainTime()), this.trainLead);
         if (this.trainResult && performance.now() >= this.trainResultAt) {
           this.scene = "trainResults";
           this.resultsAt = performance.now();
@@ -3351,6 +3352,8 @@ export class Game {
 
   // ---- Pociąg weselny (runda 3, mini-gra) ----------------------------
   private train: ReturnType<typeof createTrainRound> | null = null;
+  private trainTime: () => number = () => 0;
+  private trainLead = 3;
   private static readonly TRAIN_AUDIO = "assets/songs/a-ty-teraz-tancz.mp3";
   private static readonly TRAIN_FALLBACK_SEC = 154; // długość „A Ty teraz tańcz!"
 
@@ -3406,13 +3409,16 @@ export class Game {
     const url = Game.TRAIN_AUDIO;
     let audioOk = false;
     let wallStart = 0;
+    const time = () => (audioOk ? this.audio.getSongTime() : (performance.now() - wallStart) / 1000);
+    this.trainTime = time;
     const round = createTrainRound({
       // ujemny czas = odliczanie 3-2-1 przed piosenką (jak w innych rundach)
-      time: () => (audioOk ? this.audio.getSongTime() : (performance.now() - wallStart) / 1000),
+      time,
       duration: () => (audioOk ? this.audio.trackDuration(url) : Game.TRAIN_FALLBACK_SEC),
       play: () => {
         // „3-2-1 + winyl", utwór rusza po odliczaniu (lead-in = długość klipu)
         const lead = this.audio.countdownSeconds();
+        this.trainLead = lead;
         this.audio.countdownCue();
         wallStart = performance.now() + lead * 1000;
         if (audioOk) this.audio.start({ id: TRAIN_SONG, audioUrl: url, notes: [], bpm: 120, bars: 1, startBar: 0, lanes: 4, title: "", artist: "", duration: Game.TRAIN_FALLBACK_SEC } as unknown as SongDef, lead);
@@ -9384,13 +9390,17 @@ export class Game {
   }
 
   private drawCountdown(ctx: CanvasRenderingContext2D) {
-    // Odliczanie 3-2-1 leci w STAŁYM tempie 1 s (jak zawsze). Klip 321.mp3 bywa
-    // dłuższy niż 3 s (winyl na końcu) — nadmiar `tail` doklejamy jako „hold" PO
-    // wybiciu „1", zanim ruszy gra, żeby nie było przeskoku nut.
     if (!this.rolling || this.paused) return;
-    const rel = Math.max(0, -this.songTime); // sekundy do startu gry
+    this.drawCountdownAt(ctx, Math.max(0, -this.songTime), this.rollSec);
+  }
+
+  /** Cyfry 3-2-1 (rundy, Pociąg, Tort). `rel` = sekundy do startu gry, `lead` =
+   *  długość klipu odliczania. Odliczanie leci w STAŁYM tempie 1 s (jak zawsze).
+   *  Klip 321.mp3 bywa dłuższy niż 3 s (winyl na końcu) — nadmiar `tail` doklejamy
+   *  jako „hold" PO wybiciu „1", zanim ruszy gra, żeby nie było przeskoku nut. */
+  private drawCountdownAt(ctx: CanvasRenderingContext2D, rel: number, lead: number) {
     if (rel <= 0.05) return;
-    const tail = Math.max(0, this.rollSec - 3);
+    const tail = Math.max(0, lead - 3);
     const cd = rel - tail; // 3 → 0 przez pierwsze 3 s
     if (cd > 3.05) return;
     const n = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1; // w fazie „hold" trzymamy „1"
@@ -10143,15 +10153,7 @@ export class Game {
       this.tortRound?.go();
       return;
     }
-    // jak drawCountdown: 3-2-1 w tempie 1 s, nadmiar klipu = „hold" na „1"
-    const cd = rel - Math.max(0, this.tortLead - 3);
-    if (cd > 3.05) return;
-    const n = cd > 0.05 ? Math.min(3, Math.ceil(cd)) : 1;
-    const f = cd > 0.05 ? n - cd : 0;
-    ctx.save();
-    ctx.globalAlpha = clamp(1 - f, 0.15, 1);
-    text(ctx, String(n), VW / 2, cy, { size: 150 + f * 50, weight: "800", color: "#fff7ec", glow: "#ffb457", glowBlur: 40 });
-    ctx.restore();
+    this.drawCountdownAt(ctx, rel, this.tortLead);
   }
 
   private async finishTort(round: ReturnType<typeof createTortRound>, floors: number) {

@@ -532,15 +532,7 @@ function frame(now) {
 function countdown(now) {
   const t = deps.time();
   if (t < 0) {
-    const n = Math.min(3, Math.ceil(-t));
-    const f = -t - Math.floor(-t); // 1 → 0 w ramach sekundy
-    const sc = 1 + (1 - f) * 0.25;
-    x.save(); x.translate(W / 2, BY + 7 * C); x.scale(sc, sc);
-    x.font = `900 190px ${HEAD_FONT}`; x.textAlign = "center"; x.textBaseline = "middle";
-    x.lineWidth = 14; x.strokeStyle = "rgba(40,20,0,0.75)"; x.strokeText(String(n), 0, 0);
-    const g = x.createLinearGradient(0, -90, 0, 90); g.addColorStop(0, "#ffe28a"); g.addColorStop(1, "#e6a92e");
-    x.fillStyle = g; x.fillText(String(n), 0, 0);
-    x.restore(); x.textBaseline = "alphabetic";
+    // cyfry 3-2-1 rysuje gra (Game.drawCountdownAt) — ten sam wygląd i tempo co w rundach
   } else if (waiting) {
     // pulsujące strzałki wokół Denisa — „ruszaj!"
     const h = snake[0], cx = px(h.c), cy = py(h.r) - 30, a = 0.5 + 0.5 * Math.sin(now * 0.008);
