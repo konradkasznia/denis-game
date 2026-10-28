@@ -9839,7 +9839,7 @@ export class Game {
 
     // liczba osób w pociągu (jak „123 456 PKT")
     const n = Math.round(r.len * eased);
-    text(ctx, `${n} ${osob(n).toUpperCase()} W POCIĄGU`, VW / 2, 540, { size: 50, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
+    text(ctx, `${n} ${osob(n).toUpperCase()} W POCIĄGU`, VW / 2, 512, { size: 50, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
 
     // monety: „Zdobyłeś X monet" + pigułka
     const label = `Zdobyłeś ${r.coins} ${monetyWord(r.coins)}`;
@@ -9848,9 +9848,10 @@ export class Game {
     const mw = ctx.measureText(label)?.width;
     const tw = typeof mw === "number" && mw > 0 ? mw : 240;
     ctx.restore();
-    this.drawCoinIcon(ctx, VW / 2 - tw / 2 - 20, 624, 13, now / 90);
-    text(ctx, label, VW / 2 + 14, 625, { size: 24, weight: "900", font: HEAD_FONT, color: r.coins > 0 ? "#ffd867" : "#c9bda9", shadows: HEAD_SHADOWS });
-    this.drawCoinPill(ctx, { ...HITS_HEAD_COINS, y: HITS_HEAD_COINS.y - this.vdy }, coins(), 0);
+    this.drawCoinIcon(ctx, VW / 2 - tw / 2 - 20, 582, 13, now / 90);
+    text(ctx, label, VW / 2 + 14, 583, { size: 24, weight: "900", font: HEAD_FONT, color: r.coins > 0 ? "#ffd867" : "#c9bda9", shadows: HEAD_SHADOWS });
+    // posiadane monety — pod „Zdobyłeś X monet" (nie w rogu, jak w innych rundach)
+    this.drawCoinPill(ctx, { ...HITS_HEAD_COINS, x: VW / 2 - HITS_HEAD_COINS.w / 2, y: 614 }, coins(), 0);
 
     if (reveal < 1) return;
     const fadeIn = clamp((now - this.resultsAt - 1200) / 400, 0, 1);
