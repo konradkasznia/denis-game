@@ -1138,7 +1138,7 @@ export class Game {
     this.syncFields();
     // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
     // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
-    const wantLoop = this.scene !== "play" && this.scene !== "train";
+    const wantLoop = this.scene !== "play" && this.scene !== "train" && this.scene !== "tort";
     if (wantLoop !== this.loopOn) {
       this.loopOn = wantLoop;
       if (wantLoop) this.audio.startLoop();
@@ -1964,7 +1964,7 @@ export class Game {
       this.audioKickPending = false;
       if (this.scene !== "play") {
         void this.audio.unlock().then(() => {
-          if (this.scene !== "play" && this.scene !== "train") this.audio.startLoop();
+          if (this.scene !== "play" && this.scene !== "train" && this.scene !== "tort") this.audio.startLoop();
         });
       }
     }
