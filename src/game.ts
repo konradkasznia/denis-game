@@ -10178,6 +10178,12 @@ export class Game {
   private drawTortResult(ctx: CanvasRenderingContext2D) {
     const r = this.tortRes;
     if (!r) return;
+    // przyciski dosunięte do dołu (ostatni kończy się tam, gdzie dolne przyciski
+    // głównego slidera) — postać nad nimi dostaje więcej miejsca
+    const nBtn = r.mode === "answer" && !r.error ? 3 : 2;
+    const bottom = HIT_RES.y + HIT_RES.h + this.extraH() - this.vdy;
+    const shift = bottom - (TORT_RES_BTN(nBtn - 1).y + TORT_RES_BTN(nBtn - 1).h);
+    const B = (i: number): Rect => ({ ...TORT_RES_BTN(i), y: TORT_RES_BTN(i).y + shift });
     this.duelHeader(ctx, "TORT WESELNY", r.mode === "challenge" ? "WYZWANIE" : "POJEDYNEK");
     const floors = (n: number) => `${n} ${n === 1 ? "piętro" : n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? "piętra" : "pięter"}`;
     if (r.pending) {
@@ -10188,7 +10194,7 @@ export class Game {
     if (r.error) {
       text(ctx, "Ułożyłeś " + floors(r.floors), VW / 2, 300, { size: 40, weight: "900", font: HEAD_FONT, color: "#fff7ec", shadows: HEAD_SHADOWS });
       wrapText(r.error, 44).forEach((ln, i) => text(ctx, ln, VW / 2, 400 + i * 30, { size: 21, weight: "800", color: "#ff7a7a" }));
-      this.duelBtn(ctx, TORT_RES_BTN(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+      this.duelBtn(ctx, B(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
       return;
     }
     if (r.mode === "challenge") {
@@ -10197,13 +10203,13 @@ export class Game {
       wrapText("Twój wynik zobaczy dopiero po swojej grze. Wynik pojedynku znajdziesz w zakładce Twoje pojedynki.", 44).forEach((ln, i) =>
         text(ctx, ln, VW / 2, 450 + i * 30, { size: 20, weight: "700", color: "#e9d9c3" }),
       );
-      this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 530, w: VW, h: TORT_RES_BTN(0).y - 24 - 530 });
-      this.duelBtn(ctx, TORT_RES_BTN(0), "TWOJE POJEDYNKI", "gold", () => {
+      this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 530, w: VW, h: B(0).y - 14 - 530 });
+      this.duelBtn(ctx, B(0), "TWOJE POJEDYNKI", "gold", () => {
         this.duelTab = "results";
         this.duelScroll = 0;
         this.scene = "duelList";
       });
-      this.duelBtn(ctx, TORT_RES_BTN(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+      this.duelBtn(ctx, B(1), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
       return;
     }
     const verdict = r.result === "won" ? "WYGRAŁEŚ!" : r.result === "lost" ? "PRZEGRAŁEŚ" : "REMIS";
@@ -10211,14 +10217,14 @@ export class Game {
     text(ctx, verdict, VW / 2, 290, { size: 64, weight: "900", font: HEAD_FONT, color: col, shadows: HEAD_SHADOWS });
     text(ctx, `Ty: ${floors(r.floors)}`, VW / 2, 400, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
     text(ctx, `${r.nick}: ${floors(r.oppScore ?? 0)}`, VW / 2, 450, { size: 32, weight: "900", font: HEAD_FONT, color: "#e9d9c3" });
-    this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 490, w: VW, h: TORT_RES_BTN(0).y - 24 - 490 });
-    this.duelBtn(ctx, TORT_RES_BTN(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
-    this.duelBtn(ctx, TORT_RES_BTN(1), "TWOJE POJEDYNKI", "dark-gold", () => {
+    this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 490, w: VW, h: B(0).y - 14 - 490 });
+    this.duelBtn(ctx, B(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
+    this.duelBtn(ctx, B(1), "TWOJE POJEDYNKI", "dark-gold", () => {
       this.duelTab = "results";
       this.duelScroll = 0;
       this.scene = "duelList";
     });
-    this.duelBtn(ctx, TORT_RES_BTN(2), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
+    this.duelBtn(ctx, B(2), "WRÓĆ", "dark-gold", () => this.enterDuelHub());
   }
 
   private duelTabs(ctx: CanvasRenderingContext2D, a: string, b: string, first: boolean, onA: () => void, onB: () => void) {
