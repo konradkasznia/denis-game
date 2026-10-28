@@ -36,7 +36,7 @@ export interface TrainDeps {
 }
 
 export function createTrainRound(deps: TrainDeps) {
-const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 22, BY = 186;
+const W = 720, H = 1280, C = 48, COLS = 15, ROWS = 20, BY = 186; // plansza kończy się na 1146 — widoczna też w Safari z paskami
 const HEAD_FONT = '"Roboto","Trebuchet MS","Segoe UI",system-ui,sans-serif';
 let x = null; // kontekst canvasu podawany w draw()
 let vTop = 0, vH = H; // widoczny obszar (wyższe telefony: sala sięga dalej w górę i w dół)
@@ -362,7 +362,9 @@ function hall(now) {
 }
 
 // ---- interfejs ----
-const DP = { cx: W / 2, cy: 1110, s: 104, d: 108 };
+// środek krzyżaka nad dolnym marginesem: w Safari paski przeglądarki potrafią
+// zabrać do ~90 jednostek z dołu (main.ts: TOLERANCJA), więc dół krzyżaka ≤ ~1190
+const DP = { cx: W / 2, cy: 1020, s: 104, d: 108 };
 const PAD = [
   { k: [0, -1], x: DP.cx, y: DP.cy - DP.d, rot: 0 },
   { k: [0, 1], x: DP.cx, y: DP.cy + DP.d, rot: Math.PI },
