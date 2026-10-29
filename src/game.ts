@@ -3852,7 +3852,7 @@ export class Game {
     if (this.obstacleModal || this.tutModal) return true; // płynny podgląd w pętli
     // modale cytryny/wesela i bujanie kart garniturów celowo NIE wymuszają 60 kl./s —
     // ~30 kl./s menu w zupełności wystarcza dla tych łagodnych animacji (bateria)
-    if (this.unlockBusy || this.authBusy || this.changePwBusy || this.fx.length) return true; // loader + konfetti
+    if (this.unlockBusy || this.authBusy || this.changePwBusy || this.trainPayBusy || this.duelBusy || this.envBusy || this.suitBusy || this.fx.length) return true; // loader + konfetti
     return false;
   }
 
@@ -7459,7 +7459,9 @@ export class Game {
     } else if (meta.id === WEDDING_AFTER && !unlocked) {
       this.grayBtn(ctx, graj, "WŁÓŻ WIĘCEJ DO KOPERTY");
     } else if (meta.id === TRAIN_SONG && unlocked) {
-      this.styledBtn(ctx, graj, trainPlayLabel(), "gold");
+      // opłata za grę idzie przez serwer → loader na przycisku, zanim ruszy runda
+      if (this.trainPayBusy) this.drawBtnLoader(ctx, graj);
+      else this.styledBtn(ctx, graj, trainPlayLabel(), "gold");
     } else if (lemonGated(idx)) {
       this.grayBtn(ctx, graj, `ZBIERZ CYTRYNY I ${fmtCoinsFull(coinPrice)} MONET`);
     } else if (coinPrice > 0) {
@@ -10235,7 +10237,8 @@ export class Game {
     text(ctx, `Ty: ${floors(r.floors)}`, VW / 2, 400, { size: 32, weight: "900", font: HEAD_FONT, color: "#fff7ec" });
     text(ctx, `${r.nick}: ${floors(r.oppScore ?? 0)}`, VW / 2, 450, { size: 32, weight: "900", font: HEAD_FONT, color: "#e9d9c3" });
     this.drawDuelAnim(ctx, "pan-mlody-tort", { x: 0, y: 490, w: VW, h: B(0).y - 14 - 490 });
-    this.duelBtn(ctx, B(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
+    if (this.duelBusy) this.drawBtnLoader(ctx, B(0));
+    else this.duelBtn(ctx, B(0), "REWANŻ", "gold", () => void this.startChallenge(r.nick));
     this.duelBtn(ctx, B(1), "TWOJE POJEDYNKI", "dark-gold", () => {
       this.duelTab = "results";
       this.duelScroll = 0;
@@ -10477,7 +10480,9 @@ export class Game {
     ctx.translate(0, lay.dy);
     this.roundIconBtn(ctx, 1, "trophy", ["TABELA", "WYNIKÓW"]);
     ctx.restore();
-    if (lay.cta) {
+    if (lay.cta && this.trainPayBusy) {
+      this.drawBtnLoader(ctx, lay.cta);
+    } else if (lay.cta) {
       // tylko w tej rundzie: „ZAGRAJ PONOWNIE" jako szeroki żółty CTA
       const free = trainFreeLeft();
       this.styledBtn(ctx, lay.cta, "", "gold");
