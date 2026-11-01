@@ -95,14 +95,14 @@ export async function duelsHandler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === "GET" && view === "rank") {
     if (!(await limitReq(req, "duels-rank", 60, 60))) return json(res, 429, { error: "Zbyt wiele zapytań." });
-    // bilans = zwycięstwa − porażki; remis nie liczy się do żadnego
+    // bilans = zwycięstwa − porażki; remisy liczone osobno (nie wpływają na bilans)
     const r = await c.execute({
       sql: `WITH s AS (
-              SELECT a_id AS uid, (a_score > b_score) AS w, (a_score < b_score) AS l, a_score AS sc FROM duels WHERE status = 'done' AND game = ?
+              SELECT a_id AS uid, (a_score > b_score) AS w, (a_score < b_score) AS l, (a_score = b_score) AS d, a_score AS sc FROM duels WHERE status = 'done' AND game = ?
               UNION ALL
-              SELECT b_id, (b_score > a_score), (b_score < a_score), b_score FROM duels WHERE status = 'done' AND game = ?
+              SELECT b_id, (b_score > a_score), (b_score < a_score), (b_score = a_score), b_score FROM duels WHERE status = 'done' AND game = ?
             )
-            SELECT s.uid, ${NAME.replace(/nick|login/g, (m) => "u." + m)} AS name, SUM(s.w) AS wins, SUM(s.l) AS losses, MAX(s.sc) AS best
+            SELECT s.uid, ${NAME.replace(/nick|login/g, (m) => "u." + m)} AS name, SUM(s.w) AS wins, SUM(s.l) AS losses, SUM(s.d) AS draws, MAX(s.sc) AS best
             FROM s JOIN users u ON u.id = s.uid
             GROUP BY s.uid
             ORDER BY (SUM(s.w) - SUM(s.l)) DESC, SUM(s.w) DESC, MAX(s.sc) DESC, s.uid ASC
@@ -115,6 +115,7 @@ export async function duelsHandler(req: VercelRequest, res: VercelResponse) {
       nick: String(row.name || "Gracz"),
       wins: Number(row.wins),
       losses: Number(row.losses),
+      draws: Number(row.draws ?? 0),
       best: Number(row.best),
       me: me ? Number(row.uid) === me.id : false,
     }));
@@ -202,8 +203,12 @@ export async function duelsHandler(req: VercelRequest, res: VercelResponse) {
     const oppScore = Number(row.a_score);
     const result = score > oppScore ? "won" : score < oppScore ? "lost" : "draw";
     const me = u.nick || u.login;
-    const forA = result === "won" ? "przegrałeś" : result === "lost" ? "wygrałeś" : "jest remis";
-    await push(Number(row.a_id), "🎂 Pojedynek rozstrzygnięty", `${me} ułożył(a) ${score} pięter, Ty ${oppScore}: ${forA}!`);
+    if (result === "draw") {
+      await push(Number(row.a_id), "🤝 Pojedynek zakończony remisem", `${me} ułożył(a) ${score} pięter, tyle samo co Ty. Remis!`);
+    } else {
+      const forA = result === "won" ? "przegrałeś" : "wygrałeś";
+      await push(Number(row.a_id), "🎂 Pojedynek rozstrzygnięty", `${me} ułożył(a) ${score} pięter, Ty ${oppScore}: ${forA}!`);
+    }
     return json(res, 200, { ok: true, myScore: score, oppScore, result });
   }
 

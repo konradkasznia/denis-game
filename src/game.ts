@@ -10358,8 +10358,9 @@ export class Game {
     this.duelHeader(ctx, "RANKING POJEDYNKÓW", "TORT WESELNY");
     const cols = [
       { label: "GRACZ", x: MARGIN + 54, align: "left" as const },
-      { label: "W", x: 420, align: "center" as const },
-      { label: "P", x: 482, align: "center" as const },
+      { label: "W", x: 388, align: "center" as const },
+      { label: "R", x: 440, align: "center" as const },
+      { label: "P", x: 492, align: "center" as const },
       { label: "BILANS", x: 562, align: "center" as const },
       { label: "PIĘTRO", x: VW - MARGIN - 6, align: "right" as const },
     ];
@@ -10388,9 +10389,10 @@ export class Game {
       text(ctx, String(r.rank), MARGIN + 8, y, { size: 20, weight: "800", align: "left", color: r.rank <= 3 ? "#ffd24c" : "#9a8c7e" });
       text(ctx, r.nick.length > 13 ? r.nick.slice(0, 12) + "…" : r.nick, cols[0].x, y, { size: 20, weight: "800", align: "left", color: col });
       text(ctx, String(r.wins), cols[1].x, y, { size: 20, weight: "800", color: "#7dffb0" });
-      text(ctx, String(r.losses), cols[2].x, y, { size: 20, weight: "800", color: "#ff9a9a" });
-      text(ctx, bal > 0 ? `+${bal}` : String(bal), cols[3].x, y, { size: 20, weight: "900", color: col });
-      text(ctx, String(r.best), cols[4].x, y, { size: 20, weight: "800", align: "right", color: col });
+      text(ctx, String(r.draws ?? 0), cols[2].x, y, { size: 20, weight: "800", color: "#ffd24c" });
+      text(ctx, String(r.losses), cols[3].x, y, { size: 20, weight: "800", color: "#ff9a9a" });
+      text(ctx, bal > 0 ? `+${bal}` : String(bal), cols[4].x, y, { size: 20, weight: "900", color: col });
+      text(ctx, String(r.best), cols[5].x, y, { size: 20, weight: "800", align: "right", color: col });
     });
     ctx.restore();
     this.duelBtn(ctx, BOARD_BACK, "POWRÓT", "dark-gold", () => this.duelBack());

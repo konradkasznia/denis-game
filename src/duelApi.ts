@@ -22,6 +22,7 @@ export interface DuelRankRow {
   nick: string;
   wins: number;
   losses: number;
+  draws?: number; // starszy serwer nie zwraca
   best: number;
   me: boolean;
 }
