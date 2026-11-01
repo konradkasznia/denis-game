@@ -167,6 +167,38 @@ function brideHead(cx, cy, s) {
   x.fillStyle = "#b8404e"; x.beginPath(); x.moveTo(cx - 8 * s, cy + 21 * s); x.quadraticCurveTo(cx, cy + 30 * s, cx + 8 * s, cy + 21 * s); x.closePath(); x.fill();
   x.fillStyle = "#fff"; rr2(cx - 6 * s, cy + 21 * s, 12 * s, 3 * s, 1.5 * s); x.fill();
 }
+/** Różowa patera (talerz + nóżka + stopka) pod tortem; z `table` także drewniany stół. */
+function stand(table) {
+  const P = BASE_Y + TH, cx = W / 2;
+  if (table) {
+    const T0 = P + 34, T1 = P + 132;
+    const tg = x.createLinearGradient(0, T0, 0, T1); tg.addColorStop(0, "#4a2a17"); tg.addColorStop(0.35, "#6e4025"); tg.addColorStop(1, "#8a5532");
+    x.fillStyle = tg; x.fillRect(-10, T0, W + 20, T1 - T0);
+    x.strokeStyle = "rgba(255,210,160,0.06)"; x.lineWidth = 2;
+    for (let k = 0; k < 5; k++) { const yy = T0 + 14 + k * 19; x.beginPath(); x.moveTo(0, yy); x.bezierCurveTo(W * 0.3, yy - 4, W * 0.6, yy + 5, W, yy - 2); x.stroke(); }
+    x.fillStyle = "rgba(255,220,170,0.18)"; x.fillRect(-10, T1 - 3, W + 20, 3);
+    const fg = x.createLinearGradient(0, T1, 0, T1 + 34); fg.addColorStop(0, "#5a3219"); fg.addColorStop(1, "#3a1f10");
+    x.fillStyle = fg; x.fillRect(-10, T1, W + 20, 34);
+    const sg = x.createLinearGradient(0, T1 + 34, 0, T1 + 110); sg.addColorStop(0, "rgba(10,4,2,0.55)"); sg.addColorStop(1, "rgba(10,4,2,0)");
+    x.fillStyle = sg; x.fillRect(-10, T1 + 34, W + 20, 76);
+    const sh = x.createRadialGradient(cx, P + 100, 0, cx, P + 100, 190); sh.addColorStop(0, "rgba(20,8,4,0.5)"); sh.addColorStop(1, "rgba(20,8,4,0)");
+    x.save(); x.translate(cx, P + 100); x.scale(1, 0.22); x.translate(-cx, -(P + 100)); x.fillStyle = sh; x.beginPath(); x.arc(cx, P + 100, 190, 0, 7); x.fill(); x.restore();
+  }
+  // stopka
+  x.fillStyle = "#c97894"; x.beginPath(); x.ellipse(cx, P + 98, 104, 15, 0, 0, 7); x.fill();
+  x.fillStyle = "#f2b3c8"; x.beginPath(); x.ellipse(cx, P + 92, 104, 15, 0, 0, 7); x.fill();
+  x.fillStyle = "rgba(255,255,255,0.35)"; x.beginPath(); x.ellipse(cx - 18, P + 88, 60, 5, 0, 0, 7); x.fill();
+  // nóżka (wcięta w talii)
+  const ng = x.createLinearGradient(cx - 44, 0, cx + 44, 0); ng.addColorStop(0, "#d98aa5"); ng.addColorStop(0.4, "#f7c6d6"); ng.addColorStop(1, "#d07f9b");
+  x.fillStyle = ng; x.beginPath();
+  x.moveTo(cx - 46, P + 14); x.bezierCurveTo(cx - 16, P + 34, cx - 16, P + 58, cx - 60, P + 90);
+  x.lineTo(cx + 60, P + 90); x.bezierCurveTo(cx + 16, P + 58, cx + 16, P + 34, cx + 46, P + 14); x.closePath(); x.fill();
+  // talerz
+  x.fillStyle = "#cf7f9b"; rr(cx - 244, P - 2, 488, 22, 11); x.fill();
+  const pg = x.createLinearGradient(cx - 244, 0, cx + 244, 0); pg.addColorStop(0, "#efb0c5"); pg.addColorStop(0.35, "#ffd9e5"); pg.addColorStop(1, "#eba7be");
+  x.fillStyle = pg; rr(cx - 244, P - 6, 488, 18, 9); x.fill();
+  x.fillStyle = "rgba(255,255,255,0.45)"; rr(cx - 222, P - 4, 270, 4, 2); x.fill();
+}
 function topper(cx, y) {
   const s = 0.9;
   body(cx - 30, y, s, false);
@@ -185,9 +217,7 @@ function frame(now) {
   cam += (camT - cam) * Math.min(1, dt * 6);
   backdrop(now, dt, cam);
   x.save(); x.translate(0, cam);
-  x.fillStyle = "#fffaf0"; rr(40, BASE_Y + TH, W - 80, 260, 16); x.fill();
-  x.fillStyle = "#f3c6d6"; rr(40, BASE_Y + TH, W - 80, 26, 10); x.fill();
-  x.fillStyle = "#d9d2c4"; rr(110, BASE_Y + TH - 8, 500, 16, 8); x.fill();
+  stand(true);
   tiers.forEach((t, i) => tier(t, BASE_Y - i * TH));
   if (state === "play" || state === "ready") tier(cur, BASE_Y - tiers.length * TH);
   if (state === "over") topper(tiers[tiers.length - 1].x + tiers[tiers.length - 1].w / 2, BASE_Y - (tiers.length - 1) * TH);
@@ -215,7 +245,7 @@ return {
   preview(ctx, cx, baseY, scale) {
     x = ctx; x.save(); x.translate(cx, baseY); x.scale(scale, scale); x.translate(-360, -BASE_Y);
     const demo = [{ x: 150, w: 420, c: 0 }, { x: 190, w: 340, c: 1 }, { x: 230, w: 260, c: 2 }, { x: 265, w: 190, c: 3 }];
-    x.fillStyle = "#d9d2c4"; rr(110, BASE_Y + TH - 8, 500, 16, 8); x.fill();
+    stand(false);
     demo.forEach((t, i) => tier(t, BASE_Y - i * TH));
     topper(360, BASE_Y - (demo.length - 1) * TH);
     x.restore();
