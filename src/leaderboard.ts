@@ -175,7 +175,10 @@ export function submitScore(songId: string, score: number, stars = 0): number {
       /* ignore */
     }
   }
-  void postScore(songId, Math.max(score, prev), stars);
+  // wynik TEJ rundy, nie rekord: serwer sam trzyma maksimum w rankingu ogólnym,
+  // a miesięczny ma pokazywać najlepszy wynik z bieżącego miesiąca (wysyłanie
+  // rekordu wpisywało stary wynik do nowego miesiąca i liczyło od niego monety)
+  void postScore(songId, score, stars);
   return rankOf(songId, "all");
 }
 

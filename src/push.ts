@@ -25,7 +25,8 @@ type AnyOS = {
   Notifications: {
     requestPermission: (fallbackToSettings: boolean) => Promise<boolean>;
     getPermissionAsync: () => Promise<boolean>;
-    addEventListener: (ev: "permissionChange", cb: (granted: boolean) => void) => void;
+    addEventListener(ev: "permissionChange", cb: (granted: boolean) => void): void;
+    addEventListener(ev: "foregroundWillDisplay" | "click", cb: (e: unknown) => void): void;
   };
   User: {
     addTag: (k: string, v: string) => void;
@@ -36,6 +37,13 @@ type AnyOS = {
 
 let OS: AnyOS | null = null;
 let initTried = false;
+let onPush: (() => void) | null = null;
+
+/** Wołane, gdy przyjdzie powiadomienie przy otwartej apce albo gracz w nie stuknie
+ *  (np. nowe wyzwanie na pojedynek → odśwież stan bez czekania na odpytywanie). */
+export function onPushReceived(cb: () => void): void {
+  onPush = cb;
+}
 
 function appId(): string {
   try {
@@ -60,6 +68,8 @@ async function os(): Promise<AnyOS | null> {
     const mod = (await import("onesignal-cordova-plugin")) as unknown as { default: AnyOS };
     OS = mod.default;
     OS.initialize(appId());
+    OS.Notifications.addEventListener("foregroundWillDisplay", () => onPush?.());
+    OS.Notifications.addEventListener("click", () => onPush?.());
     // system OFF (np. user cofnął zgodę w Ustawieniach) -> wyłączamy też w apce
     OS.Notifications.addEventListener("permissionChange", (granted) => {
       if (!granted) {

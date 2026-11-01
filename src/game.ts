@@ -53,7 +53,7 @@ import { answerDuel, checkDuelNick, createDuel, declineDuel, duelState, markDuel
 import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainFreeLeftText, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
 import { registerUiAudio, uiSound } from "./uisfx.ts";
-import { disablePush, enablePush, initPush, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
+import { disablePush, enablePush, initPush, onPushReceived, pushAvailable, pushLogin, pushLogout, pushOptedInSync, syncPushState } from "./push.ts";
 import { FieldOverlay, type FieldSpec } from "./fieldOverlay.ts";
 import { showDoc } from "./docOverlay.ts";
 import {
@@ -1010,6 +1010,7 @@ export class Game {
         1000,
       );
     void this.syncSession(); // sprawdź sesję na serwerze
+    onPushReceived(() => void refreshDuels(true)); // wyzwanie/wynik pojedynku od razu w UI
     void initPush(); // OneSignal (natywnie) + dosynchronizuj zgodę na powiadomienia
     void checkForUpdate(APP_VERSION).then((info) => {
       this.updateInfo = info; // modal pokaże się, gdy dojdziemy do bezpiecznego momentu — patrz render()
@@ -1133,8 +1134,10 @@ export class Game {
 
   update(dt: number, _nowMs: number) {
     this.syncFields();
-    // stan pojedynków na ekranie głównym (mrugająca kropka) — co najwyżej raz na minutę
-    if (this.scene === "hits" && performance.now() - duelState.lastFetch > 60_000) void refreshDuels();
+    // stan pojedynków (czerwona kropka, lista wyzwań) — odpytywanie co ~20 s na ekranach
+    // menu; push przy otwartej apce i powrót z tła odświeżają od razu (onPushReceived / onAppForeground)
+    if ((this.scene === "hits" || this.scene === "duel" || this.scene === "duelList") && performance.now() - duelState.lastFetch > 20_000)
+      void refreshDuels();
     // muzyka tła menu — gra wszędzie poza rozgrywką: logowanie, rejestracja,
     // karuzela, nagrody, tabela wyników, ustawienia, ekran wyników rundy
     const wantLoop = this.scene !== "play" && this.scene !== "train" && this.scene !== "tort";
@@ -2446,6 +2449,7 @@ export class Game {
     this.audioKickPending = true;
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
+    void refreshDuels(true); // w tle mogło przyjść wyzwanie
   }
 
   /** Prośba o zgodę na powiadomienia — celowo BEZ ruszania dźwięku.
