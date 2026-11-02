@@ -15,7 +15,7 @@ import { allow, json } from "./_lib/util.js";
 // Musi zgadzać się z APP_VERSION w src/game.ts w chwili wydania. Zostaw RÓWNE
 // bieżącej wersji apki, dopóki nie ma czego ogłaszać — inaczej modal
 // "aktualizacja dostępna" pokaże się wszystkim bez faktycznej nowej wersji.
-const VERSION = "1.0.1";
+const VERSION = "1.0.5";
 
 const MESSAGE =
   "Dostępna jest nowa wersja gry. Uaktualnij! Jeśli przycisk nie zadziała, otwórz App Store lub Sklep Google Play i zaktualizuj grę.";
@@ -25,7 +25,7 @@ const MESSAGE =
 // Zasada: podbijamy przy KAŻDYM wydaniu z nowymi rundami — ale dopiero gdy ta
 // wersja jest NAPRAWDĘ dostępna w danym sklepie (iOS i Android wychodzą osobno,
 // dlatego osobne progi). Działa w apkach od 1.0.1 (1.0 zna tylko miękki modal).
-const MIN_VERSION = { ios: "1.0", android: "1.0" };
+const MIN_VERSION = { ios: "1.0.5", android: "1.0.5" };
 
 const URLS = {
   android: "https://play.google.com/store/apps/details?id=pl.impulsywni.denis",
