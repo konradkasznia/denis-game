@@ -8196,7 +8196,8 @@ export class Game {
       const lit = clamp(
         this.lanePress[l] +
           (this.held[l] ? 0.9 : 0) +
-          clamp(1 - (this.songTime - this.laneFlash[l]) / 0.14, 0, 1),
+          // przy odliczaniu songTime < 0, więc bez warunku klawisze świeciłyby na biało
+          (this.songTime >= this.laneFlash[l] ? clamp(1 - (this.songTime - this.laneFlash[l]) / 0.14, 0, 1) : 0),
         0,
         1,
       );
