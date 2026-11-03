@@ -49,7 +49,9 @@ export async function refreshDuels(force = false): Promise<void> {
     duelState.results = r.results || [];
     duelState.loaded = true;
   } catch {
-    /* offline — zostaje ostatnia lista */
+    // offline / sieć jeszcze nie wstała po powrocie z tła (iOS): zostaje ostatnia
+    // lista, ale ponawiamy za ~3 s zamiast czekać pełne 20 s
+    duelState.lastFetch = performance.now() - 17_000;
   }
 }
 

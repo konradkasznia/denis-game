@@ -2450,6 +2450,8 @@ export class Game {
     if (this.scene !== "play") void this.audio.resumePlayback();
     void syncPushState(); // user mógł cofnąć zgodę na powiadomienia w Ustawieniach
     void refreshDuels(true); // w tle mogło przyjść wyzwanie
+    // pierwszy fetch tuż po wybudzeniu bywa za wcześnie (sesja/sieć), więc drugi chwilę później
+    setTimeout(() => void refreshDuels(true), 2500);
   }
 
   /** Prośba o zgodę na powiadomienia — celowo BEZ ruszania dźwięku.
