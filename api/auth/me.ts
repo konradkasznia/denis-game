@@ -1,15 +1,48 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db, ensureSchema } from "../_lib/db.js";
 import { limitReq } from "../_lib/ratelimit.js";
-import { allow, json, sessionUser } from "../_lib/util.js";
+import { createHmac } from "node:crypto";
+import { allow, hashToken, json, safeEqual, sessionUser } from "../_lib/util.js";
+import { PROTO_FOTOGRAF_JS } from "../_lib/protoFotograf.js";
+
+const PROTO_LOGINS = ["konrad", "denisimpulsywni"];
+const PROTO_TICKET_MS = 60_000;
+// klucz bilecików wyprowadzony z sekretu bazy; sam sekret nigdy nie opuszcza serwera
+const protoKey = () => hashToken("proto-fotograf|" + (process.env.TURSO_AUTH_TOKEN || ""));
+function protoTicket(userId: number): string {
+  const payload = `${userId}.${Date.now() + PROTO_TICKET_MS}`;
+  return `${payload}.${createHmac("sha256", protoKey()).update(payload).digest("hex")}`;
+}
+function protoTicketOk(ticket: string): boolean {
+  const m = /^(\d+)\.(\d+)\.([0-9a-f]{64})$/.exec(ticket);
+  if (!m || Number(m[2]) < Date.now()) return false;
+  return safeEqual(m[3], createHmac("sha256", protoKey()).update(`${m[1]}.${m[2]}`).digest("hex"));
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!allow(req, res, ["GET"])) return;
   try {
     await ensureSchema();
     if (!(await limitReq(req, "me", 120, 60))) return json(res, 429, { error: "Zbyt wiele zapytań." });
+
+    // prototyp rundy „Fotograf weselny" (public/proto/fotograf.html), krok 2:
+    // <script src> nie wyśle nagłówka z tokenem, więc wpuszczamy go po bilecie
+    if (req.query.proto === "fotograf") {
+      if (!protoTicketOk(String(req.query.ticket || ""))) return json(res, 403, { error: "Brak dostępu." });
+      res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.status(200).send(PROTO_FOTOGRAF_JS);
+    }
+
     const u = await sessionUser(req);
     if (!u) return json(res, 401, { error: "Brak sesji." });
+
+    // krok 1: zalogowany gracz z listy dostaje bilet ważny minutę
+    if (req.query.proto === "fotograf-ticket") {
+      if (!PROTO_LOGINS.includes(String(u.login || "").trim().toLowerCase())) return json(res, 403, { error: "Brak dostępu." });
+      res.setHeader("Cache-Control", "private, no-store");
+      return json(res, 200, { ticket: protoTicket(u.id) });
+    }
 
     // postęp gracza (wynik + gwiazdki per utwór) — klient odtwarza z tego
     // odblokowane poziomy, gdy lokalny localStorage zostanie wyczyszczony
