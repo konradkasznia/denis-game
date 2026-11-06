@@ -119,6 +119,15 @@ export const SONGS: SongMeta[] = [
     inviteOnly: true,
     hidden: true, // na razie schowana (premiera później)
   },
+  {
+    // mini-gra „Fotograf weselny" (src/fotograf.ts) — na razie tylko konta testowe
+    id: "fotograf-weselny",
+    title: "Fotograf weselny",
+    artist: "Denis",
+    accent: "#f2c45a",
+    playable: true,
+    devOnly: true,
+  },
 ];
 
 /** Czy runda ma się w ogóle pokazywać na karuzeli temu graczowi. */

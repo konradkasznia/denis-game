@@ -49,6 +49,7 @@ import { api, ApiError, backendReachable } from "./net.ts";
 import { createTrainRound, type TrainResult } from "./train.ts";
 import { encodeTrain, formatTrain, osob, TRAIN_SONG, trainStars } from "./trainScore.ts";
 import { createTortRound } from "./tort.ts";
+import { FOTO_SONG, fotografStill, openFotograf } from "./fotograf.ts";
 import { answerDuel, checkDuelNick, createDuel, declineDuel, duelState, markDuelSeen, refreshDuelRank, refreshDuels, unseenDuelResults } from "./duelApi.ts";
 import { applyServerTrainPlays, markTrainTutSeen, payTrainPlay, TRAIN_PLAY_COST, trainFreeLeft, trainFreeLeftText, trainPlayLabel, trainTutSeen } from "./trainPlays.ts";
 import { POLL_NEXT, POLL_NEXT_OPTIONS, submitVote, syncVoted, votedChoice } from "./poll.ts";
@@ -3391,6 +3392,23 @@ export class Game {
     }
   }
 
+/** Fotograf weselny: runda jako nakładka nad karuzelą (src/fotograf.ts). */
+  private fotoOpen = false;
+  private startFoto() {
+    if (this.fotoOpen) return;
+    this.fotoOpen = true;
+    markDiscovered(FOTO_SONG);
+    openFotograf({
+      onClose: () => {
+        this.fotoOpen = false;
+      },
+      onFinish: (_score, stars) => {
+        recordStars(FOTO_SONG, stars);
+        markCompleted(FOTO_SONG);
+      },
+    });
+  }
+
   private async startTrain() {
     this.soundModal = false;
     this.healthModal = false;
@@ -3467,6 +3485,7 @@ export class Game {
 
   private async startPlay() {
     if (this.trackId === TRAIN_SONG) return this.startTrain();
+    if (this.trackId === FOTO_SONG) return this.startFoto();
     if (this.preparing) return;
     this.soundModal = false;
     this.healthModal = false;
@@ -7530,6 +7549,25 @@ export class Game {
     // już nie ma); zablokowany poziom = ta sama animacja w odcieniach szarości.
     // Obrys z pierwszej klatki dopasowuje postać tak jak dawny przycięty PNG;
     // elementy wychodzące poza obrys (dym, ręka) mogą wystawać.
+    // Fotograf weselny: zamiast postaci stopklatka sali (karta jak polaroid)
+    if (meta.id === FOTO_SONG) {
+      const img = fotografStill();
+      const h = Math.min(box.h - 20, (VW * 0.78) * (img.height / img.width));
+      const w = h * (img.width / img.height);
+      const r: Rect = { x: VW / 2 - w / 2, y: box.y + (box.h - h) / 2, w, h };
+      this.charRect = r;
+      ctx.save();
+      ctx.translate(r.x + r.w / 2, r.y + r.h / 2);
+      ctx.rotate(-0.03);
+      ctx.fillStyle = "#fbf6ee";
+      ctx.shadowColor = "rgba(0,0,0,.5)";
+      ctx.shadowBlur = 24;
+      ctx.fillRect(-w / 2 - 12, -h / 2 - 12, w + 24, h + 24);
+      ctx.shadowBlur = 0;
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+      return;
+    }
     const animId = meta.id;
     if (hasSliderAnim(animId)) {
       const frame = sliderAnimFrame(animId, !unlocked);
